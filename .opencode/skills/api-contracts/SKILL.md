@@ -20,3 +20,5 @@ Use when creating or altering a schema, table, endpoint, or response shape.
 3. **Idempotency:** `Idempotency-Key` on POST create/confirm paths; effectively-once webhook handling with `(provider_id, provider_event_id)` uniqueness.
 4. **Tenancy:** every query tenant-scoped; public IDs (UUIDv4) opaque and non-secret.
 5. **Never invent:** frontend and QA build strictly against documented contracts — no guessed paths or params.
+6. **Collections:** cursor pagination with capped `limit` (`{ data, nextCursor }`); filtering/sorting via explicit query params, documented per endpoint.
+7. **Rate limits:** document quotas and `429` + `Retry-After` behavior for public endpoints.

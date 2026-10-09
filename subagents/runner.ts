@@ -104,8 +104,8 @@ async function main() {
   // .opencode/skills/<name>/SKILL.md — reload them on demand by name).
   const ROLE_SKILLS: Record<string, string[]> = {
     architect: ["sqlite-hardening", "api-contracts", "sql-review"],
-    backend: ["security-scan", "api-contracts", "systematic-debugging"],
-    frontend: ["ui-conventions", "web-accessibility"],
+    backend: ["api-contracts", "error-handling", "backend-structure", "security-scan"],
+    frontend: ["ui-conventions", "design-system", "i18n"],
     qa: ["test-evidence", "test-driven-development", "code-review"],
     security: ["security-scan", "auth-review"],
     reviewer: ["code-review", "api-design"],
