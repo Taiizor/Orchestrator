@@ -18,6 +18,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
+      actions: write
       issues: write
       discussions: write
 
