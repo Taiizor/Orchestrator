@@ -1,18 +1,24 @@
+/** Parse an integer from env with a guaranteed fallback — never returns NaN. */
+function safeInt(envValue: string | undefined, fallback: number): number {
+  const parsed = parseInt(envValue || String(fallback), 10);
+  return Number.isNaN(parsed) ? fallback : parsed;
+}
+
 export const CONFIG = {
   // Concurrency & Task limits
-  MAX_CONCURRENT_SUBAGENTS: parseInt(process.env.MAX_CONCURRENT_SUBAGENTS || "5", 10),
-  MAX_TASK_ATTEMPTS: parseInt(process.env.MAX_TASK_ATTEMPTS || "3", 10),
+  MAX_CONCURRENT_SUBAGENTS: safeInt(process.env.MAX_CONCURRENT_SUBAGENTS, 5),
+  MAX_TASK_ATTEMPTS: safeInt(process.env.MAX_TASK_ATTEMPTS, 3),
   // Watchdog: cancel subagent runs older than this (minutes) and re-queue the task
-  STALE_RUN_TIMEOUT_MINUTES: parseInt(process.env.STALE_RUN_TIMEOUT_MINUTES || "40", 10),
+  STALE_RUN_TIMEOUT_MINUTES: safeInt(process.env.STALE_RUN_TIMEOUT_MINUTES, 40),
   // Fast dead-task recovery: IN_PROGRESS + silence since before dispatch +
   // zero active runs anywhere = worker gone (fast fail, infra kill).
   // Frees the task in minutes instead of waiting out STALE_RUN_TIMEOUT.
-  IDLE_REQUEUE_MINUTES: parseInt(process.env.IDLE_REQUEUE_MINUTES || "20", 10),
+  IDLE_REQUEUE_MINUTES: safeInt(process.env.IDLE_REQUEUE_MINUTES, 20),
   // Overnight autopilot: FAILED tasks auto-resurrect to PENDING after this
   // cooldown (minutes), at most this many times. Human /retry resets the
   // budget. Prevents an idle night after a terminal failure.
-  FAILED_RESURRECT_COOLDOWN_MIN: parseInt(process.env.FAILED_RESURRECT_COOLDOWN_MIN || "60", 10),
-  FAILED_AUTO_RESURRECT_MAX: parseInt(process.env.FAILED_AUTO_RESURRECT_MAX || "2", 10),
+  FAILED_RESURRECT_COOLDOWN_MIN: safeInt(process.env.FAILED_RESURRECT_COOLDOWN_MIN, 60),
+  FAILED_AUTO_RESURRECT_MAX: safeInt(process.env.FAILED_AUTO_RESURRECT_MAX, 2),
 
   // Git & Branching
   BASE_BRANCH: process.env.BASE_BRANCH || "main",
@@ -77,4 +83,30 @@ export const CONFIG = {
   GITHUB_REPOSITORY: process.env.GITHUB_REPOSITORY || "",
   SUBAGENT_WORKFLOW: "subagent.yml",
   ORCHESTRATOR_WORKFLOW: "orchestrator.yml",
-};
+} as const;
+
+/**
+ * Validate critical config values at startup. Logs warnings for missing
+ * optional tokens and throws on impossible numeric states.
+ */
+export function validateConfig(): void {
+  if (CONFIG.MAX_CONCURRENT_SUBAGENTS <= 0) {
+    throw new Error(`CONFIG.MAX_CONCURRENT_SUBAGENTS must be > 0, got ${CONFIG.MAX_CONCURRENT_SUBAGENTS}`);
+  }
+  if (CONFIG.MAX_TASK_ATTEMPTS <= 0) {
+    throw new Error(`CONFIG.MAX_TASK_ATTEMPTS must be > 0, got ${CONFIG.MAX_TASK_ATTEMPTS}`);
+  }
+  if (CONFIG.STALE_RUN_TIMEOUT_MINUTES <= 0) {
+    throw new Error(`CONFIG.STALE_RUN_TIMEOUT_MINUTES must be > 0, got ${CONFIG.STALE_RUN_TIMEOUT_MINUTES}`);
+  }
+  if (!CONFIG.GITHUB_TOKEN) {
+    console.warn("⚠️ GITHUB_TOKEN is not set — GitHub API calls will fail with 401/403.");
+  }
+  if (CONFIG.DATA_REPO && !CONFIG.DATA_PAT) {
+    console.warn("⚠️ DATA_REPO is set but DATA_PAT is empty — dual-repo git operations will fail with auth errors.");
+  }
+  if (!CONFIG.PROJECT_TOKEN) {
+    console.warn("⚠️ GH_PROJECT_TOKEN is not set — GitHub Projects v2 board sync will be skipped.");
+  }
+}
+

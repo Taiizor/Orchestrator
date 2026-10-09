@@ -13,8 +13,8 @@ export class IssueManager {
    * ChatOps authorization: the dashboard lives on a PUBLIC repo, so anyone
    * can comment. Honor commands only from repo collaborators with push
    * access (admin/write) or CHATOPS_ADMINS logins. Read-only outsiders are
-   * ignored (silently marked processed). API outage (non-404) fails OPEN
-   * with a warning — an attacker cannot selectively force those errors.
+   * ignored (silently marked processed). API outage (non-404) fails CLOSED
+   * with a warning — prevents privilege escalation via induced API failures.
    */
   private static async isCommandAuthorized(login: string): Promise<boolean> {
     const who = (login || "").toLowerCase();
@@ -34,9 +34,9 @@ export class IssueManager {
       return false;
     }
     console.warn(
-      `⚠️ Collaborator check failed for @${who} (${res.stderr.slice(0, 120)}); honoring command (fail-open on infra error).`
+      `🔒 Collaborator check failed for @${who} (${res.stderr.slice(0, 120)}); denying command (fail-closed on infra error).`
     );
-    return true;
+    return false;
   }
 
   /** Mark a comment processed (ROCKET) without posting a reply. */
