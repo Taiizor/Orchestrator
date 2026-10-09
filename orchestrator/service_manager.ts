@@ -31,16 +31,28 @@ export const SERVICE_DEFS: Record<
     check: "mongosh --quiet --eval 'db.runCommand({ping:1})' mongodb://localhost:27017/app",
   },
   minio: {
-    image: "quay.io/minio/minio:latest",
+    // Legacy alias of "s3" (kept for in-flight roadmaps). MinIO left Docker
+    // Hub, so the S3 preset runs Adobe S3Mock (S3 API compatible).
+    image: "adobe/s3mock:latest",
     env: {
-      S3_ENDPOINT: "http://localhost:9000",
-      S3_ACCESS_KEY: "minioadmin",
-      S3_SECRET_KEY: "minioadmin",
+      S3_ENDPOINT: "http://localhost:9090",
+      S3_ACCESS_KEY: "test",
+      S3_SECRET_KEY: "test",
       S3_BUCKET: "uploads",
       S3_REGION: "us-east-1",
     },
-    // MinIO speaks the S3 API: code written against it also runs on R2/AWS.
-    check: "curl -sf http://localhost:9000/minio/health/live",
+    check: "",
+  },
+  s3: {
+    image: "adobe/s3mock:latest",
+    env: {
+      S3_ENDPOINT: "http://localhost:9090",
+      S3_ACCESS_KEY: "test",
+      S3_SECRET_KEY: "test",
+      S3_BUCKET: "uploads",
+      S3_REGION: "us-east-1",
+    },
+    check: "",
   },
 };
 
@@ -60,12 +72,22 @@ export type ServiceSpec = string | ServiceDefinition;
 /** Normalize roadmap entries: known-name shorthand or full custom object. */
 export function normalizeServices(specs: ServiceSpec[]): { name: string; image: string; env: Record<string, string>; ports: string[]; command?: string; healthcheck?: string[] }[] {
   const out: { name: string; image: string; env: Record<string, string>; ports: string[]; command?: string; healthcheck?: string[] }[] = [];
+  const seen = new Set<string>();
+  const push = (entry: { name: string; image: string; env: Record<string, string>; ports: string[]; command?: string; healthcheck?: string[] }) => {
+    if (seen.has(entry.name)) return;
+    seen.add(entry.name);
+    out.push(entry);
+  };
   for (const s of specs || []) {
     if (typeof s === "string") {
-      const preset = SERVICE_DEFS[s];
+      if (s === "minio") {
+        console.warn(`⚠️ Service preset "minio" renamed to "s3" (Adobe S3Mock backend). Mapping automatically.`);
+      }
+      const key = s === "minio" ? "s3" : s;
+      const preset = SERVICE_DEFS[key];
       if (!preset) continue;
-      const ports = s === "postgres" ? ["5432:5432"] : s === "redis" ? ["6379:6379"] : s === "mongo" ? ["27017:27017"] : ["9000:9000"];
-      out.push({ name: s, image: preset.image, env: { ...preset.env }, ports });
+      const ports = key === "postgres" ? ["5432:5432"] : key === "redis" ? ["6379:6379"] : key === "mongo" ? ["27017:27017"] : ["9090:9090"];
+      push({ name: key, image: preset.image, env: { ...preset.env }, ports });
     } else if (s && typeof s.name === "string" && typeof s.image === "string") {
       const name = s.name.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+|-+$/g, "");
       if (!name || !s.image.trim()) continue; // validator rejects these at plan time
@@ -97,12 +119,8 @@ export function renderComposeYaml(specs: ServiceSpec[]): string {
     if (svc.name === "postgres") {
       lines.push(`    environment:\n      POSTGRES_USER: postgres\n      POSTGRES_PASSWORD: postgres\n      POSTGRES_DB: app`);
     }
-    if (svc.name === "minio") {
-      lines.push(`    command: server /data --console-address ":9001"`);
-      lines.push(`    environment:\n      MINIO_ROOT_USER: minioadmin\n      MINIO_ROOT_PASSWORD: minioadmin`);
-    }
     for (const p of svc.ports) lines.push(`    ports:\n      - "${p}"`);
-    if (svc.command && svc.name !== "minio") lines.push(`    command: ${svc.command}`);
+    if (svc.command) lines.push(`    command: ${svc.command}`);
     const hc = svc.healthcheck || PRESET_HEALTHCHECKS[svc.name];
     if (hc) {
       lines.push(`    healthcheck:\n      test: ${JSON.stringify(hc)}\n      interval: 5s\n      timeout: 5s\n      retries: 20`);

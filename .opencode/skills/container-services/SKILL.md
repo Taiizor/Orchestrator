@@ -18,7 +18,7 @@ Use when your task touches the database, cache, queue, documents, or object stor
 - PostgreSQL: `DATABASE_URL=postgres://postgres:postgres@localhost:5432/app`
 - Redis: `REDIS_URL=redis://localhost:6379`
 - MongoDB: `MONGO_URL=mongodb://localhost:27017/app`
-- S3 (MinIO, R2/AWS-compatible): `S3_ENDPOINT=http://localhost:9000`, key `minioadmin` / secret `minioadmin`, bucket from `S3_BUCKET`, region `us-east-1`.
+- S3 (Adobe S3Mock in CI, MinIO/R2/AWS-compatible): `S3_ENDPOINT=http://localhost:9090`, key `test` / secret `test`, bucket from `S3_BUCKET` (create it via SDK — buckets start empty), region `us-east-1`.
 - Custom services: read their documented `env` keys the same way (exported automatically).
 
 ## Rules

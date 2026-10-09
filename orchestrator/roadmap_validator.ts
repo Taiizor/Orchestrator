@@ -36,7 +36,7 @@ export function validateRoadmap(raw: {
 
   if (tasks.length === 0) errors.push("Roadmap has zero tasks.");
 
-  const KNOWN_SERVICES = ["postgres", "redis", "mongo", "minio"];
+  const KNOWN_SERVICES = ["postgres", "redis", "mongo", "minio", "s3"];
   for (const s of raw.services || []) {
     if (typeof s === "string") {
       if (!KNOWN_SERVICES.includes(s)) {

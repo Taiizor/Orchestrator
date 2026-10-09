@@ -92,6 +92,14 @@ jobs:
             echo "Service env exported."
           fi
 
+      - name: 🐳 Docker Hub Login (optional, raises pull limits)
+        run: |
+          if [ -n "${{ secrets.DOCKERHUB_USERNAME }}" ]; then
+            echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+          else
+            echo "No Docker Hub credentials — anonymous pulls (rate-limited)."
+          fi
+
       - name: 🤖 Execute Subagent Task
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

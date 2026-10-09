@@ -290,6 +290,7 @@ To run this template as a **public** repo while keeping project content private:
 3. Add two repository secrets to the **public** repo:
    - **`DATA_REPO`** = `owner/name` (or full URL) of the private data repo.
    - **`DATA_PAT`** = classic PAT with `repo` scope (read/write on the data repo). Defaults to `GH_PROJECT_TOKEN` when empty.
+   - **`DOCKERHUB_USERNAME`** + **`DOCKERHUB_TOKEN`** = optional; raises Docker Hub pull limits (anonymous pulls otherwise).
 5. *(Optional)* Feature toggles as repository **Variables** (Settings → Secrets and variables → Actions → Variables):
    - `PUBLIC_FEATURES` (default `issues,discussions,projects`), `DATA_FEATURES` (default `discussions`) — comma lists from `issues|wiki|projects|discussions`. Enforced by `action=setup` or dashboard `/setup [public|data|all]`. (Pull requests have no off switch on GitHub.)
 4. `inputs/*` (except templates), `workspace/*` and `state/*` are `.gitignore`d here: CI materializes them from the data repo at runtime and publishes agent output back to data branches. Task branches and review **PRs live in the data repo**; issues/milestones/board stay public (titles + statuses only, bodies redacted), and the dashboard renders **redacted** (IDs/roles/statuses, no titles or notes).
