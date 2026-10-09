@@ -103,14 +103,14 @@ async function main() {
   // skills are natively discoverable via the `skill` tool from
   // .opencode/skills/<name>/SKILL.md — reload them on demand by name).
   const ROLE_SKILLS: Record<string, string[]> = {
-    architect: ["sqlite-hardening", "api-contracts"],
-    backend: ["sqlite-hardening", "security-scan", "api-contracts"],
-    frontend: ["ui-conventions"],
-    qa: ["test-evidence", "code-review"],
-    security: ["security-scan"],
-    reviewer: ["code-review"],
-    tracker: ["code-review"],
-    fullstack: ["sqlite-hardening", "api-contracts", "ui-conventions", "code-review"],
+    architect: ["sqlite-hardening", "api-contracts", "sql-review"],
+    backend: ["security-scan", "api-contracts", "systematic-debugging"],
+    frontend: ["ui-conventions", "web-accessibility"],
+    qa: ["test-evidence", "test-driven-development", "code-review"],
+    security: ["security-scan", "auth-review"],
+    reviewer: ["code-review", "api-design"],
+    tracker: ["code-review", "test-evidence"],
+    fullstack: ["api-contracts", "ui-conventions", "systematic-debugging", "code-review"],
   };
   let skillsText = "";
   const skillNames = ROLE_SKILLS[role] || [];
