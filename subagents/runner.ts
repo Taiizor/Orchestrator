@@ -78,6 +78,11 @@ async function main() {
   // Switch / Create task branch (on the CONTENT remote in dual-repo mode,
   // so agent output never touches the public origin)
   console.log(`🌿 Ensuring task branch ${branch} (remote: ${remote})...`);
+  // Refresh refs first: a stale/missing integration ref used to make the
+  // checkout below fail silently, stranding agents on public-main lineage
+  // (unmergeable, undiffable branches).
+  await GitManager.remoteGit(remote, ["fetch", remote, CONFIG.INTEGRATION_BRANCH]);
+  await GitManager.remoteGit(remote, ["fetch", remote, branch]);
   const branchExists = await GitManager.branchExists(branch);
   if (branchExists) {
     await GitManager.run(["git", "checkout", "-B", branch, `${remote}/${branch}`]);
@@ -85,6 +90,15 @@ async function main() {
   } else {
     // Checkout from integration branch
     await GitManager.run(["git", "checkout", "-B", branch, `${remote}/${CONFIG.INTEGRATION_BRANCH}`]);
+  }
+  // Lineage guard (fail-closed): the workdir MUST descend from the content
+  // integration branch. Never work on a broken fork — exit loudly so the
+  // watchdog retries after lineage repair instead of producing unmergeable
+  // branches.
+  const lineage = await GitManager.run(["git", "merge-base", "--is-ancestor", `${remote}/${CONFIG.INTEGRATION_BRANCH}`, "HEAD"]);
+  if (lineage.exitCode !== 0) {
+    console.error(`❌ [${taskId}] branch ${branch} does not descend from ${remote}/${CONFIG.INTEGRATION_BRANCH}; refusing to work on broken lineage.`);
+    process.exit(1);
   }
 
   // Materialize data content for this branch (dual-repo only; no-op otherwise)

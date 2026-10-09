@@ -318,6 +318,19 @@ export class OrchestratorEngine {
           const progressContent = await GitManager.showFile(task.branch, `workspace/${CONFIG.TASK_PROGRESS_FILE}`);
           if (progressContent !== null && hasStructuredProgress(progressContent)) {
             const files = await GitManager.getBranchFileList(task.branch, CONFIG.INTEGRATION_BRANCH);
+            if (files === null) {
+              // Undiffable (e.g. branch shares no history with develop):
+              // UNKNOWN, never "empty". Route to review with a clear note
+              // instead of auto-completing on a mirage.
+              console.log(`⚠️ [${task.id}] cannot diff vs ${CONFIG.INTEGRATION_BRANCH} (unrelated histories?); routing to IN_REVIEW.`);
+              if (task.status !== "IN_REVIEW") {
+                task.status = "IN_REVIEW";
+                task.reviewNotes = "Branch cannot be diffed against develop (no common ancestor). Needs lineage repair or full-content review.";
+                task.updatedAt = new Date().toISOString();
+                hasChanges = true;
+              }
+              continue;
+            }
             const realChanges = files.filter((f) => f !== `workspace/${CONFIG.TASK_PROGRESS_FILE}`);
             if (realChanges.length === 0) {
               // Hold only while a run may still be working: recent dispatch

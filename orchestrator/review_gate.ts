@@ -126,8 +126,15 @@ export async function runReviewGate(
 ): Promise<GateResult> {
   const failures: string[] = [];
   const warnings: string[] = [];
-  const fileList = await GitManager.getBranchFileList(task.branch, CONFIG.INTEGRATION_BRANCH);
+  const fileList = (await GitManager.getBranchFileList(task.branch, CONFIG.INTEGRATION_BRANCH)) ?? [];
   const remote = GitManager.contentRemote();
+  // Legacy fork check: branches that share no history with develop produce
+  // tip-vs-tip file lists (whole trees). File-level rules can't attribute
+  // those, so they are skipped with a warning; the reviewer judges content.
+  const lineageBroken = !(await GitManager.haveCommonAncestor(`${remote}/${CONFIG.INTEGRATION_BRANCH}`, `${remote}/${task.branch}`));
+  if (lineageBroken) {
+    warnings.push("Branch shares no history with develop (legacy fork); file-level scope/drift rules skipped — reviewer judges full tip diff.");
+  }
   const statRes = await GitManager.run([
     "git",
     "diff",
@@ -154,7 +161,7 @@ export async function runReviewGate(
     }
   }
 
-  const outOfScope = fileList.filter((f) => !isAllowedFile(task, f));
+  const outOfScope = lineageBroken ? [] : fileList.filter((f) => !isAllowedFile(task, f));
   if (outOfScope.length > 0) {
     // Operator-created tasks (/add, /revise) carry no disjoint targetFiles
     // scoping — warn instead of failing, the reviewer judges relevance.
@@ -174,7 +181,7 @@ export async function runReviewGate(
     failures.push(`Potential secret leak detected: ${secrets.join(", ")}.`);
   }
 
-  if (touchesApiOrSchema(fileList) && !fileList.includes("workspace/CONTRACTS.md")) {
+  if (!lineageBroken && touchesApiOrSchema(fileList) && !fileList.includes("workspace/CONTRACTS.md")) {
     warnings.push("API/schema/services changed but workspace/CONTRACTS.md not updated (contract drift).");
   }
 

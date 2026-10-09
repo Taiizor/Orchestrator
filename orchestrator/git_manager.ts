@@ -56,13 +56,31 @@ export class GitManager {
   }
 
   /**
+   * True when two refs share at least one commit. Three-dot diffs need a
+   * merge base; without one (e.g. a task branch forked from the wrong
+   * remote) diff tooling fails — callers must treat that as UNKNOWN,
+   * never as "no changes".
+   */
+  public static async haveCommonAncestor(a: string, b: string): Promise<boolean> {
+    await this.fetchAll();
+    const res = await this.run(["git", "merge-base", a, b]);
+    return res.exitCode === 0;
+  }
+
+  /**
    * Commits on the branch unreachable from the base (i.e. real new work).
    * Zero + empty diff means the agent produced nothing (merged branches keep
    * their unique commits, so they never hit zero).
+   * Returns -1 when unknowable — including unrelated histories, where a
+   * two-dot range would yield a bogus full-branch count. Callers route -1
+   * to review, never to auto-complete.
    */
   public static async branchUniqueCommits(branchName: string, baseBranch: string): Promise<number> {
     const remote = this.contentRemote();
     const base = baseBranch || CONFIG.INTEGRATION_BRANCH;
+    if (!(await this.haveCommonAncestor(`${remote}/${base}`, `${remote}/${branchName}`))) {
+      return -1;
+    }
     const res = await this.run(["git", "rev-list", "--count", `${remote}/${base}..${remote}/${branchName}`]);
     if (res.exitCode === 0 && /^\d+$/.test(res.stdout.trim())) {
       return parseInt(res.stdout.trim(), 10);
@@ -78,6 +96,9 @@ export class GitManager {
   public static async branchUniqueTipTime(branchName: string, baseBranch: string): Promise<number> {
     const remote = this.contentRemote();
     const base = baseBranch || CONFIG.INTEGRATION_BRANCH;
+    if (!(await this.haveCommonAncestor(`${remote}/${base}`, `${remote}/${branchName}`))) {
+      return -1;
+    }
     const res = await this.run(["git", "log", "-1", "--format=%ct", `${remote}/${base}..${remote}/${branchName}`]);
     if (res.exitCode === 0 && /^\d+$/.test(res.stdout.trim())) {
       return parseInt(res.stdout.trim(), 10) * 1000;
@@ -289,38 +310,50 @@ export class GitManager {
   }
 
   /**
-   * Get diff between a task branch and base branch (content-remote aware)
+   * Get diff between a task branch and base branch (content-remote aware).
+   * Three-dot first (changes since fork); when histories are unrelated and
+   * no merge base exists, falls back to two-dot (tip-vs-tip) so reviewers
+   * still see content instead of a misleading empty diff.
    */
   public static async getBranchDiff(taskBranch: string, baseBranch: string): Promise<string> {
     await this.fetchAll();
     const remote = this.contentRemote();
-    const res = await this.run(["git", "diff", `${remote}/${baseBranch}...${remote}/${taskBranch}`]);
-    if (res.exitCode !== 0) {
-      // Try local diff fallback
-      const localRes = await this.run(["git", "diff", `${baseBranch}...${taskBranch}`]);
-      return localRes.stdout;
-    }
-    return res.stdout;
+    const three = await this.run(["git", "diff", `${remote}/${baseBranch}...${remote}/${taskBranch}`]);
+    if (three.exitCode === 0) return three.stdout;
+    const localThree = await this.run(["git", "diff", `${baseBranch}...${taskBranch}`]);
+    if (localThree.exitCode === 0 && localThree.stdout.trim()) return localThree.stdout;
+    // Unrelated histories: tip-vs-tip needs no merge base.
+    const twoDot = await this.run(["git", "diff", `${remote}/${baseBranch}..${remote}/${taskBranch}`]);
+    if (twoDot.exitCode === 0) return twoDot.stdout;
+    return localThree.stdout;
   }
 
   /**
    * List files changed on a task branch vs base branch.
+   * Returns null when the branches cannot be diffed at all (e.g. no
+   * common ancestor AND tip diff unavailable) — UNKNOWN, never [].
+   * An empty array means a successful diff with zero files.
    */
-  public static async getBranchFileList(taskBranch: string, baseBranch: string): Promise<string[]> {
+  public static async getBranchFileList(taskBranch: string, baseBranch: string): Promise<string[] | null> {
     await this.fetchAll();
     const base = baseBranch || CONFIG.INTEGRATION_BRANCH;
     const remote = this.contentRemote();
     const res = await this.run([
       "git", "diff", "--name-only", `${remote}/${base}...${remote}/${taskBranch}`,
     ]);
-    if (res.exitCode === 0 && res.stdout.trim()) {
+    if (res.exitCode === 0) {
       return res.stdout.split("\n").map((f) => f.trim()).filter(Boolean);
     }
     const localRes = await this.run(["git", "diff", "--name-only", `${base}...${taskBranch}`]);
-    if (localRes.exitCode === 0 && localRes.stdout.trim()) {
+    if (localRes.exitCode === 0) {
       return localRes.stdout.split("\n").map((f) => f.trim()).filter(Boolean);
     }
-    return [];
+    // Last resort: tip-vs-tip needs no merge base.
+    const twoDot = await this.run(["git", "diff", "--name-only", `${remote}/${base}..${remote}/${taskBranch}`]);
+    if (twoDot.exitCode === 0) {
+      return twoDot.stdout.split("\n").map((f) => f.trim()).filter(Boolean);
+    }
+    return null;
   }
 
   /**
