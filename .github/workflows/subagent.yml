@@ -84,14 +84,23 @@ jobs:
               U=$(echo "$DOCKERHUB_POOL" | jq -r ".[$I].username // empty")
               T=$(echo "$DOCKERHUB_POOL" | jq -r ".[$I].token // empty")
               if [ -n "$U" ] && [ -n "$T" ]; then
-                if echo "$T" | docker login -u "$U" --password-stdin; then
+                LOGGED=0
+                for TRY in 1 2 3; do
+                  if echo "$T" | docker login -u "$U" --password-stdin; then LOGGED=1; break; fi
+                  echo "Pool login attempt $TRY/3 failed (auth endpoint?) — retrying in 10s..."
+                  sleep 10
+                done
+                if [ "$LOGGED" -eq 1 ]; then
                   echo "Logged in as pool account #$((I + 1))/$N."
                   exit 0
                 fi
-                echo "Pool login failed; falling back."
+                echo "Pool login failed after 3 attempts; falling back."
+              else
+                echo "DOCKERHUB_POOL entry #$((I + 1)) is missing username/token — trying legacy pair."
               fi
+            else
+              echo "DOCKERHUB_POOL unparsable (not a JSON array) — trying legacy pair."
             fi
-            echo "DOCKERHUB_POOL unparsable — trying legacy pair."
           fi
           if [ -n "${{ secrets.DOCKERHUB_USERNAME }}" ]; then
             echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
