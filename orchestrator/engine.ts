@@ -937,7 +937,7 @@ async function main() {
         const slug = GitManager.dataRepoSlug();
         if (slug) {
           const [o, n] = slug.split("/");
-          reports.push(await RepoSetup.ensureRepoSettings(o, n, CONFIG.DATA_PAT, dataFeatures));
+          reports.push(await RepoSetup.ensureRepoSettings(o, n, GitManager.dataPat(), dataFeatures));
         }
       }
       for (const r of reports) {

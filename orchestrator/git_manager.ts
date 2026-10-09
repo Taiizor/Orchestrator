@@ -98,12 +98,20 @@ export class GitManager {
 
   /** Normalize DATA_REPO ("owner/name" or https URL) to "owner/name". */
   public static dataRepoSlug(): string | null {
-    const raw = CONFIG.DATA_REPO.trim().replace(/\/+$/, "");
+    const raw = (CONFIG.DATA_REPO || "").trim().replace(/\/+$/, "");
     if (!raw) return null;
-    const m = raw.match(/github\.com[/:]([^/]+\/[^/]+?)(?:\.git)?$/);
-    if (m) return m[1];
-    if (/^[^/]+\/[^/]+$/.test(raw)) return raw;
+    const m = raw.match(/github\.com[/:]([^/\s]+\/[^/\s]+?)(?:\.git)?$/);
+    if (m) return m[1].trim();
+    if (/^[^/\s]+\/[^/\s]+$/.test(raw)) return raw;
     return null;
+  }
+
+  /**
+   * Effective data credential, whitespace-trimmed. Pasted secrets with
+   * trailing newlines are a classic silent-auth-failure source.
+   */
+  public static dataPat(): string {
+    return (CONFIG.DATA_PAT || "").trim();
   }
 
   /**
@@ -120,10 +128,12 @@ export class GitManager {
     }
     const remote = CONFIG.DATA_REMOTE;
     const existing = await this.run(["git", "remote", "get-url", remote]);
+    const pat = this.dataPat();
     let url = `https://github.com/${slug}.git`;
-    if (CONFIG.DATA_PAT) {
+    if (pat) {
       const user = slug.split("/")[0];
-      url = `https://${user}:${CONFIG.DATA_PAT}@github.com/${slug}.git`;
+      url = `https://${user}:${pat}@github.com/${slug}.git`;
+      console.log(`🔑 Data remote auth: explicit DATA_PAT/GH_PROJECT_TOKEN (${pat.length} chars).`);
     } else {
       console.warn("⚠️ DATA_PAT (or GH_PROJECT_TOKEN) is empty; data remote may fail auth.");
     }

@@ -339,7 +339,7 @@ export class IssueManager {
             const slug = GitManager.dataRepoSlug();
             if (slug) {
               const [o, n] = slug.split("/");
-              const r = await RepoSetup.ensureRepoSettings(o, n, CONFIG.DATA_PAT, dataFeatures);
+              const r = await RepoSetup.ensureRepoSettings(o, n, GitManager.dataPat(), dataFeatures);
               out.push(`### ${r.repo}\n${r.lines.join("\n")}`);
             }
           } else {
