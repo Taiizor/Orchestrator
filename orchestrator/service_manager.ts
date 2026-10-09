@@ -31,7 +31,7 @@ export const SERVICE_DEFS: Record<
     check: "mongosh --quiet --eval 'db.runCommand({ping:1})' mongodb://localhost:27017/app",
   },
   minio: {
-    image: "minio/minio:latest",
+    image: "quay.io/minio/minio:latest",
     env: {
       S3_ENDPOINT: "http://localhost:9000",
       S3_ACCESS_KEY: "minioadmin",

@@ -82,6 +82,8 @@ jobs:
         run: bun install
 
       - name: 🌿 Ensure State and Integration Branches Exist
+        env:
+          DATA_REPO: ${{ secrets.DATA_REPO }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
