@@ -154,12 +154,12 @@ jobs:
             fi
             # Transient blips get plain retries (a failing rotation falls here too).
             ATTEMPT=$(( ATTEMPT + 1 )) || true
-            if [ "$ATTEMPT" -ge 3 ]; then
-              echo "Services failed to start after 3 attempts."
+            if [ "$ATTEMPT" -ge 5 ]; then
+              echo "Services failed to start after 5 attempts."
               exit 1
             fi
-            echo "Compose up failed (attempt $ATTEMPT/3) — retrying in 20s..."
-            sleep 20
+            echo "Compose up failed (attempt $ATTEMPT/5) — retrying in 30s..."
+            sleep 30
           done
           if [ -f "workspace/.services.env" ]; then
             cat "workspace/.services.env" >> "$GITHUB_ENV"
