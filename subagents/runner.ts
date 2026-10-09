@@ -221,20 +221,9 @@ async function main() {
     );
   }
 
-  // Agent-talk thread: share completion summary so peers/operators can react
-  // before the orchestrator review (fail-soft, never blocks the run).
-  try {
-    const thread = await DiscussionManager.findOrCreateTaskDiscussion(task);
-    if (thread) {
-      const progressHead = (await Bun.file(progressPath).text()).slice(0, 1500);
-      await DiscussionManager.postComment(
-        thread.id,
-        `⚡ **${task.id} deliverables pushed** on \`${branch}\` — awaiting orchestrator review.\n\n` +
-        `**Test proof (head):**\n\`\`\`\n${testProof.slice(0, 800)}\n\`\`\`\n\n` +
-        `<details><summary>TASK_PROGRESS.md (head)</summary>\n\n${progressHead}\n\n</details>`
-      );
-    }
-  } catch { /* discussions are best-effort */ }
+  // Agent-talk is strictly on-demand: no auto-posted summaries (they only
+  // duplicated TASK_PROGRESS.md). Threads are created lazily by operator
+  // /discuss relay; retries read back any replies via prompt injection above.
 
   // Notify / trigger Orchestrator
   console.log("🔔 Waking up Orchestrator workflow to review completed work...");
