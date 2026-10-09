@@ -295,6 +295,15 @@ export class OrchestratorEngine {
   public static async reviewTasks(roadmap: Roadmap): Promise<boolean> {
     let hasChanges = false;
 
+    // Liveness snapshot (one API call): lets the empty-diff guard below tell
+    // "agent done early, judge now" apart from "agent may still be working".
+    // Runs execute on main so they can't be mapped to tasks — absence of ALL
+    // runs + a stale branch tip is the only safe early-judge signal.
+    let anyActiveRuns = false;
+    try {
+      anyActiveRuns = (await GitManager.getActiveSubagentRuns()).length > 0;
+    } catch { /* conservative: assume active */ anyActiveRuns = true; }
+
     // Auto-detect completed task branches via STRUCTURED progress report
     // (all 4 sections required) AND a branch diff check:
     // - non-empty code diff  -> IN_REVIEW (normal path)
@@ -311,13 +320,23 @@ export class OrchestratorEngine {
             const files = await GitManager.getBranchFileList(task.branch, CONFIG.INTEGRATION_BRANCH);
             const realChanges = files.filter((f) => f !== `workspace/${CONFIG.TASK_PROGRESS_FILE}`);
             if (realChanges.length === 0) {
-              // Don't touch a task that may still have an active runner:
-              // IN_PROGRESS + recently dispatched = subagent possibly working.
+              // Smart hold (not blind 45m): judge immediately when provably
+              // idle — no active runs anywhere AND a stale branch tip. Hold
+              // only while a run may still be working (recent dispatch with
+              // global activity, or a freshly pushed tip).
+              const STALE_MS = 45 * 60 * 1000;
+              let hold = false;
               if (task.status === "IN_PROGRESS" && task.dispatchedAt) {
-                const ageMs = Date.now() - Date.parse(task.dispatchedAt);
-                if (ageMs < 45 * 60 * 1000) {
-                  console.log(`ℹ️ [${task.id}] empty diff but dispatched ${Math.round(ageMs / 60000)}m ago; run may be active, leaving IN_PROGRESS.`);
-                  continue;
+                const dispAge = Date.now() - Date.parse(task.dispatchedAt);
+                if (!Number.isNaN(dispAge) && dispAge < STALE_MS) {
+                  const tip = await GitManager.branchTipTime(task.branch);
+                  const tipFresh = tip > 0 && Date.now() - tip < STALE_MS;
+                  hold = anyActiveRuns || tipFresh;
+                  if (hold) {
+                    console.log(`ℹ️ [${task.id}] empty diff but possibly active (dispatched ${Math.round(dispAge / 60000)}m ago${tipFresh ? ", fresh tip" : ""}${anyActiveRuns ? ", runs active" : ""}); leaving IN_PROGRESS.`);
+                    continue;
+                  }
+                  console.log(`ℹ️ [${task.id}] empty diff, dispatched ${Math.round(dispAge / 60000)}m ago but provably idle (no active runs, stale tip); judging now.`);
                 }
               }
               // Empty diff routing (all require structured progress, checked above):
