@@ -111,7 +111,6 @@ export class DiscussionManager {
     const cached = this.threadCache.get(taskId);
     if (cached !== undefined) return cached;
     const [ownerVar, nameVar] = this.repoVars();
-    const [ownerVar, nameVar] = this.repoVars();
     const res = await GitManager.run([
       "gh", "api", "graphql",
       "-F", ownerVar,
