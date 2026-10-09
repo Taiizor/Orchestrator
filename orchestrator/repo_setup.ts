@@ -57,7 +57,9 @@ export class RepoSetup {
     for (const [feat, key] of Object.entries(this.FEATURE_KEYS)) {
       checks[key] = want.has(feat);
     }
-    const get = await this.runAs(["gh", "api", `repos/${slug}`], "");
+    // Reads go through the PAT too when available: the ambient GITHUB_TOKEN
+    // cannot even SEE a private data repo (API returns 404, not 403).
+    const get = await this.runAs(["gh", "api", `repos/${slug}`], pat);
     if (get.exitCode !== 0) {
       lines.push(`❌ Cannot read ${slug}: ${get.stderr.slice(0, 120)}`);
       return { repo: slug, lines };
