@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: 'Action to execute (tick, plan, review, project)'
+        description: 'Action to execute (tick, plan, review, project, setup)'
         required: false
         default: 'tick'
         type: choice
@@ -16,6 +16,7 @@ on:
           - plan
           - review
           - project
+          - setup
   repository_dispatch:
     types: [subagent-completed, wake-orchestrator]
   issue_comment:

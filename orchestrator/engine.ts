@@ -808,6 +808,40 @@ async function main() {
       console.log(projectNum ? `✅ Project board ready: #${projectNum}` : "⚠️ Project board still unavailable — see scope hint above.");
       break;
     }
+    case "setup": {
+      // One-shot repo settings audit & repair (NOT a loop step — run once
+      // per repo; settings rarely change). Inspects the public repo and,
+      // in dual-repo mode, the private data repo. Applies fixes only when
+      // an admin PAT is configured, otherwise reports what to flip manually.
+      // Makes no commits and touches no branches.
+      const { RepoSetup } = await import("./repo_setup.ts");
+      const { ProjectManager } = await import("./project_manager.ts");
+      const me = await ProjectManager.getOwner();
+      const here = (CONFIG.GITHUB_REPOSITORY || "").split("/");
+      const reports = [];
+      if (here.length === 2) {
+        reports.push(await RepoSetup.ensureRepoSettings(here[0], here[1], CONFIG.PROJECT_TOKEN));
+      } else {
+        const repo = await GitManager.run(["gh", "repo", "view", "--json", "owner,name", "--jq", "[.owner.login, .name] | join(\"/\")"]);
+        if (repo.exitCode === 0 && repo.stdout.includes("/")) {
+          const [o, n] = repo.stdout.trim().split("/");
+          reports.push(await RepoSetup.ensureRepoSettings(o, n, CONFIG.PROJECT_TOKEN));
+        } else {
+          console.error("❌ Cannot determine current repository; run inside a checkout.");
+        }
+      }
+      if (GitManager.isDataMode()) {
+        const slug = GitManager.dataRepoSlug();
+        if (slug) {
+          const [o, n] = slug.split("/");
+          reports.push(await RepoSetup.ensureRepoSettings(o, n, CONFIG.DATA_PAT));
+        }
+      }
+      for (const r of reports) {
+        console.log(`\n### ${r.repo}\n${r.lines.join("\n")}`);
+      }
+      break;
+    }
     case "tick":
     default:
       await OrchestratorEngine.tick();
