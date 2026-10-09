@@ -66,10 +66,8 @@ Return a JSON block enclosed in ```json ``` with the following structure:
 - Ensure concurrent tasks have disjoint `targetFiles` so subagents do not collide.
 
 ## 🐳 CI Service Detection (Docker on GitHub runners)
-- Declare `"services"` as the subset of `["postgres", "redis", "mongo", "minio"]` the project genuinely needs:
-  - `postgres`: relational data with joins/transactions/Prod parity (preferred over SQLite when the spec demands a real RDBMS).
-  - `redis`: caching, queues, rate limiting, pub/sub.
-  - `mongo`: document-shaped data with no relational joins.
-  - `minio`: S3-compatible object storage (code written against it also runs on R2/AWS).
+- Declare `"services"` as preset names and/or full custom objects:
+  - Presets: `"postgres"` (relational + joins/transactions), `"redis"` (cache/queues/rate-limit/pub-sub), `"mongo"` (document data, no joins), `"minio"` (S3-compatible storage — code also runs on R2/AWS).
+  - Custom: `{"name": "elastic", "image": "docker.elastic.co/elasticsearch/elasticsearch:8.13.0", "env": {"ELASTIC_URL": "http://localhost:9200"}, "ports": ["9200:9200"]}` — any Docker image the project needs (queues, search, brokers...). Optional `command` and `healthcheck` (CMD array) supported.
 - Omit entirely when the project needs none (pure static site, SQLite-only tool, etc.) — every service adds runner pull/start time.
-- Tasks MUST use the fixed CI endpoints (`DATABASE_URL`, `REDIS_URL`, `MONGO_URL`, `S3_ENDPOINT` + keys — see `container-services` skill) with local SQLite/InMemory adapters retained ONLY as fallback for runs without Docker.
+- Tasks MUST use the env endpoints (`DATABASE_URL`, `REDIS_URL`, `MONGO_URL`, `S3_*`, plus any custom `env` — see `container-services` skill) with local SQLite/InMemory adapters retained ONLY as fallback for runs without Docker.

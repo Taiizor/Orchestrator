@@ -86,25 +86,11 @@ jobs:
             exit 0
           fi
           echo "Starting ephemeral CI services from $FILE..."
-          docker compose -f "$FILE" up -d
-          for i in $(seq 1 40); do
-            READY=true
-            grep -q '^  postgres:' "$FILE" && (docker compose -f "$FILE" exec -T postgres pg_isready -U postgres >/dev/null 2>&1 || READY=false)
-            grep -q '^  redis:' "$FILE" && (docker compose -f "$FILE" exec -T redis redis-cli ping >/dev/null 2>&1 || READY=false)
-            grep -q '^  minio:' "$FILE" && (curl -sf http://localhost:9000/minio/health/live >/dev/null 2>&1 || READY=false)
-            if [ "$READY" = true ]; then echo "Services healthy."; break; fi
-            sleep 3
-          done
-          {
-            echo "DATABASE_URL=postgres://postgres:postgres@localhost:5432/app"
-            echo "REDIS_URL=redis://localhost:6379"
-            echo "MONGO_URL=mongodb://localhost:27017/app"
-            echo "S3_ENDPOINT=http://localhost:9000"
-            echo "S3_ACCESS_KEY=minioadmin"
-            echo "S3_SECRET_KEY=minioadmin"
-            echo "S3_BUCKET=uploads"
-            echo "S3_REGION=us-east-1"
-          } >> "$GITHUB_ENV"
+          docker compose -f "$FILE" up -d --wait --wait-timeout 120
+          if [ -f "workspace/.services.env" ]; then
+            cat "workspace/.services.env" >> "$GITHUB_ENV"
+            echo "Service env exported."
+          fi
 
       - name: 🤖 Execute Subagent Task
         env:

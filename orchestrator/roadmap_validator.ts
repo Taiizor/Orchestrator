@@ -28,7 +28,7 @@ function globOverlap(a: string, b: string): boolean {
 export function validateRoadmap(raw: {
   tasks: { id: string; role: string; dependencies: string[]; targetFiles: string[]; milestone?: string }[];
   milestones?: { title: string }[];
-  services?: string[];
+  services?: (string | { name?: string; image?: string; env?: Record<string, string>; ports?: string[] })[];
 }): ValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -38,8 +38,12 @@ export function validateRoadmap(raw: {
 
   const KNOWN_SERVICES = ["postgres", "redis", "mongo", "minio"];
   for (const s of raw.services || []) {
-    if (!KNOWN_SERVICES.includes(s)) {
-      errors.push(`Unknown CI service "${s}". Known: ${KNOWN_SERVICES.join(", ")}.`);
+    if (typeof s === "string") {
+      if (!KNOWN_SERVICES.includes(s)) {
+        errors.push(`Unknown CI service "${s}". Known presets: ${KNOWN_SERVICES.join(", ")} — or use a full {name, image} object.`);
+      }
+    } else if (!s || typeof s.name !== "string" || typeof s.image !== "string" || !s.name.trim() || !s.image.trim()) {
+      errors.push(`Invalid custom service definition (need {name, image, env?, ports?}): ${JSON.stringify(s).slice(0, 120)}.`);
     }
   }
 

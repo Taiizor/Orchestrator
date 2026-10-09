@@ -38,6 +38,15 @@ export interface TaskItem {
   updatedAt: string;
 }
 
+export interface ServiceDefinition {
+  name: string;                      // lowercase-hyphen service name
+  image: string;                      // Docker image (Docker Hub or ghcr.io)
+  env?: Record<string, string>;       // extra env exported to jobs
+  ports?: string[];                   // e.g. ["5432:5432"]
+  command?: string;                   // container command override
+  healthcheck?: string[];             // CMD array for readiness probe
+}
+
 export interface Roadmap {
   projectName: string;
   version: number;
@@ -45,7 +54,7 @@ export interface Roadmap {
   projectNumber?: number;          // Linked GitHub Project v2 number
   projectUrl?: string;             // Linked GitHub Project v2 URL
   milestones?: { title: string; description?: string }[];
-  services?: string[];               // Docker CI services: subset of postgres|redis|mongo|minio
+  services?: (string | ServiceDefinition)[]; // preset names or full custom defs
   globalStatus: "PLANNING" | "IN_PROGRESS" | "COMPLETED" | "PAUSED" | "FAILED";
   tasks: TaskItem[];
   updatedAt: string;

@@ -51,10 +51,11 @@ async function main() {
   }
   // Regenerate the service compose file (pure render, no side effects)
   {
-    const { renderComposeYaml, KNOWN_SERVICES } = await import("../orchestrator/service_manager.ts");
-    const picked = (roadmap.services || []).filter((s: string) => KNOWN_SERVICES.includes(s));
+    const { renderComposeYaml, renderEnvFile, normalizeServices } = await import("../orchestrator/service_manager.ts");
+    const picked = normalizeServices(roadmap.services || []);
     if (picked.length > 0) {
       await Bun.write(`${CONFIG.WORKSPACE_DIR}/docker-compose.services.yml`, renderComposeYaml(picked));
+      await Bun.write(`${CONFIG.WORKSPACE_DIR}/.services.env`, renderEnvFile(picked));
     }
   }
 

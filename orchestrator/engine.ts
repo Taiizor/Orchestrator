@@ -150,7 +150,7 @@ export class OrchestratorEngine {
           summary: raw.summary || "",
           globalStatus: "IN_PROGRESS",
           milestones: raw.milestones || [],
-          services: Array.isArray(raw.services) ? raw.services.filter((s: any) => typeof s === "string") : [],
+          services: Array.isArray(raw.services) ? raw.services.filter((s: any) => typeof s === "string" || (s && typeof s.name === "string" && typeof s.image === "string")) : [],
           updatedAt: new Date().toISOString(),
           tasks: (raw.tasks || []).map((t: any, idx: number) => ({
             id: t.id || `TASK-${String(idx + 1).padStart(3, "0")}`,
@@ -627,15 +627,16 @@ export class OrchestratorEngine {
    * service step starts it; empty service list = no file, legacy behavior.
    */
   public static async ensureServiceFiles(roadmap: Roadmap): Promise<void> {
-    const { renderComposeYaml, KNOWN_SERVICES } = await import("./service_manager.ts");
-    const picked = (roadmap.services || []).filter((s) => KNOWN_SERVICES.includes(s));
+    const { renderComposeYaml, renderEnvFile, normalizeServices } = await import("./service_manager.ts");
+    const picked = normalizeServices(roadmap.services || []);
     const outPath = `${CONFIG.WORKSPACE_DIR}/docker-compose.services.yml`;
     if (picked.length === 0) {
       console.log("ℹ️ No CI services required by roadmap; skipping compose file.");
       return;
     }
     await Bun.write(outPath, renderComposeYaml(picked));
-    console.log(`🐳 Service compose written (${picked.join(", ")}) → ${outPath}`);
+    await Bun.write(`${CONFIG.WORKSPACE_DIR}/.services.env`, renderEnvFile(picked));
+    console.log(`🐳 Service compose written (${picked.map((p) => p.name).join(", ")}) → ${outPath}`);
   }
 
   /**
