@@ -71,7 +71,25 @@ jobs:
         run: bun install
 
       - name: 🐳 Docker Hub Login (optional, raises pull limits)
+        env:
+          DOCKERHUB_POOL: ${{ secrets.DOCKERHUB_POOL }}
         run: |
+          # Credential pool: DOCKERHUB_POOL = JSON array
+          # [{"username":"u1","token":"t1"},...]. The account is picked by
+          # run ID modulo pool size, spreading pulls evenly with no state.
+          if [ -n "$DOCKERHUB_POOL" ]; then
+            N=$(echo "$DOCKERHUB_POOL" | jq 'length' 2>/dev/null || echo 0)
+            if [ "$N" -gt 0 ] 2>/dev/null; then
+              I=$(( GITHUB_RUN_ID % N ))
+              U=$(echo "$DOCKERHUB_POOL" | jq -r ".[$I].username // empty")
+              T=$(echo "$DOCKERHUB_POOL" | jq -r ".[$I].token // empty")
+              if [ -n "$U" ] && [ -n "$T" ]; then
+                echo "$T" | docker login -u "$U" --password-stdin && echo "Logged in as pool account #$((I + 1))/$N." && exit 0
+                echo "Pool login failed; falling back."
+              fi
+            fi
+            echo "DOCKERHUB_POOL unparsable — trying legacy pair."
+          fi
           if [ -n "${{ secrets.DOCKERHUB_USERNAME }}" ]; then
             echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
           else
