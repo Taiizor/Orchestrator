@@ -13,6 +13,22 @@ export class DiscussionManager {
   private static readonly CATEGORY_NAME = process.env.AGENT_DISCUSSION_CATEGORY || "General";
   private static scopeWarned = false;
 
+  /**
+   * GraphQL repo variables: the DATA repo in dual-repo mode (discussions
+   * carry progress heads, so they stay private), else current-repo
+   * placeholders expanded by gh.
+   */
+  private static repoVars(): [string, string] {
+    if (GitManager.isDataMode()) {
+      const slug = GitManager.dataRepoSlug();
+      if (slug) {
+        const [owner, name] = slug.split("/");
+        return [`owner=${owner}`, `name=${name}`];
+      }
+    }
+    return ["owner={owner}", "name={repo}"];
+  }
+
   private static scopeHint(stderr: string): boolean {
     if (/scope|forbidden|not found|NOT_FOUND|disabled/i.test(stderr)) {
       if (!this.scopeWarned) {
@@ -28,10 +44,11 @@ export class DiscussionManager {
   }
 
   private static async repoId(): Promise<string | null> {
+    const [ownerVar, nameVar] = this.repoVars();
     const res = await GitManager.run([
       "gh", "api", "graphql",
-      "-F", "owner={owner}",
-      "-F", "name={repo}",
+      "-F", ownerVar,
+      "-F", nameVar,
       "-f",
       "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){id}}",
     ]);
@@ -47,10 +64,11 @@ export class DiscussionManager {
   }
 
   private static async categoryId(): Promise<string | null> {
+    const [ownerVar, nameVar] = this.repoVars();
     const res = await GitManager.run([
       "gh", "api", "graphql",
-      "-F", "owner={owner}",
-      "-F", "name={repo}",
+      "-F", ownerVar,
+      "-F", nameVar,
       "-f",
       "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){discussionCategories(first:20){nodes{id,name}}}}",
     ]);
@@ -73,10 +91,11 @@ export class DiscussionManager {
    * Avoids fragile server-side title search syntax.
    */
   public static async findTaskDiscussion(taskId: string): Promise<{ number: number; id: string } | null> {
+    const [ownerVar, nameVar] = this.repoVars();
     const res = await GitManager.run([
       "gh", "api", "graphql",
-      "-F", "owner={owner}",
-      "-F", "name={repo}",
+      "-F", ownerVar,
+      "-F", nameVar,
       "-f",
       "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){discussions(first:100,orderBy:{field:UPDATED_AT,direction:DESC}){nodes{id,number,title}}}}",
     ]);

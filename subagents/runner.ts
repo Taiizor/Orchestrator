@@ -31,6 +31,12 @@ async function main() {
   await GitManager.setupGitAuthor();
   await GitManager.run(["git", "fetch", "--all"]);
 
+  // Dual-repo: private state + data remote first (no-ops in single-repo mode)
+  if (GitManager.isDataMode()) {
+    await GitManager.ensureDataRemote();
+    await GitManager.syncStateIn();
+  }
+
   // Ensure state files are available locally
   if (!existsSync(CONFIG.ROADMAP_FILE)) {
     console.log("📥 Checking out latest state files from origin/main...");

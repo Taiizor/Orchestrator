@@ -284,7 +284,7 @@ To run this template as a **public** repo while keeping project content private:
 3. Add two repository secrets to the **public** repo:
    - **`DATA_REPO`** = `owner/name` (or full URL) of the private data repo.
    - **`DATA_PAT`** = classic PAT with `repo` scope (read/write on the data repo). Defaults to `GH_PROJECT_TOKEN` when empty.
-4. `inputs/*` (except templates) and `workspace/*` are `.gitignore`d here: CI materializes them from the data repo at runtime and publishes agent output back to data branches. Task branches and review **PRs live in the data repo**; issues/milestones/dashboard stay public (titles only — no file content).
+4. `inputs/*` (except templates), `workspace/*` and `state/*` are `.gitignore`d here: CI materializes them from the data repo at runtime and publishes agent output back to data branches. Task branches and review **PRs live in the data repo**; issues/milestones/board stay public (titles + statuses only, bodies redacted), and the dashboard renders **redacted** (IDs/roles/statuses, no titles or notes).
 
 Leave `DATA_REPO` empty for classic single-repo mode (everything in one repo).
 

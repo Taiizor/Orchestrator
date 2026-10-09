@@ -5,6 +5,11 @@ import type { Roadmap } from "./types.ts";
 export class IssueManager {
   private static readonly DASHBOARD_TITLE = "🚀 Project Dashboard & Agent Progress Board";
 
+  /** Public dashboard never carries task titles/notes in dual-repo mode. */
+  private static isRedacted(): boolean {
+    return GitManager.isDataMode();
+  }
+
   /**
    * Find the canonical dashboard issue by exact title match in code.
    * (Server-side `in:title` search with emoji/special chars is unreliable,
@@ -42,7 +47,7 @@ export class IssueManager {
   public static async syncDashboardIssue(roadmap: Roadmap): Promise<number | null> {
     let issueNumber: number | null = await this.findDashboardIssue();
 
-    const bodyContent = StateManager.renderProgressMarkdown(roadmap) +
+    const bodyContent = StateManager.renderProgressMarkdown(roadmap, { redact: this.isRedacted() }) +
       `\n\n### 💬 ChatOps Controls\n` +
       `You can leave comments on this issue to guide the agents:\n` +
       `- \`/pause\`: Pause active execution\n` +
@@ -178,7 +183,7 @@ export class IssueManager {
         }
       } else if (body.startsWith("/status")) {
         console.log("📊 ChatOps command received: /status");
-        const summary = StateManager.renderProgressMarkdown(roadmap);
+        const summary = StateManager.renderProgressMarkdown(roadmap, { redact: this.isRedacted() });
         await this.acknowledgeComment(dashboardNumber, commentId, `📊 **Current Status Report:**\n\n${summary}`);
       } else if (body.startsWith("/discuss")) {
         const match = body.match(/\/discuss\s+([A-Za-z0-9_-]+)\s+([\s\S]+)/);

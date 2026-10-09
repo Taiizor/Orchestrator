@@ -43,9 +43,9 @@ Every subagent MUST adhere to these environmental rules:
    - Never commit directly to `main` or `develop`. All work must occur on `task/<taskId>` branches.
    - Only modify files assigned in `targetFiles`. Do not modify unrelated modules to avoid merge conflicts with sibling subagents.
 6. **Dual-Repo Data Discipline (when `DATA_REPO` is set):**
-   - `inputs/` and `workspace/` are private: they arrive via data-remote sync and are `.gitignore`d here. NEVER force-push them to the public origin; use `publishTaskBranch` (data remote only).
-   - Content-branch reads/diffs/merges/PRs always target the data remote. `main` (engine + `state/`) is the only branch pushed to public origin.
-   - Issue titles, PR titles, and dashboard text stay public — keep them free of secrets and minimize proprietary detail.
+   - `inputs/`, `workspace/` and `state/` are private: they arrive via data-remote sync and are `.gitignore`d here. NEVER force-push them to the public origin; content goes to the data remote only (`publishTaskBranch`, `persistRoadmapToData`).
+   - Content-branch reads/diffs/merges/PRs/discussions always target the data remote. `main` on public origin carries engine code only (humans).
+   - Issues, board cards and dashboard stay public: keep them free of secrets — bodies render redacted automatically, but prefer generic task titles.
 
 ---
 

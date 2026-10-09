@@ -108,18 +108,27 @@ export class GitManager {
   /**
    * Materialize data content (inputs/, workspace/) from a data-remote branch
    * into the workdir. Ignored by git locally, so public commits can't leak it.
+   * Tries the requested ref, then develop, then main (first-run bootstrap).
    */
-  public static async syncDataIn(branch: string): Promise<boolean> {
+  public static async syncDataIn(branch: string, paths: string[] = [CONFIG.INPUTS_DIR, CONFIG.WORKSPACE_DIR]): Promise<boolean> {
     if (!this.isDataMode()) return true;
     const remote = CONFIG.DATA_REMOTE;
-    await this.run(["git", "fetch", remote, branch]);
-    const res = await this.run(["git", "checkout", `${remote}/${branch}`, "--", CONFIG.INPUTS_DIR, CONFIG.WORKSPACE_DIR]);
-    if (res.exitCode !== 0) {
-      console.log(`ℹ️ No data content for ${remote}/${branch} yet (fresh data repo?) — using local templates.`);
-      return false;
+    const candidates = [branch, CONFIG.INTEGRATION_BRANCH, CONFIG.BASE_BRANCH];
+    for (const ref of candidates) {
+      await this.run(["git", "fetch", remote, ref]);
+      const res = await this.run(["git", "checkout", `${remote}/${ref}`, "--", ...paths]);
+      if (res.exitCode === 0) {
+        console.log(`📥 Synced ${paths.join(", ")} from ${remote}/${ref}.`);
+        return true;
+      }
     }
-    console.log(`📥 Synced data content from ${remote}/${branch}.`);
-    return true;
+    console.log(`ℹ️ No data content found on ${remote} yet (fresh data repo?) — using local templates.`);
+    return false;
+  }
+
+  /** Materialize private runtime state (roadmap/progress) from data main. */
+  public static async syncStateIn(): Promise<boolean> {
+    return this.syncDataIn(CONFIG.BASE_BRANCH, [CONFIG.STATE_DIR]);
   }
 
   /**

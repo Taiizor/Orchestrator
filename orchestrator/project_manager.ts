@@ -313,11 +313,19 @@ export class ProjectManager {
     // 1. Create Issue if none exists
     if (!task.issueNumber || !task.issueUrl) {
       console.log(`📝 Creating GitHub Issue for [${task.id}]...`);
-      const body = `### Task Description\n${task.description}\n\n` +
-        `**Assigned Role:** \`${task.role}\`\n` +
-        `**Branch:** \`${task.branch}\`\n` +
-        `**Target Files:** \`${task.targetFiles.join(", ")}\`\n` +
-        `**Dependencies:** ${task.dependencies.length > 0 ? task.dependencies.map(d => `\`${d}\``).join(", ") : "None"}\n`;
+      // Dual-repo: issue bodies stay public — no task descriptions, only
+      // role/branch metadata. Full instructions live in the private roadmap.
+      const body = GitManager.isDataMode()
+        ? `**Assigned Role:** \`${task.role}\`\n` +
+          `**Branch:** \`${task.branch}\`\n` +
+          `**Target Files:** \`${task.targetFiles.join(", ")}\`\n` +
+          `**Dependencies:** ${task.dependencies.length > 0 ? task.dependencies.map(d => `\`${d}\``).join(", ") : "None"}\n` +
+          `\n*Details are tracked privately; this issue carries status only.*\n`
+        : `### Task Description\n${task.description}\n\n` +
+          `**Assigned Role:** \`${task.role}\`\n` +
+          `**Branch:** \`${task.branch}\`\n` +
+          `**Target Files:** \`${task.targetFiles.join(", ")}\`\n` +
+          `**Dependencies:** ${task.dependencies.length > 0 ? task.dependencies.map(d => `\`${d}\``).join(", ") : "None"}\n`;
 
       const createArgs = [
         "gh", "issue", "create",
@@ -496,13 +504,16 @@ export class ProjectManager {
   }
 
   /**
-   * Post progress comment to the task's linked GitHub Issue
+   * Post progress comment to the task's linked GitHub Issue.
+   * In dual-repo mode issues are public: strip everything after the first
+   * line (review notes and details stay in the private workspace).
    */
   public static async postTaskProgressComment(task: TaskItem, comment: string): Promise<void> {
     if (!task.issueNumber) return;
+    const body = GitManager.isDataMode() ? comment.split("\n")[0] : comment;
     await GitManager.run([
       "gh", "issue", "comment", String(task.issueNumber),
-      "--body", comment
+      "--body", body
     ]);
   }
 }

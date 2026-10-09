@@ -198,13 +198,10 @@ export class OrchestratorEngine {
     }
     await StateManager.saveRoadmap(roadmapData);
 
-    // Save and commit synthesized spec, roadmap, and progress to git BEFORE dispatching subagents
-    await StateManager.saveRoadmap(roadmapData);
+    // Save and commit synthesized spec, roadmap, and progress BEFORE dispatching.
+    // persistRoadmap routes to data/main (private) in dual-repo mode.
+    await this.persistRoadmap(roadmapData, "chore(orchestrator): initial plan and synthesized specification");
     await IssueManager.syncDashboardIssue(roadmapData);
-    await GitManager.commitAndPush(
-      "chore(orchestrator): initial plan and synthesized specification",
-      [CONFIG.ROADMAP_FILE, CONFIG.PROGRESS_MD_FILE, CONFIG.COMPILED_SPEC_FILE]
-    );
 
     // Keep the integration branch synced — on the CONTENT remote in
     // dual-repo mode (public origin must never receive data branches).
@@ -472,6 +469,12 @@ export class OrchestratorEngine {
    */
   private static async persistRoadmap(roadmap: Roadmap, message: string): Promise<void> {
     const files = [CONFIG.ROADMAP_FILE, CONFIG.PROGRESS_MD_FILE, CONFIG.COMPILED_SPEC_FILE];
+    // Dual-repo: state is private — commit force-added state files onto a
+    // local data-state branch tracking data/main, push there. Public main
+    // only ever carries engine code (humans).
+    if (GitManager.isDataMode()) {
+      return this.persistRoadmapToData(roadmap, message, files);
+    }
     // State commits belong on BASE_BRANCH (main): review merges leave the
     // checkout on the integration branch — return first so `git push` can't
     // spill content branches to the wrong remote.
@@ -509,6 +512,48 @@ export class OrchestratorEngine {
       }
     }
     console.error("❌ persistRoadmap: push failed after 3 attempts; changes remain local.");
+  }
+
+  /**
+   * Dual-repo state persist: state files are force-added (gitignored) onto a
+   * local `data-state` branch tracking data/main and pushed there. Includes
+   * the same freshness-merge as the public path so concurrent ticks can't
+   * wipe each other's roadmap fields.
+   */
+  private static async persistRoadmapToData(roadmap: Roadmap, message: string, files: string[]): Promise<void> {
+    const remote = CONFIG.DATA_REMOTE;
+    const dataMain = await GitManager.remoteHasBranch(remote, CONFIG.BASE_BRANCH);
+    if (dataMain) {
+      await GitManager.run(["git", "checkout", "-B", "data-state", `${remote}/${CONFIG.BASE_BRANCH}`]);
+    } else {
+      console.log(`🌱 Initializing data state branch from local ${CONFIG.BASE_BRANCH}...`);
+      await GitManager.run(["git", "checkout", "-B", "data-state"]);
+    }
+    try {
+      const show = await GitManager.run(["git", "show", `${remote}/${CONFIG.BASE_BRANCH}:${CONFIG.ROADMAP_FILE}`]);
+      const remoteRm = JSON.parse(show.stdout) as Roadmap;
+      Object.assign(roadmap, StateManager.mergeRoadmaps(roadmap, remoteRm));
+    } catch {
+      // No remote state yet — persist local copy as-is.
+    }
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await StateManager.saveRoadmap(roadmap);
+      for (const f of files) await GitManager.run(["git", "add", "-f", f]);
+      await GitManager.run(["git", "commit", "-m", message]);
+      const push = await GitManager.run(["git", "push", remote, `HEAD:${CONFIG.BASE_BRANCH}`]);
+      if (push.exitCode === 0) return;
+      console.warn(`⚠️ Data state push rejected (attempt ${attempt}/3). Re-syncing...`);
+      await GitManager.run(["git", "fetch", remote, CONFIG.BASE_BRANCH]);
+      await GitManager.run(["git", "checkout", "-B", "data-state", `${remote}/${CONFIG.BASE_BRANCH}`]);
+      try {
+        const show = await GitManager.run(["git", "show", `${remote}/${CONFIG.BASE_BRANCH}:${CONFIG.ROADMAP_FILE}`]);
+        const remoteRm = JSON.parse(show.stdout) as Roadmap;
+        Object.assign(roadmap, StateManager.mergeRoadmaps(roadmap, remoteRm));
+      } catch {
+        // keep local copy
+      }
+    }
+    console.error("❌ persistRoadmapToData: push failed after 3 attempts; changes remain local.");
   }
 
   /**
@@ -562,8 +607,14 @@ export class OrchestratorEngine {
       await GitManager.ensureDataRemote();
     }
 
-    // NOTE: state/roadmap.json on main is the source of truth (every tick
-    // commits it there). There is no separate state branch by design.
+    // NOTE: state/roadmap.json is the source of truth — on public main in
+    // single-repo mode, on data/main (private) in dual-repo mode.
+
+    // Dual-repo: materialize private state BEFORE loading (local state/
+    // holds only a .gitkeep template in this mode).
+    if (GitManager.isDataMode()) {
+      await GitManager.syncStateIn();
+    }
 
     let roadmap = await StateManager.loadRoadmap();
     if (!roadmap) {
@@ -734,6 +785,10 @@ async function main() {
       // without touching task statuses. Safe to run any time.
       await GitManager.setupGitAuthor();
       await GitManager.run(["git", "fetch", "--all"]);
+      if (GitManager.isDataMode()) {
+        await GitManager.ensureDataRemote();
+        await GitManager.syncStateIn();
+      }
       const roadmap = await StateManager.loadRoadmap();
       if (!roadmap) {
         console.error("❌ No roadmap found; run plan first.");
@@ -749,8 +804,7 @@ async function main() {
       if (projectNum) {
         await ProjectManager.syncBoardState(roadmap, projectNum);
       }
-      await StateManager.saveRoadmap(roadmap);
-      await GitManager.commitAndPush("chore(orchestrator): repair project board links", [CONFIG.ROADMAP_FILE, CONFIG.PROGRESS_MD_FILE]);
+      await this.persistRoadmap(roadmap, "chore(orchestrator): repair project board links");
       console.log(projectNum ? `✅ Project board ready: #${projectNum}` : "⚠️ Project board still unavailable — see scope hint above.");
       break;
     }

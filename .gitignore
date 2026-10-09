@@ -21,5 +21,9 @@ inputs/references/*
 !inputs/references/.gitkeep
 workspace/*
 !workspace/.gitkeep
+# Runtime state (roadmap/progress/spec): synced from the data repo in
+# dual-repo mode, never committed to the public skeleton.
+state/*
+!state/.gitkeep
 # Local build cache (never commit)
 tsconfig.tsbuildinfo
