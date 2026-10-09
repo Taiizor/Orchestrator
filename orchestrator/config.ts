@@ -4,6 +4,11 @@ export const CONFIG = {
   MAX_TASK_ATTEMPTS: parseInt(process.env.MAX_TASK_ATTEMPTS || "3", 10),
   // Watchdog: cancel subagent runs older than this (minutes) and re-queue the task
   STALE_RUN_TIMEOUT_MINUTES: parseInt(process.env.STALE_RUN_TIMEOUT_MINUTES || "40", 10),
+  // Overnight autopilot: FAILED tasks auto-resurrect to PENDING after this
+  // cooldown (minutes), at most this many times. Human /retry resets the
+  // budget. Prevents an idle night after a terminal failure.
+  FAILED_RESURRECT_COOLDOWN_MIN: parseInt(process.env.FAILED_RESURRECT_COOLDOWN_MIN || "60", 10),
+  FAILED_AUTO_RESURRECT_MAX: parseInt(process.env.FAILED_AUTO_RESURRECT_MAX || "2", 10),
 
   // Git & Branching
   BASE_BRANCH: process.env.BASE_BRANCH || "main",

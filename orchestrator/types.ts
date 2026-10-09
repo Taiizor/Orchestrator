@@ -34,6 +34,8 @@ export interface TaskItem {
   reviewNotes?: string;            // Feedback from orchestrator review if changes requested
   attempts: number;                // Number of execution attempts
   maxAttempts: number;             // Maximum allowed retry attempts
+  failedAt?: string;               // ISO timestamp of last FAILED transition (auto-resurrect cooldown)
+  resurrections?: number;          // Auto-resurrect count (bounded; human /retry resets to 0)
   createdAt: string;
   updatedAt: string;
 }

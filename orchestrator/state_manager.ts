@@ -150,6 +150,8 @@ export class StateManager {
           ...(terminal(lt.status) ? lt : rt),
           reviewNotes: newer.reviewNotes,
           attempts: Math.max(lt.attempts, rt.attempts),
+          resurrections: Math.max(lt.resurrections || 0, rt.resurrections || 0),
+          failedAt: newer.failedAt ?? (terminal(lt.status) ? lt : rt).failedAt,
           updatedAt: newer.updatedAt,
         });
         continue;

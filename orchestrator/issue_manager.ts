@@ -230,6 +230,7 @@ export class IssueManager {
             console.log(`🔄 ChatOps command received: /retry ${taskId}`);
             task.status = "PENDING";
             task.attempts = 0;
+            task.resurrections = 0;
             hasChanges = true;
             await this.acknowledgeComment(dashboardNumber, commentId, `🔄 **Task [${taskId}] Re-queued:** Reset attempts to 0 and marked status as PENDING.`);
           } else {

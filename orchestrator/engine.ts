@@ -425,6 +425,7 @@ export class OrchestratorEngine {
         task.reviewNotes = notes + (fixes.length > 0 ? `\nFixes: ${fixes.join(", ")}` : "");
         if (task.attempts >= task.maxAttempts) {
           task.status = "FAILED";
+          task.failedAt = new Date().toISOString();
           console.error(`❌ [${task.id}] exceeded maximum attempts (${task.maxAttempts}). Marked as FAILED.`);
         } else {
           task.status = "PENDING";
@@ -831,6 +832,7 @@ export class OrchestratorEngine {
       task.attempts += 1;
       if (task.attempts >= task.maxAttempts) {
         task.status = "FAILED";
+        task.failedAt = new Date().toISOString();
         console.error(`❌ [${task.id}] no worker activity for >${CONFIG.STALE_RUN_TIMEOUT_MINUTES}m after ${task.attempts} attempts. Marked FAILED.`);
         task.reviewNotes = `Watchdog: dead run suspected (no push activity); max attempts reached.`;
       } else {
@@ -847,6 +849,29 @@ export class OrchestratorEngine {
 
     // Step 1: Review any completed subagent tasks
     await this.reviewTasks(roadmap);
+
+    // Step 1.2: Overnight autopilot — resurrect FAILED tasks whose cooldown
+    // elapsed, bounded by FAILED_AUTO_RESURRECT_MAX. Pre-dates-failedAt
+    // tasks fall back to updatedAt so existing FAILED entries qualify.
+    // Human /retry resets the budget (see issue_manager).
+    for (const task of roadmap.tasks) {
+      if (task.status !== "FAILED") continue;
+      const res = task.resurrections || 0;
+      if (res >= CONFIG.FAILED_AUTO_RESURRECT_MAX) continue;
+      const failMs = Date.parse(task.failedAt || task.updatedAt);
+      if (Number.isNaN(failMs) || now - failMs < CONFIG.FAILED_RESURRECT_COOLDOWN_MIN * 60 * 1000) continue;
+      task.status = "PENDING";
+      task.attempts = 0;
+      task.resurrections = res + 1;
+      task.updatedAt = new Date().toISOString();
+      task.reviewNotes = `Auto-resurrect #${res + 1}/${CONFIG.FAILED_AUTO_RESURRECT_MAX} after ${CONFIG.FAILED_RESURRECT_COOLDOWN_MIN}m cooldown (was FAILED). Previous: ${(task.reviewNotes || "-").slice(0, 200)}`;
+      console.log(`🌅 [${task.id}] auto-resurrected to PENDING (${task.resurrections}/${CONFIG.FAILED_AUTO_RESURRECT_MAX}).`);
+      if (roadmap.projectNumber) {
+        await ProjectManager.updateItemStatus(roadmap.projectNumber, task, "Todo");
+        await ProjectManager.postTaskProgressComment(task, `🌅 **Auto-resurrect #${task.resurrections}:** cool-down elapsed, re-queued without human intervention.`);
+      }
+    }
+    // Resurrections ride on the end-of-tick persist (same as watchdog).
 
     // Step 1.5: Check and close completed intermediate Milestones
     if (roadmap.milestones) {
