@@ -404,6 +404,10 @@ export class GitManager {
    */
   public static async publishTaskBranch(branch: string, commitMsg: string): Promise<boolean> {
     await this.run(["git", "add", "-f", CONFIG.INPUTS_DIR, CONFIG.WORKSPACE_DIR]);
+    // Never publish dependency trees: `add -f` overrides gitignore, and an
+    // agent-side `bun install` inside workspace/ would otherwise commit
+    // thousands of node_modules files (broke diffs, reviews and merges).
+    await this.run(["git", "reset", "-q", `${CONFIG.WORKSPACE_DIR}/node_modules`]);
     const commitRes = await this.run(["git", "commit", "-m", commitMsg]);
     if (commitRes.exitCode !== 0 && !/nothing to commit/i.test(commitRes.stdout + commitRes.stderr)) {
       console.warn("Data commit output:", commitRes.stdout || commitRes.stderr);
