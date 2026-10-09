@@ -98,6 +98,8 @@ Human operators can steer, pause, or direct the autonomous team via GitHub Issue
 
 Subagents encountering an `[OPERATOR DIRECTIVE]` in their prompt MUST prioritize it above all default assumptions.
 
+ChatOps notes: command words are typo-tolerant (edit distance ≤ 2, e.g. `/staus` → `/status`); unknown `/commands` get a help reply. Slash comments are handled by a dedicated fast-lane job (`chatops` singleton, ~1 min) in parallel to the main tick; rocket-reaction idempotency prevents double-processing.
+
 ---
 
 ## 7. Phased Quality Gate & Merge Conflict Resolution

@@ -844,6 +844,36 @@ async function main() {
       }
       break;
     }
+    case "chatops": {
+      // Fast lane: process dashboard ChatOps commands ONLY (no reviews,
+      // dispatches, merges or releases). Runs in its own concurrency group
+      // so operator commands answer in ~1 min even when a long tick holds
+      // the main singleton. Shares persistRoadmap, so concurrent writers
+      // merge instead of clobbering. Rocket-reaction idempotency prevents
+      // double-processing when a tick overlaps this run.
+      await GitManager.setupGitAuthor();
+      await GitManager.run(["git", "fetch", "--all"]);
+      if (GitManager.isDataMode()) {
+        await GitManager.ensureDataRemote();
+        await GitManager.syncStateIn();
+      }
+      {
+        const roadmap = await StateManager.loadRoadmap();
+        if (!roadmap) {
+          console.error("❌ No roadmap found; run plan first.");
+          process.exit(1);
+        }
+        const changed = await IssueManager.processChatOps(roadmap);
+        if (changed) {
+          await this.persistRoadmap(roadmap, "chore(orchestrator): chatops command");
+        } else {
+          await StateManager.saveRoadmap(roadmap);
+        }
+        await IssueManager.syncDashboardIssue(roadmap);
+      }
+      console.log("💬 ChatOps run completed.");
+      break;
+    }
     case "tick":
     default:
       await OrchestratorEngine.tick();

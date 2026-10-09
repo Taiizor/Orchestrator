@@ -5,6 +5,19 @@ import type { Roadmap } from "./types.ts";
 export class IssueManager {
   private static readonly DASHBOARD_TITLE = "🚀 Project Dashboard & Agent Progress Board";
 
+  /** Levenshtein distance for ChatOps typo tolerance. */
+  private static editDistance(a: string, b: string): number {
+    const m = a.length, n = b.length;
+    const dp: number[][] = Array.from({ length: m + 1 }, (_, i) => [i, ...Array(n).fill(0)]);
+    for (let j = 0; j <= n; j++) dp[0][j] = j;
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      }
+    }
+    return dp[m][n];
+  }
+
   /** Public dashboard never carries task titles/notes in dual-repo mode. */
   private static isRedacted(): boolean {
     return GitManager.isDataMode();
@@ -124,14 +137,39 @@ export class IssueManager {
     const recentComments = comments.slice(-5);
 
     for (const comment of recentComments) {
-      const body = (comment.body || "").trim();
+      let body = (comment.body || "").trim();
       const commentId = comment.id || comment.databaseId;
 
-      // Skip comments by bot itself
-      if (comment.author?.login === "github-actions[bot]") continue;
+      // Skip comments by bot itself (login varies: github-actions[bot] vs github-actions)
+      if (/github-actions/i.test(comment.author?.login || "")) continue;
       // Skip if already processed (marked with rocket or thumbs up)
       if (comment.reactionGroups?.some((r: any) => (r.content === "ROCKET" || r.content === "THUMBS_UP") && r.users?.totalCount > 0)) {
         continue;
+      }
+      if (!body.startsWith("/")) continue;
+
+      // Typo tolerance: /staus, /pausse, /statuss... (edit distance ≤ 2).
+      // Unknown commands get the help text instead of silence.
+      const KNOWN = ["pause", "resume", "retry", "directive", "status", "discuss", "setup", "ask", "add", "log"];
+      const wordMatch = body.match(/^\/([A-Za-z]+)/);
+      if (wordMatch) {
+        const word = wordMatch[1].toLowerCase();
+        if (!KNOWN.includes(word)) {
+          const close = KNOWN.map((k) => ({ k, d: this.editDistance(word, k) }))
+            .filter((x) => x.d <= 2)
+            .sort((a, b) => a.d - b.d)[0];
+          if (close) {
+            console.log(`🔤 Interpreting /${word} as /${close.k} (typo tolerance).`);
+            body = `/${close.k}` + body.slice(wordMatch[0].length);
+            await this.acknowledgeComment(dashboardNumber, commentId, `🔤 Understood \`/${word}\` as \`/${close.k}\` — processing.`);
+          } else {
+            await this.acknowledgeComment(
+              dashboardNumber, commentId,
+              `❓ Unknown command \`/${word}\`.\n\nAvailable: ${KNOWN.map((k) => `\`/${k}\``).join(", ")}`
+            );
+            continue;
+          }
+        }
       }
 
       // Check command patterns
