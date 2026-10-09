@@ -114,12 +114,20 @@ jobs:
           DATA_REPO: ${{ secrets.DATA_REPO }}
           DATA_PAT: ${{ secrets.DATA_PAT }}
         run: |
+          ACTION="${{ github.event.inputs.action || 'tick' }}"
           bun run orchestrator/engine.ts --action=services
           FILE="workspace/docker-compose.services.yml"
           if [ ! -f "$FILE" ]; then
             echo "No project services declared — skipping."
             exit 0
           fi
+          # Only actions that can execute tests need live services (tick:
+          # conflict-resolution verification; services: explicit request).
+          # plan/review/project/setup never run code — skip pulls entirely.
+          case "$ACTION" in
+            tick|services) ;;
+            *) echo "Skipping service startup for action=$ACTION (no tests run)."; exit 0;;
+          esac
           echo "Starting ephemeral CI services from $FILE..."
           docker compose -f "$FILE" up -d --wait --wait-timeout 120
           if [ -f "workspace/.services.env" ]; then
