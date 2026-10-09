@@ -207,7 +207,7 @@ export class OrchestratorEngine {
 
     // Initialize GitHub Project (v2), Milestones, and Issues
     if (roadmapData.milestones && roadmapData.milestones.length > 0) {
-      await ProjectManager.ensureMilestones(roadmapData.milestones);
+      await ProjectManager.ensureMilestones(roadmapData.milestones, (t) => this.isMilestoneComplete(roadmapData, t));
     }
     const projectNum = await ProjectManager.ensureProject(roadmapData);
     for (const task of roadmapData.tasks) {
@@ -292,6 +292,12 @@ export class OrchestratorEngine {
   /**
    * Action: Review tasks waiting in IN_REVIEW
    */
+  /** True when a milestone has tasks and all are COMPLETED (reopen guard). */
+  private static isMilestoneComplete(roadmap: Roadmap, title: string): boolean {
+    const ts = roadmap.tasks.filter((t) => t.milestone === title);
+    return ts.length > 0 && ts.every((t) => t.status === "COMPLETED");
+  }
+
   public static async reviewTasks(roadmap: Roadmap): Promise<boolean> {
     let hasChanges = false;
 
@@ -757,7 +763,7 @@ export class OrchestratorEngine {
 
     // Ensure GitHub Milestones and Issues exist for all tasks
     if (roadmap.milestones && roadmap.milestones.length > 0) {
-      await ProjectManager.ensureMilestones(roadmap.milestones);
+      await ProjectManager.ensureMilestones(roadmap.milestones, (t) => this.isMilestoneComplete(roadmap, t));
     }
     const hasUnsyncedIssues = roadmap.tasks.some((t) => !t.issueNumber);
     if (hasUnsyncedIssues) {
@@ -942,7 +948,7 @@ async function main() {
         process.exit(1);
       }
       if (roadmap.milestones && roadmap.milestones.length > 0) {
-        await ProjectManager.ensureMilestones(roadmap.milestones);
+        await ProjectManager.ensureMilestones(roadmap.milestones, (t) => OrchestratorEngine.isMilestoneComplete(roadmap, t));
       }
       const projectNum = await ProjectManager.ensureProject(roadmap);
       for (const task of roadmap.tasks) {

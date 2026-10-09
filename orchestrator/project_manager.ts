@@ -157,10 +157,15 @@ export class ProjectManager {
 
   /**
    * Ensure Milestones exist in the repository.
-   * Missing milestones are created; milestones that were closed while their
-   * tasks are still unfinished are reopened.
+   * Missing milestones are created; closed ones reopen ONLY when their
+   * tasks are still unfinished (isComplete=false). Unconditionally
+   * reopening caused close/open thrash with a duplicate release attempt
+   * every tick for already-finished milestones.
    */
-  public static async ensureMilestones(milestones: { title: string; description?: string }[]): Promise<void> {
+  public static async ensureMilestones(
+    milestones: { title: string; description?: string }[],
+    isComplete?: (title: string) => boolean
+  ): Promise<void> {
     await this.ensureLabels();
     if (!milestones || milestones.length === 0) return;
 
@@ -185,7 +190,7 @@ export class ProjectManager {
         const args = ["gh", "api", "repos/:owner/:repo/milestones", "-f", `title=${m.title}`];
         if (m.description) args.push("-f", `description=${m.description}`);
         await GitManager.run(args);
-      } else if (hit.state === "closed") {
+      } else if (hit.state === "closed" && !(isComplete?.(m.title) ?? false)) {
         console.log(`🔓 Reopening closed Milestone: "${m.title}" (#${hit.number}) — unfinished tasks remain...`);
         await GitManager.run([
           "gh", "api", `repos/:owner/:repo/milestones/${hit.number}`,

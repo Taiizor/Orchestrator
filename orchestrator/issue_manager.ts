@@ -565,6 +565,17 @@ export class IssueManager {
         console.warn(`⚠️ DATA_REPO unparseable; skipping release ${tag}.`);
         return false;
       }
+      // Ambient GITHUB_TOKEN cannot see the private data repo; run gh
+      // under the data PAT (same pattern as RepoSetup.runAs).
+      const pat = GitManager.dataPat();
+      const ghEnv = pat ? { GH_TOKEN: pat, GITHUB_TOKEN: pat } : undefined;
+      // Idempotency: milestone close/open thrash (or a manual backfill) must
+      // never 422 — an existing release for this tag counts as success.
+      const existing = await GitManager.run(["gh", "release", "view", tag, "--repo", slug], ".", undefined, ghEnv);
+      if (existing.exitCode === 0) {
+        console.log(`ℹ️ Release ${tag} already exists on ${slug}; skipping.`);
+        return true;
+      }
       // Tag the data integration-branch tip (NOT this checkout's HEAD,
       // which is engine code). Refresh the ref first; the tick may hold a
       // stale fetch.
@@ -576,20 +587,22 @@ export class IssueManager {
         console.warn(`⚠️ Cannot resolve ${remote}/${branch} tip; skipping release ${tag}.`);
         return false;
       }
-      await GitManager.run(["git", "tag", "-a", tag, sha, "-m", title]);
-      const push = await GitManager.remoteGit(remote, ["push", remote, tag]);
-      if (push.exitCode !== 0) {
-        console.warn(`⚠️ Tag push failed for ${tag}:`, push.stderr.slice(0, 200));
-        return false;
+      const tagExists = await GitManager.remoteGit(remote, ["ls-remote", remote, `refs/tags/${tag}`]);
+      if (tagExists.exitCode !== 0 || !tagExists.stdout.trim()) {
+        await GitManager.run(["git", "tag", "-a", tag, sha, "-m", title]);
+        const push = await GitManager.remoteGit(remote, ["push", remote, tag]);
+        if (push.exitCode !== 0) {
+          console.warn(`⚠️ Tag push failed for ${tag}:`, push.stderr.slice(0, 200));
+          return false;
+        }
+      } else {
+        console.log(`ℹ️ Tag ${tag} already on ${remote}; reusing for release.`);
       }
-      // Ambient GITHUB_TOKEN cannot see the private data repo; run gh
-      // under the data PAT (same pattern as RepoSetup.runAs).
-      const pat = GitManager.dataPat();
       const res = await GitManager.run(
         ["gh", "release", "create", tag, "--repo", slug, "--title", title, "--notes", notes],
         ".",
         undefined,
-        pat ? { GH_TOKEN: pat, GITHUB_TOKEN: pat } : undefined
+        ghEnv
       );
       if (res.exitCode === 0) {
         console.log(`📦 GitHub Release ${tag} successfully published to ${slug}!`);
@@ -597,6 +610,11 @@ export class IssueManager {
       }
       console.warn(`⚠️ Release create failed for ${tag}:`, res.stderr.slice(0, 200));
       return false;
+    }
+    const already = await GitManager.run(["gh", "release", "view", tag]);
+    if (already.exitCode === 0) {
+      console.log(`ℹ️ Release ${tag} already exists; skipping.`);
+      return true;
     }
     await GitManager.run(["git", "tag", "-a", tag, "-m", title]);
     await GitManager.run(["git", "push", "origin", tag]);

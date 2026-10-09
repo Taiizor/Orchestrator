@@ -90,19 +90,57 @@ const SECRET_PATTERNS: { name: string; rx: RegExp }[] = [
   { name: "GitHub OAuth", rx: /gho_[A-Za-z0-9]{20,}/ },
   { name: "Slack token", rx: /xox[bap]-/ },
   { name: "Private key block", rx: /-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----/ },
-  { name: "Generic secret assignment", rx: /(api[_-]?key|secret|password)\s*[:=]\s*['"][^'"]{8,}['"]/i },
-  { name: ".env file", rx: /^\+?.*\.env/i },
 ];
+// NOTE: no `.env`-string content pattern — filenames are covered by the
+// files rule below, and README-style "copy .env.example to .env" docs must
+// never fail the gate.
+
+const GENERIC_SECRET_RX = /(api[_-]?key|secret|password)\s*[:=]\s*['"]([^'"]+)['"]/i;
+/** Values that are obviously synthetic fixtures, not leaked credentials. */
+const PLACEHOLDER_VALUE_RX = /(your|example|sample|placeholder|changeme|todo|test|mock|fake|dummy|xxx)/i;
+
+/** Added content lines only: deletions cannot leak, `+++` headers are noise. */
+function addedLines(diff: string): string[] {
+  return diff.split("\n").filter((l) => l.startsWith("+") && !l.startsWith("+++"));
+}
 
 export function scanSecrets(diff: string, files: string[]): string[] {
   const hits: string[] = [];
+  const added = addedLines(diff);
+  const text = added.join("\n");
   for (const pat of SECRET_PATTERNS) {
-    if (pat.rx.test(diff)) hits.push(pat.name);
+    if (pat.rx.test(text)) hits.push(pat.name);
   }
-  if (files.some((f) => /(^|\/)\.env($|\.)/.test(f) || f.includes(".pem") || f.includes(".key"))) {
+  // Generic assignments with NON-placeholder values only; synthetic
+  // fixtures go to scanSecretWarnings() instead of failing the gate.
+  for (const line of added) {
+    const m = line.match(GENERIC_SECRET_RX);
+    if (m && !PLACEHOLDER_VALUE_RX.test(m[2])) {
+      hits.push("Generic secret assignment");
+      break;
+    }
+  }
+  // Sensitive filenames — except the canonical `.env.example` template.
+  if (files.some((f) => {
+    const m = f.match(/(^|\/)\.env([^/]*)$/i);
+    if (m && m[2] !== ".example") return true;
+    return f.includes(".pem") || f.includes(".key");
+  })) {
     hits.push("Sensitive file (.env/.pem/.key) in changeset");
   }
   return [...new Set(hits)];
+}
+
+/** Soft-tier: secret-shaped assignments with placeholder values. Warn only. */
+export function scanSecretWarnings(diff: string): string[] {
+  const warns: string[] = [];
+  for (const line of addedLines(diff)) {
+    const m = line.match(GENERIC_SECRET_RX);
+    if (m && PLACEHOLDER_VALUE_RX.test(m[2])) {
+      warns.push(`Placeholder secret-style assignment (${m[1]}=…) — verify no real credential before merge`);
+    }
+  }
+  return [...new Set(warns)];
 }
 
 function touchesApiOrSchema(files: string[]): boolean {
@@ -180,6 +218,7 @@ export async function runReviewGate(
   if (secrets.length > 0) {
     failures.push(`Potential secret leak detected: ${secrets.join(", ")}.`);
   }
+  for (const w of scanSecretWarnings(diff)) warnings.push(w);
 
   if (!lineageBroken && touchesApiOrSchema(fileList) && !fileList.includes("workspace/CONTRACTS.md")) {
     warnings.push("API/schema/services changed but workspace/CONTRACTS.md not updated (contract drift).");
