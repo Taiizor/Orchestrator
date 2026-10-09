@@ -315,10 +315,14 @@ export class OrchestratorEngine {
         const p = `${dir}/SKILL.md`;
         try {
           const raw = await Bun.file(p).text();
-          const m = raw.match(/^---\n([\s\S]*?)\n---\n/);
-          const name = m && (m[1].match(/^name:\s*(.+)$/m) || [])[1]?.trim();
+          // Normalize first: forger LLMs emit unquoted ": " in descriptions,
+          // which breaks YAML parsers. Quoted output always parses.
+          const { normalizeSkillFrontmatter, skillFrontmatterName } = await import("./skill_format.ts");
+          const clean = normalizeSkillFrontmatter(raw);
+          const name = clean ? skillFrontmatterName(clean) : undefined;
           const base = dir.split("/").pop()!;
-          if (name === base && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(name)) {
+          if (clean && name === base && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(name)) {
+            if (clean !== raw) await Bun.write(p, clean);
             valid.push(base);
           } else {
             console.warn(`⚠️ Ignoring malformed forged skill (name must equal directory): ${p}`);
