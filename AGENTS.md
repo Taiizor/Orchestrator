@@ -92,6 +92,9 @@ Human operators can steer, pause, or direct the autonomous team via GitHub Issue
 - `/status`: Generates an immediate real-time progress snapshot comment.
 - `/discuss <TASK-ID> "message"`: Relays a message to the task's agent discussion thread (`DiscussionManager`); the agent reads recent replies on its next attempt.
 - `/setup [public|data|all]`: Audits & repairs repo features (issues/wiki/projects/discussions) on the public and/or data repo.
+- `/ask <question>`: Answers from live roadmap state (one LLM call, cited task IDs).
+- `/add <role> "title" -- "description" [deps:A,B] [milestone:M]`: Queues a DAG-validated PENDING task (issue/board sync next tick; no targetFiles scoping — planner normally assigns it).
+- `/log <TASK-ID>`: Tails recent subagent run logs for that task.
 
 Subagents encountering an `[OPERATOR DIRECTIVE]` in their prompt MUST prioritize it above all default assumptions.
 

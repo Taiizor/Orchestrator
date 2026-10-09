@@ -56,7 +56,10 @@ export class IssueManager {
       `- \`/retry <TASK-ID>\`: Re-queue a failed or stuck task\n` +
       `- \`/status\`: Request an immediate status report comment\n` +
       `- \`/discuss <TASK-ID> "message"\`: Relay a message to the task's agent discussion thread\n` +
-      `- \`/setup [public|data|all]\`: Audit & repair repo features (issues/wiki/projects/discussions)\n`;
+      `- \`/setup [public|data|all]\`: Audit & repair repo features (issues/wiki/projects/discussions)\n` +
+      `- \`/ask <question>\`: Answer from live roadmap state\n` +
+      `- \`/add <role> "title" -- "description" [deps:A,B] [milestone:M]\`: Queue a validated PENDING task\n` +
+      `- \`/log <TASK-ID>\`: Tail of recent subagent run logs\n`;
 
     if (issueNumber) {
       // Update existing issue body
@@ -241,6 +244,108 @@ export class IssueManager {
           }
         }
         await this.acknowledgeComment(dashboardNumber, commentId, `🔧 **Setup Report (${scope}):**\n\n${out.join("\n\n")}`);
+      } else if (body.startsWith("/ask")) {
+        // /ask <question> — answer from live roadmap state via one LLM call.
+        const question = body.replace(/^\/ask\s*/, "").trim();
+        if (!question) {
+          await this.acknowledgeComment(dashboardNumber, commentId, `⚠️ Usage: \`/ask <question about project state>\`.`);
+        } else {
+          console.log("❓ ChatOps command received: /ask");
+          const { OpenCodeClient } = await import("./opencode_client.ts");
+          const digest = roadmap.tasks.map((t) =>
+            `- [${t.id}] ${t.title} | ${t.role} | ${t.status} | deps:[${t.dependencies.join(",") || "-"}] | attempts:${t.attempts}/${t.maxAttempts}` +
+            (t.reviewNotes ? ` | notes: ${t.reviewNotes.slice(0, 200)}` : "")
+          ).join("\n");
+          const answer = await OpenCodeClient.runWithFallback(
+            `You are the orchestrator of an autonomous coding team. Answer the operator's question using ONLY the live roadmap below. Be concise, cite task IDs.\n\nRoadmap (${roadmap.projectName}, ${roadmap.globalStatus}):\n${digest}\n\nOperator question: ${question}`
+          );
+          const text = answer.stdout.trim().slice(0, 3000) || "(empty model response)";
+          await this.acknowledgeComment(dashboardNumber, commentId, `❓ **Answer:**\n\n${text}`);
+        }
+      } else if (body.startsWith("/add")) {
+        // /add <role> "title" -- "description" [deps:A,B] [milestone:M]
+        // Appends a PENDING task after DAG validation. Issues/board sync on next tick.
+        console.log("➕ ChatOps command received: /add");
+        const parsed = body.match(/^\/add\s+([A-Za-z]+)\s+"([^"]+)"\s+--\s+"([^"]+)"(?:\s+deps:([A-Za-z0-9_,-]+))?(?:\s+milestone:(.+))?/);
+        if (!parsed) {
+          await this.acknowledgeComment(dashboardNumber, commentId, `⚠️ Usage: \`/add <role> "title" -- "description" [deps:TASK-001,TASK-002] [milestone:v1.0.0]\`\nRoles: architect|backend|frontend|qa|security|tracker|reviewer|fullstack.`);
+        } else {
+          const [, role, title, description, depStr, milestone] = parsed;
+          const { validateRoadmap, formatValidation } = await import("./roadmap_validator.ts");
+          const { CONFIG } = await import("./config.ts");
+          const nums = roadmap.tasks.map((t) => parseInt((t.id.match(/(\d+)/) || ["0", "0"])[1], 10) || 0);
+          const nextId = `TASK-${String(Math.max(0, ...nums) + 1).padStart(3, "0")}`;
+          const deps = depStr ? depStr.split(",").map((d) => d.trim()).filter(Boolean) : [];
+          const candidate = {
+            id: nextId, role, dependencies: deps, targetFiles: [] as string[],
+            milestone: (milestone || "").trim() || undefined,
+          };
+          const check = validateRoadmap({
+            tasks: [...roadmap.tasks.map((t) => ({ id: t.id, role: t.role, dependencies: t.dependencies, targetFiles: t.targetFiles, milestone: t.milestone })), candidate],
+            milestones: roadmap.milestones,
+          });
+          if (check.errors.length > 0) {
+            await this.acknowledgeComment(dashboardNumber, commentId, `⚠️ **Task rejected by DAG validation:**\n${formatValidation(check)}`);
+          } else {
+            const now = new Date().toISOString();
+            roadmap.tasks.push({
+              id: nextId, title, description, role: role as any, dependencies: deps,
+              targetFiles: [], status: "PENDING", branch: `task/${nextId}`,
+              milestone: candidate.milestone || roadmap.milestones?.[0]?.title,
+              attempts: 0, maxAttempts: CONFIG.MAX_TASK_ATTEMPTS,
+              reviewNotes: "[OPERATOR ADDED] via /add. NOTE: no targetFiles scoping — planner normally assigns disjoint paths; watch for conflicts.",
+              createdAt: now, updatedAt: now,
+            });
+            hasChanges = true;
+            const warn = check.warnings.length > 0 ? `\n\nWarnings:\n${formatValidation({ errors: [], warnings: check.warnings })}` : "";
+            await this.acknowledgeComment(dashboardNumber, commentId, `➕ **Task [${nextId}] queued as PENDING.** Issue + board sync on next tick.${warn}`);
+          }
+        }
+      } else if (body.startsWith("/log")) {
+        // /log <TASK-ID> — tail of the latest subagent run for that task.
+        const match = body.match(/\/log\s+([A-Za-z0-9_-]+)/);
+        if (!match) {
+          await this.acknowledgeComment(dashboardNumber, commentId, `⚠️ Usage: \`/log <TASK-ID>\`.`);
+        } else {
+          const taskId = match[1];
+          const task = roadmap.tasks.find(t => t.id === taskId);
+          if (!task) {
+            await this.acknowledgeComment(dashboardNumber, commentId, `⚠️ **Task Not Found:** No task with ID \`${taskId}\`.`);
+          } else {
+            console.log(`📜 ChatOps command received: /log ${taskId}`);
+            let tail = "";
+            const runIds: number[] = [];
+            if (task.runId) runIds.push(task.runId);
+            // Subagent runs execute on main, so per-task correlation isn't
+            // available — use the stored runId, else the newest runs.
+            const probe = await GitManager.run([
+              "gh", "run", "list", "--workflow", "subagent.yml",
+              "--limit", "20", "--json", "databaseId,headBranch,createdAt",
+            ]);
+            if (probe.exitCode === 0) {
+              try {
+                const all = JSON.parse(probe.stdout);
+                for (const r of all) {
+                  if (typeof r.databaseId === "number" && !runIds.includes(r.databaseId)) {
+                    runIds.push(r.databaseId);
+                    if (runIds.length >= 3) break;
+                  }
+                }
+              } catch { /* ignore */ }
+            }
+            for (const id of runIds.slice(0, 2)) {
+              const chunk = await GitManager.getRunLogs(id);
+              if (chunk) {
+                tail = `--- run #${id} ---\n${chunk}\n${tail}`;
+                break;
+              }
+            }
+            if (!tail) {
+              tail = `No retrievable logs (no stored runId, no recent subagent runs).`;
+            }
+            await this.acknowledgeComment(dashboardNumber, commentId, `📜 **Run log tail for [${taskId}]:**\n\`\`\`\n${tail.slice(-2500) || "(empty)"}\n\`\`\``);
+          }
+        }
       }
     }
 
