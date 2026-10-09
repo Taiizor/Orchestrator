@@ -320,27 +320,22 @@ export class OrchestratorEngine {
             const files = await GitManager.getBranchFileList(task.branch, CONFIG.INTEGRATION_BRANCH);
             const realChanges = files.filter((f) => f !== `workspace/${CONFIG.TASK_PROGRESS_FILE}`);
             if (realChanges.length === 0) {
-              // Smart hold (not blind 45m): judge immediately when provably
-              // idle. Liveness = fresh UNIQUE branch commits (inherited
-              // history doesn't count — a no-op publish pointing at a recent
-              // develop commit must not look alive) or any active run.
+              // Hold only while a run may still be working: recent dispatch
+              // AND at least one active run globally. (Runs execute on main,
+              // so they can't be mapped to tasks.) Fresh branch commits alone
+              // prove nothing — a finished run's push stays "fresh" for 45m
+              // after exit, so it must not block judgment.
               const STALE_MS = 45 * 60 * 1000;
               // Computed once, reused by the routing below.
               const uniqueEarly = await GitManager.branchUniqueCommits(task.branch, CONFIG.INTEGRATION_BRANCH);
-              let hold = false;
               if (task.status === "IN_PROGRESS" && task.dispatchedAt) {
                 const dispAge = Date.now() - Date.parse(task.dispatchedAt);
+                if (!Number.isNaN(dispAge) && dispAge < STALE_MS && anyActiveRuns) {
+                  console.log(`ℹ️ [${task.id}] empty diff but dispatched ${Math.round(dispAge / 60000)}m ago with runs active; leaving IN_PROGRESS.`);
+                  continue;
+                }
                 if (!Number.isNaN(dispAge) && dispAge < STALE_MS) {
-                  const uniqueTip = uniqueEarly > 0
-                    ? await GitManager.branchUniqueTipTime(task.branch, CONFIG.INTEGRATION_BRANCH)
-                    : -1;
-                  const uniqueFresh = uniqueTip > 0 && Date.now() - uniqueTip < STALE_MS;
-                  hold = anyActiveRuns || uniqueFresh;
-                  if (hold) {
-                    console.log(`ℹ️ [${task.id}] empty diff but possibly active (dispatched ${Math.round(dispAge / 60000)}m ago${uniqueFresh ? ", fresh unique commits" : ""}${anyActiveRuns ? ", runs active" : ""}); leaving IN_PROGRESS.`);
-                    continue;
-                  }
-                  console.log(`ℹ️ [${task.id}] empty diff, dispatched ${Math.round(dispAge / 60000)}m ago but provably idle (no active runs, no fresh unique commits); judging now.`);
+                  console.log(`ℹ️ [${task.id}] empty diff, dispatched ${Math.round(dispAge / 60000)}m ago but no active runs; judging now.`);
                 }
               }
               // Empty diff routing (all require structured progress, checked above):
