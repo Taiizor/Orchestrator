@@ -4,6 +4,10 @@ export const CONFIG = {
   MAX_TASK_ATTEMPTS: parseInt(process.env.MAX_TASK_ATTEMPTS || "3", 10),
   // Watchdog: cancel subagent runs older than this (minutes) and re-queue the task
   STALE_RUN_TIMEOUT_MINUTES: parseInt(process.env.STALE_RUN_TIMEOUT_MINUTES || "40", 10),
+  // Fast dead-task recovery: IN_PROGRESS + silence since before dispatch +
+  // zero active runs anywhere = worker gone (fast fail, infra kill).
+  // Frees the task in minutes instead of waiting out STALE_RUN_TIMEOUT.
+  IDLE_REQUEUE_MINUTES: parseInt(process.env.IDLE_REQUEUE_MINUTES || "20", 10),
   // Overnight autopilot: FAILED tasks auto-resurrect to PENDING after this
   // cooldown (minutes), at most this many times. Human /retry resets the
   // budget. Prevents an idle night after a terminal failure.

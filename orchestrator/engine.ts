@@ -483,6 +483,28 @@ export class OrchestratorEngine {
       // with the same tip means a no-op cycle re-queued it.)
       const tipSha = await GitManager.branchTipSha(task.branch);
       if (tipSha && task.lastReviewSha === tipSha && task.lastGateVersion === GATE_VERSION) {
+        // Stuck-verdict escape: skipped + provably idle + stale dispatch =
+        // nobody will push new content; send back for a genuinely fresh
+        // attempt instead of skipping forever (bounded by attempts).
+        const dispAge = task.dispatchedAt ? Date.now() - Date.parse(task.dispatchedAt) : NaN;
+        if (!Number.isNaN(dispAge) && dispAge >= CONFIG.IDLE_REQUEUE_MINUTES * 60 * 1000 && !anyActiveRuns) {
+          console.log(`⏰ [${task.id}] reviewed tip unchanged and idle; re-queuing for a fresh attempt.`);
+          task.attempts += 1;
+          if (task.attempts >= task.maxAttempts) {
+            task.status = "FAILED";
+            task.failedAt = new Date().toISOString();
+          } else {
+            task.status = "PENDING";
+          }
+          task.lastReviewSha = undefined;
+          task.lastGateVersion = undefined;
+          task.updatedAt = new Date().toISOString();
+          if (roadmap.projectNumber) {
+            await ProjectManager.updateItemStatus(roadmap.projectNumber, task, task.status === "FAILED" ? "Failed" : "Todo");
+          }
+          hasChanges = true;
+          continue;
+        }
         console.log(`⏭️ [${task.id}] branch unchanged since last review (${tipSha.slice(0, 7)}); skipping re-review.`);
         continue;
       }
@@ -962,6 +984,43 @@ export class OrchestratorEngine {
         await GitManager.cancelWorkflowRun(run.databaseId);
       }
     }
+    // Shared requeue helper: bounded by attempts → FAILED, never infinite.
+    // Used by both the fast idle path below and the 40m branch-tip watchdog.
+    const requeueStale = async (task: (typeof roadmap.tasks)[number], why: string) => {
+      task.attempts += 1;
+      if (task.attempts >= task.maxAttempts) {
+        task.status = "FAILED";
+        task.failedAt = new Date().toISOString();
+        console.error(`❌ [${task.id}] ${why}; max attempts reached. Marked FAILED.`);
+        task.reviewNotes = `Watchdog (${why}): max attempts reached.`;
+      } else {
+        task.status = "PENDING";
+        console.warn(`⏰ Watchdog (${why}): [${task.id}] re-queued (${task.attempts}/${task.maxAttempts}).`);
+        task.reviewNotes = `Watchdog (${why}); re-queued. Previous notes preserved below.\n${task.reviewNotes || ""}`;
+      }
+      task.updatedAt = new Date().toISOString();
+      if (roadmap.projectNumber) {
+        await ProjectManager.updateItemStatus(roadmap.projectNumber, task, task.status === "FAILED" ? "Failed" : "Todo");
+        await ProjectManager.postTaskProgressComment(
+          task,
+          `⏰ **Watchdog (${why}):** task re-queued (${task.attempts}/${task.maxAttempts}).`
+        );
+      }
+    };
+    // Fast path: global silence + task silent since before its dispatch.
+    // (A live worker always has an active run; with none anywhere and no
+    // push since dispatch, nobody will ever complete this task.)
+    const idleMs = CONFIG.IDLE_REQUEUE_MINUTES * 60 * 1000;
+    if (activeRuns.length === 0) {
+      for (const task of roadmap.tasks) {
+        if (task.status !== "IN_PROGRESS" || !task.dispatchedAt) continue;
+        const dispAge = now - Date.parse(task.dispatchedAt);
+        if (Number.isNaN(dispAge) || dispAge < idleMs) continue;
+        const tip = await GitManager.branchTipTime(task.branch);
+        if (tip >= 0 && tip > Date.parse(task.dispatchedAt)) continue;
+        await requeueStale(task, "idle worker");
+      }
+    }
     // Dead-task recovery: IN_PROGRESS + old dispatch + stale branch tip means
     // no live worker (a live one was dispatched recently or pushed recently).
     // Skipped while any run is active AND the tip is unknown (queued dispatch
@@ -973,27 +1032,7 @@ export class OrchestratorEngine {
       const tip = await GitManager.branchTipTime(task.branch);
       if (tip < 0 && activeRuns.length > 0) continue;
       if (tip >= 0 && now - tip < staleMs) continue;
-      task.attempts += 1;
-      if (task.attempts >= task.maxAttempts) {
-        task.status = "FAILED";
-        task.failedAt = new Date().toISOString();
-        console.error(
-          `❌ [${task.id}] no worker activity for >${CONFIG.STALE_RUN_TIMEOUT_MINUTES}m after ${task.attempts} attempts. Marked FAILED.`
-        );
-        task.reviewNotes = `Watchdog: dead run suspected (no push activity); max attempts reached.`;
-      } else {
-        task.status = "PENDING";
-        console.warn(`⏰ Watchdog: [${task.id}] no worker activity; re-queued (${task.attempts}/${task.maxAttempts}).`);
-        task.reviewNotes = `Watchdog: stale/dead run suspected; re-queued. Previous notes preserved below.\n${task.reviewNotes || ""}`;
-      }
-      task.updatedAt = new Date().toISOString();
-      if (roadmap.projectNumber) {
-        await ProjectManager.updateItemStatus(roadmap.projectNumber, task, task.status === "FAILED" ? "Failed" : "Todo");
-        await ProjectManager.postTaskProgressComment(
-          task,
-          `⏰ **Watchdog:** No worker activity detected; task re-queued (${task.attempts}/${task.maxAttempts}).`
-        );
-      }
+      await requeueStale(task, "no worker activity");
     }
 
     // Step 1: Review any completed subagent tasks
