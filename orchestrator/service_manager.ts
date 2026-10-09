@@ -30,7 +30,9 @@ export const SERVICE_DEFS: Record<string, { image: string; env: Record<string, s
   minio: {
     // Legacy alias of "s3" (kept for in-flight roadmaps). MinIO left Docker
     // Hub, so the S3 preset runs Adobe S3Mock (S3 API compatible).
-    image: "adobe/s3mock:latest",
+    // Pinned (never :latest): floating tags defeat layer caching and burn
+    // pull quota on every cold runner.
+    image: "adobe/s3mock:5.2.3",
     env: {
       S3_ENDPOINT: "http://localhost:9090",
       S3_ACCESS_KEY: "test",
@@ -41,7 +43,7 @@ export const SERVICE_DEFS: Record<string, { image: string; env: Record<string, s
     check: "",
   },
   s3: {
-    image: "adobe/s3mock:latest",
+    image: "adobe/s3mock:5.2.3",
     env: {
       S3_ENDPOINT: "http://localhost:9090",
       S3_ACCESS_KEY: "test",
@@ -132,7 +134,9 @@ export function renderComposeYaml(specs: ServiceSpec[]): string {
   const normalized = normalizeServices(specs);
   const blocks: string[] = [];
   for (const svc of normalized) {
-    const lines = [`  ${svc.name}:`, `    image: ${svc.image}`];
+    // pull_policy: missing — never re-pull a present image (quota saver on
+    // cold runners; tags are pinned so staleness is a non-issue).
+    const lines = [`  ${svc.name}:`, `    image: ${svc.image}`, `    pull_policy: missing`];
     if (svc.name === "postgres") {
       lines.push(`    environment:\n      POSTGRES_USER: postgres\n      POSTGRES_PASSWORD: postgres\n      POSTGRES_DB: app`);
     }

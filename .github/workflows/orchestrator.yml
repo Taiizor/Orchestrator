@@ -147,7 +147,17 @@ jobs:
             *) echo "Skipping service startup for action=$ACTION (no tests run)."; exit 0;;
           esac
           echo "Starting ephemeral CI services from $FILE..."
-          docker compose -f "$FILE" up -d --wait --wait-timeout 120
+          # Retry pulls: a transient registry blip must not kill the run.
+          ATTEMPT=0
+          until docker compose -f "$FILE" up -d --wait --wait-timeout 120; do
+            ATTEMPT=$((ATTEMPT + 1))
+            if [ "$ATTEMPT" -ge 3 ]; then
+              echo "Services failed to start after 3 attempts."
+              exit 1
+            fi
+            echo "Compose up failed (attempt $ATTEMPT/3) — retrying in 20s..."
+            sleep 20
+          done
           if [ -f "workspace/.services.env" ]; then
             cat "workspace/.services.env" >> "$GITHUB_ENV"
             echo "Service env exported."
