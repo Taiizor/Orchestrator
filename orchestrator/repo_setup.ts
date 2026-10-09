@@ -17,12 +17,13 @@ export interface RepoSetupReport {
  * (classic `repo` scope). GITHUB_TOKEN alone can only report.
  */
 export class RepoSetup {
-  /** Feature name -> repo settings key. (Pull requests have no off switch.) */
+  /** Feature name -> repo settings key. */
   private static readonly FEATURE_KEYS: Record<string, string> = {
     issues: "has_issues",
     wiki: "has_wiki",
     projects: "has_projects",
     discussions: "has_discussions",
+    pull_requests: "has_pull_requests",
   };
 
   /** Parse "issues,wiki" env into a validated set (unknown names ignored). */
@@ -45,8 +46,8 @@ export class RepoSetup {
    * fighting the owner. Single-repo: public needs everything.
    */
   public static defaultFeatures(which: "public" | "data"): string {
-    if (which === "data") return "discussions";
-    return GitManager.isDataMode() ? "issues,projects" : "issues,discussions,projects";
+    if (which === "data") return "discussions,pull_requests";
+    return GitManager.isDataMode() ? "issues,projects,pull_requests" : "issues,discussions,projects,pull_requests";
   }
 
   private static async runAs(cmd: string[], pat: string): Promise<{ stdout: string; stderr: string; exitCode: number }> {

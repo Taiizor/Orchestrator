@@ -293,7 +293,7 @@ To run this template as a **public** repo while keeping project content private:
    - **`DATA_PAT`** = classic PAT with `repo` scope (read/write on the data repo). Defaults to `GH_PROJECT_TOKEN` when empty.
    - **`DOCKERHUB_USERNAME`** + **`DOCKERHUB_TOKEN`** = optional single account; or **`DOCKERHUB_POOL`** = JSON array `[{"username":"u1","token":"t1"},...]` — runs spread pulls across accounts by run ID (pool wins when both set; anonymous pulls otherwise).
 5. *(Optional)* Feature toggles as repository **Variables** (Settings → Secrets and variables → Actions → Variables):
-   - `PUBLIC_FEATURES` (default `issues,discussions,projects`), `DATA_FEATURES` (default `discussions`) — comma lists from `issues|wiki|projects|discussions`. Enforced by `action=setup` or dashboard `/setup [public|data|all]`. (Pull requests have no off switch on GitHub.)
+   - `PUBLIC_FEATURES` (default `issues,discussions,projects`), `DATA_FEATURES` (default `discussions`) — comma lists from `issues|wiki|projects|discussions|pull_requests`. Enforced by `action=setup` or dashboard `/setup [public|data|all]`. (PRs are enforced on where the merge flow needs them.)
 4. `inputs/*` (except templates), `workspace/*` and `state/*` are `.gitignore`d here: CI materializes them from the data repo at runtime and publishes agent output back to data branches. Task branches and review **PRs live in the data repo**; issues/milestones/board stay public (titles + statuses only, bodies redacted), and the dashboard renders **redacted** (IDs/roles/statuses/dependencies, no titles or notes).
 
 Leave `DATA_REPO` empty for classic single-repo mode (everything in one repo).

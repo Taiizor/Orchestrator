@@ -135,7 +135,7 @@ export class IssueManager {
       `- \`/retry <TASK-ID>\`: Re-queue a failed or stuck task\n` +
       `- \`/status\`: Request an immediate status report comment\n` +
       `- \`/discuss <TASK-ID> "message"\`: Relay a message to the task's agent discussion thread\n` +
-      `- \`/setup [public|data|all]\`: Audit & repair repo features (issues/wiki/projects/discussions)\n` +
+      `- \`/setup [public|data|all]\`: Audit & repair repo features (issues/wiki/projects/discussions/pull-requests)\n` +
       `- \`/ask <question>\`: Answer from live roadmap state\n` +
       `- \`/add <role> "title" -- "description" [deps:A,B] [milestone:M]\`: Queue a validated PENDING task\n` +
       `- \`/log <TASK-ID>\`: Tail of recent subagent run logs\n` +

@@ -88,7 +88,7 @@ Human operators can steer, pause, or direct the autonomous team via GitHub Issue
 - `/retry <TASK-ID>`: Resets retry counter to 0 and re-queues a failed or stuck task.
 - `/status`: Generates an immediate real-time progress snapshot comment.
 - `/discuss <TASK-ID> "message"`: Relays a message to the task's agent discussion thread (`DiscussionManager`); the agent reads recent replies on its next attempt.
-- `/setup [public|data|all]`: Audits & repairs repo features (issues/wiki/projects/discussions) on the public and/or data repo.
+- `/setup [public|data|all]`: Audits & repairs repo features (issues/wiki/projects/discussions/pull-requests) on the public and/or data repo.
 - `/ask <question>`: Answers from live roadmap state (one LLM call, cited task IDs).
 - `/add <role> "title" -- "description" [deps:A,B] [milestone:M]`: Queues a DAG-validated PENDING task (issue/board sync next tick; no targetFiles scoping — planner normally assigns it).
 - `/log <TASK-ID>`: Tails recent subagent run logs for that task.

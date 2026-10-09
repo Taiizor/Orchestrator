@@ -24,9 +24,9 @@ export const CONFIG = {
   DATA_PAT: process.env.DATA_PAT || process.env.GH_PROJECT_TOKEN || "",
   DATA_REMOTE: "data",
   // Feature toggles for the setup action (comma lists from
-  // issues|wiki|projects|discussions). Empty = auto: RepoSetup picks
+  // issues|wiki|projects|discussions|pull_requests). Empty = auto: RepoSetup picks
   // topology-aware defaults (dual-repo public drops discussions).
-  // Pull requests have no off switch.
+  // Pull requests are enforced on (merge flow needs them on the data repo).
   PUBLIC_FEATURES: process.env.PUBLIC_FEATURES || "",
   DATA_FEATURES: process.env.DATA_FEATURES || "",
   // Extra logins always honored by ChatOps (besides repo collaborators
