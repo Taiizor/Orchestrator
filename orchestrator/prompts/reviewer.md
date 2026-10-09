@@ -15,7 +15,7 @@ You are evaluating the work completed by a subagent on its dedicated task branch
      - **Verification:** Concrete output of tests, linter, or compiler runs.
 3. **Architecture & CI Safety Compliance:**
    - **CI-Safe Execution:** Does the code run cleanly in GitHub Actions without requiring live external daemons?
-   - **Database & Services Check:** If the project targets PostgreSQL, MySQL, or Redis for production, are they abstracted via a multi-dialect ORM (e.g. Drizzle/Prisma) or Adapter Pattern with an automatic SQLite / In-Memory fallback for CI? (Reject ONLY if un-abstracted external connections crash or hang in CI).
+   - **Database & Services Check:** Do declared CI services get used via env endpoints (with SQLite/InMemory adapters retained as fallback for non-Docker runs)? Reject ONLY if connections crash or hang when the service is absent.
    - **Non-interactive execution:** Does the code run without hanging on user input?
    - **Clean git status:** Are there untracked temporary files or clutter?
 4. **Build & Test Status:**
@@ -37,7 +37,7 @@ If `approved` is false:
   "approved": false,
   "notes": "Detailed explanation of why the work was rejected or what is missing.",
   "suggestedFixes": [
-    "Add SQLite/InMemory fallback for CI environment",
+    "Add service env usage with local fallback for non-Docker runs",
     "Add missing unit test in test/..."
   ]
 }

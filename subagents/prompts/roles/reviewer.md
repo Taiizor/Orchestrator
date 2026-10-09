@@ -14,7 +14,7 @@ You are an autonomous **PR Reviewer** subagent. You review a task's pull request
 
 1. **Correctness:** Does the change do what the task description says? Are edge cases (empty input, expiry, concurrency, tenant isolation) handled?
 2. **Contracts:** If `src/api/**`, `src/db/**`, or `src/services/**` changed, is `workspace/CONTRACTS.md` updated to match?
-3. **CI safety:** No live external daemons required (SQLite/InMemory fallbacks present)? Parameterized queries? No secrets in diff?
+3. **CI safety:** Declared services used via env (fallbacks present for non-Docker runs)? Parameterized queries? No secrets in diff?
 4. **Tests:** Is there `bun test` evidence in `TASK_PROGRESS.md`? Do the tests actually cover the new behavior (not just placeholders)?
 5. **Cleanliness:** No debug leftovers, no dead code, no unrelated refactors.
 

@@ -27,4 +27,4 @@ Use when creating schemas, writing queries, or debugging locking in GitHub Actio
 4. **Queries:** always prepared statements with placeholders:
    - ✅ `db.query("SELECT * FROM tasks WHERE id = ?").get(taskId)`
    - ❌ NEVER: `` db.run(`DELETE FROM tasks WHERE id = '${taskId}'`) ``
-5. **Production parity:** schema code must run on SQLite in CI and migrate cleanly to PostgreSQL via the ORM (Drizzle/Prisma) — no raw dialect lock-in.
+5. **Fallback & parity:** this path serves SQLite-only projects and non-Docker runs; where an ORM is used, schema code must migrate cleanly to PostgreSQL (Drizzle/Prisma) — no raw dialect lock-in.

@@ -24,7 +24,7 @@ flowchart TD
     end
 
     subgraph Subagents["🛠️ 3. Parallel Execution (Up to 10 Subagents)"]
-        AgentA["Architect (SQLite Schema & Types)"]
+        AgentA["Architect (Schema, Types & Contracts)"]
         AgentB["Backend (REST APIs & Services)"]
         AgentC["Frontend (UI & State)"]
         TaskProg["workspace/TASK_PROGRESS.md\n(Done, Doing, Todo, Verification)"]
@@ -135,7 +135,7 @@ flowchart LR
 ### 2. 🛡️ Enterprise Security & Quality Gate
 Before any branch is merged into `develop`:
 - **Security Auditor ([`subagents/prompts/roles/security.md`](subagents/prompts/roles/security.md)):**  
-  Scans code for SQLite SQL Injection (enforcing prepared statements), secret/token leaks, path traversal, command injection, and resource exhaustion. Generates `workspace/SECURITY_AUDIT.md`.
+  Scans code for SQL injection (enforcing prepared statements), secret/token leaks, path traversal, command injection, and resource exhaustion. Generates `workspace/SECURITY_AUDIT.md`.
 - **SQLite Hardening (skill `sqlite-hardening`):**
   Enforces WAL mode (`PRAGMA journal_mode = WAL;`), 5000ms busy timeouts, and foreign keys for high CI concurrency.
 - **API Contracts (skill `api-contracts`), UI Conventions (skill `ui-conventions`), Test Evidence (skill `test-evidence`):**
@@ -206,7 +206,7 @@ You can steer, pause, or query the autonomous team directly from GitHub Issue co
 | Role | System Prompt | Primary Mission | Key Deliverables |
 | :--- | :--- | :--- | :--- |
 | **Orchestrator** | [`orchestrator/prompts/system.md`](orchestrator/prompts/system.md) | Plans roadmap, decomposes tasks, monitors execution, resolves conflicts, merges branches. | `state/roadmap.json`, `state/PROGRESS.md`, PR Merges |
-| **System Architect** | [`subagents/prompts/roles/architect.md`](subagents/prompts/roles/architect.md) | Initializes foundation, sets up SQLite schemas, shared TypeScript contracts. | `src/db/schema.ts`, `src/types/`, migrations |
+| **System Architect** | [`subagents/prompts/roles/architect.md`](subagents/prompts/roles/architect.md) | Initializes foundation, sets up service-backed data layer, shared TypeScript contracts. | `src/db/schema.ts`, `src/types/`, migrations |
 | **Backend Developer** | [`subagents/prompts/roles/backend.md`](subagents/prompts/roles/backend.md) | Implements REST APIs, controllers, services, and database queries. | `src/api/**`, `src/services/**`, unit tests |
 | **Frontend Developer**| [`subagents/prompts/roles/frontend.md`](subagents/prompts/roles/frontend.md) | Builds responsive UI, components, styling, and client-side state. | `src/ui/**`, client bundler configs |
 | **Mobile Developer**| [`subagents/prompts/roles/mobile.md`](subagents/prompts/roles/mobile.md) | Builds mobile features: offline-first, permissions, push, store readiness. | `src/mobile/**`, platform configs |
@@ -248,19 +248,19 @@ Orchestrator/
 │       └── conflict_resolver.md    # Conflict resolution prompt
 ├── subagents/
 │   ├── runner.ts                   # Subagent executor running OpenCode
-│   ├── skills/                     # Injected operational skill guides
-│   │   ├── security_scan.md        # Vulnerability detection checklist
-│   │   ├── sqlite_hardening.md     # WAL mode & query hardening
-│   │   └── code_review.md          # Code review rubric
 │   └── prompts/
-│       ├── base_agent.md           # Instructions for TASK_PROGRESS.md & SQLite
+│       ├── base_agent.md           # Instructions for TASK_PROGRESS.md & environment
 │       └── roles/                  # Role-specific system prompts
 │           ├── architect.md        # Database schema & project scaffolding
 │           ├── backend.md          # REST APIs & business logic
 │           ├── frontend.md         # UI components & styling
+│           ├── mobile.md           # Mobile features (offline-first, push, store)
 │           ├── qa.md               # Unit, integration & E2E tests
 │           ├── security.md         # Vulnerability & security auditor
+│           ├── reviewer.md         # PR review agent
 │           └── tracker.md          # Deliverables auditor & diff verifier
+├── .opencode/
+│   └── skills/                     # Native skills (24): craft + universal sets
 ├── state/
 │   ├── roadmap.json                # Master JSON DAG state
 │   └── PROGRESS.md                 # Auto-generated markdown progress board

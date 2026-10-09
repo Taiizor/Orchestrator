@@ -9,8 +9,8 @@ This document defines the rules, roles, constraints, quality gates, and inter-ag
 | Role | Name | Primary Mission | Key Deliverables | Scope Boundaries |
 | :--- | :--- | :--- | :--- | :--- |
 | **Orchestrator** | `orchestrator` | Plans roadmap DAG, decomposes tasks, monitors execution, reviews diffs, merges branches. | `state/roadmap.json`, `state/PROGRESS.md`, PR Merges, Releases | Does not write application code; oversees subagents. |
-| **System Architect** | `architect` | Initializes project foundation, sets up SQLite schemas, shared TypeScript contracts. | `workspace/package.json`, `workspace/src/db/schema.ts`, `workspace/CONTRACTS.md` | Focuses on foundation, types, and database initialization. |
-| **Backend Developer** | `backend` | Implements API endpoints, controllers, business services, and database queries. | `workspace/src/api/**`, `workspace/src/services/**`, unit tests | Strictly adheres to SQLite & updates `CONTRACTS.md`. |
+| **System Architect** | `architect` | Initializes project foundation, sets up service-backed data layer, shared TypeScript contracts. | `workspace/package.json`, `workspace/src/db/schema.ts`, `workspace/CONTRACTS.md` | Focuses on foundation, types, and database initialization. |
+| **Backend Developer** | `backend` | Implements API endpoints, controllers, business services, and database queries. | `workspace/src/api/**`, `workspace/src/services/**`, unit tests | Uses CI services via env (fallbacks retained) & updates `CONTRACTS.md`. |
 | **Frontend Developer**| `frontend` | Builds responsive UI, components, styling, and client-side state. | `workspace/src/ui/**`, client bundler configs, assets | Connects exclusively to documented backend contracts. |
 | **Mobile Developer**| `mobile` | Builds mobile features: offline-first, permissions, push, store readiness. | `workspace/src/mobile/**`, platform configs | Follows contracts; no hardcoded copy or secrets on device. |
 | **QA Engineer** | `qa` | Writes automated unit and integration tests using `bun test`. | `workspace/tests/**`, test execution logs | Focuses on test coverage, edge cases, and verification. |

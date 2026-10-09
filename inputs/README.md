@@ -9,4 +9,4 @@ Place all information and assets regarding the project you want the Orchestrator
 
 ## Tips for Best Results:
 1. **Be specific about features:** Clear acceptance criteria allow QA subagents to write accurate tests.
-2. **Remember CI Constraints:** The system automatically uses **SQLite** for any database requirements to ensure 100% compatibility with GitHub Actions.
+2. **Remember CI Services:** Declare infrastructure needs (PostgreSQL, Redis, Mongo, S3, or custom Docker services) in your spec — CI provisions real containers. Anything undeclared falls back to SQLite/InMemory adapters.
