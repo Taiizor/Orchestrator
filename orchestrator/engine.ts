@@ -247,8 +247,32 @@ export class OrchestratorEngine {
       const remote = CONFIG.DATA_REMOTE;
       const seedNeeded = !(await GitManager.remoteHasBranch(remote, CONFIG.INTEGRATION_BRANCH));
       if (seedNeeded) {
-        console.log(`🌱 Seeding ${remote}/${CONFIG.INTEGRATION_BRANCH} with template tree...`);
-        await GitManager.remoteGit(remote, ["push", remote, `HEAD:${CONFIG.INTEGRATION_BRANCH}`]);
+        // Seed a CLEAN product tree (workspace skeleton only) via plumbing —
+        // never the checkout HEAD (engine code). e69de29 is the well-known
+        // empty-blob SHA, so no workdir objects are needed and the tick
+        // checkout is untouched.
+        console.log(`🌱 Seeding ${remote}/${CONFIG.INTEGRATION_BRANCH} with a clean workspace baseline...`);
+        const mk = await GitManager.run(
+          ["git", "mktree"],
+          ".",
+          "100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391\tworkspace/.gitkeep\n"
+        );
+        const tree = mk.stdout.trim();
+        if (mk.exitCode !== 0 || !/^[0-9a-f]{40}$/.test(tree)) {
+          console.warn("⚠️ Seed tree creation failed; skipping develop seed (task forks will fail loudly instead).");
+        } else {
+          const ct = await GitManager.run([
+            "git", "-c", "user.name=github-actions[bot]", "-c", "user.email=github-actions[bot]@users.noreply.github.com",
+            "commit-tree", tree, "-m", "seed(data): clean workspace baseline",
+          ]);
+          const sha = ct.stdout.trim();
+          if (ct.exitCode !== 0 || !/^[0-9a-f]{40}$/.test(sha)) {
+            console.warn("⚠️ Seed commit creation failed; skipping develop seed.");
+          } else {
+            const push = await GitManager.remoteGit(remote, ["push", remote, `${sha}:refs/heads/${CONFIG.INTEGRATION_BRANCH}`]);
+            console.log(push.exitCode === 0 ? `🌱 Seeded ${remote}/${CONFIG.INTEGRATION_BRANCH} @ ${sha.slice(0, 7)}.` : `⚠️ Seed push failed: ${push.stderr.slice(0, 200)}`);
+          }
+        }
       } else {
         console.log(`ℹ️ Data branch ${remote}/${CONFIG.INTEGRATION_BRANCH} exists; leaving project data untouched.`);
       }
