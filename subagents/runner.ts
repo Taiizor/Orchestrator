@@ -102,10 +102,7 @@ async function main() {
   // tracked engine files from disk, breaking post-checkout imports and
   // prompt reads. Restore them (warn-only; index pollution is scrubbed
   // in publishTaskBranch before committing).
-  const eng = await GitManager.run(["git", "checkout", "origin/main", "--", "orchestrator", "subagents", ".opencode", "package.json"]);
-  if (eng.exitCode !== 0) {
-    console.warn(`⚠️ [${taskId}] engine file restore had issues:`, (eng.stdout + eng.stderr).slice(0, 300));
-  }
+  await GitManager.restoreEngineFiles();
   // Lineage guard (fail-closed): the workdir MUST descend from the content
   // integration branch. Never work on a broken fork — exit loudly so the
   // watchdog retries after lineage repair instead of producing unmergeable

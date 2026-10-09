@@ -387,6 +387,20 @@ export class GitManager {
   }
 
   /**
+   * Restore engine files (orchestrator/, subagents/, skills, manifest) from
+   * the public checkout after switching to a data-only branch. Data
+   * branches lack them, which breaks post-checkout dynamic imports and
+   * prompt reads (ENOENT). Warn-only; publish paths scrub the index so
+   * these never leak into data commits.
+   */
+  public static async restoreEngineFiles(): Promise<void> {
+    const eng = await this.run(["git", "checkout", "origin/main", "--", "orchestrator", "subagents", ".opencode", "package.json"]);
+    if (eng.exitCode !== 0) {
+      console.warn("⚠️ Engine file restore had issues:", (eng.stdout + eng.stderr).slice(0, 300));
+    }
+  }
+
+  /**
    * Merge task branch into integration branch cleanly.
    * Content push always targets the content remote (data repo in dual-repo
    * mode) — task/develop branches must never leak to the public origin.
@@ -394,8 +408,14 @@ export class GitManager {
   public static async mergeTaskBranch(taskBranch: string, targetBranch: string, commitMsg: string): Promise<boolean> {
     await this.fetchAll();
     const remote = this.contentRemote();
+    // Import the resolver BEFORE switching branches: afterwards the workdir
+    // holds a data-only tree and the module file is unreachable (ENOENT).
+    const { ConflictResolver } = await import("./conflict_resolver.ts");
+    // Remember where we are so the tick workdir is left intact afterwards.
+    const startRef = (await this.run(["git", "branch", "--show-current"])).stdout.trim() || "main";
     // Ensure local target tracks the content remote's integration branch
     await this.run(["git", "checkout", "-B", targetBranch, `${remote}/${targetBranch}`]);
+    await this.restoreEngineFiles();
     await this.remoteGit(remote, ["pull", remote, targetBranch]);
 
     const mergeRes = await this.run(["git", "merge", "--no-ff", `${remote}/${taskBranch}`, "-m", commitMsg]);
@@ -404,7 +424,6 @@ export class GitManager {
         `⚠️ Merge conflict detected when merging ${taskBranch} into ${targetBranch}. Invoking AI Conflict Resolver...`
       );
 
-      const { ConflictResolver } = await import("./conflict_resolver.ts");
       const resolved = await ConflictResolver.resolveConflicts();
 
       if (resolved) {
@@ -413,11 +432,13 @@ export class GitManager {
       } else {
         console.error(`❌ Automated conflict resolution could not resolve ${taskBranch} safely. Aborting merge.`);
         await this.run(["git", "merge", "--abort"]);
+        await this.run(["git", "checkout", startRef]);
         return false;
       }
     }
 
     const pushRes = await this.remoteGit(remote, ["push", remote, targetBranch]);
+    await this.run(["git", "checkout", startRef]);
     return pushRes.exitCode === 0;
   }
 

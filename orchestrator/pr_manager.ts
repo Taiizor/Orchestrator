@@ -16,6 +16,20 @@ export interface TaskPR {
  */
 export class PRManager {
   /**
+   * gh invocation for board/PR ops. In dual-repo mode the data repo is
+   * private: ambient GITHUB_TOKEN cannot even resolve it
+   * ("Could not resolve to a Repository"), so every call runs under the
+   * data PAT (same pattern as RepoSetup).
+   */
+  private static gh(args: string[]) {
+    if (GitManager.isDataMode()) {
+      const pat = GitManager.dataPat();
+      if (pat) return GitManager.run(args, ".", undefined, { GH_TOKEN: pat, GITHUB_TOKEN: pat });
+    }
+    return GitManager.run(args);
+  }
+
+  /**
    * Extra gh flags targeting the data repo in dual-repo mode, so review
    * PRs live privately. Empty in single-repo mode (current repo default).
    */
@@ -26,7 +40,7 @@ export class PRManager {
 
   /** Open PR for a head branch, if any. */
   public static async getOpenPR(branch: string): Promise<TaskPR | null> {
-    const res = await GitManager.run([
+    const res = await this.gh([
       "gh",
       "pr",
       "list",
@@ -62,7 +76,7 @@ export class PRManager {
       `**Target files:** \`${(task.targetFiles || []).join(", ")}\`\n\n` +
       `---\n*Opened by the Orchestrator after deterministic gate + reviewer approval.*`;
     console.log(`🔀 Opening PR ${task.branch} → ${target}...`);
-    const res = await GitManager.run([
+    const res = await this.gh([
       "gh",
       "pr",
       "create",
@@ -94,7 +108,7 @@ export class PRManager {
   }
 
   public static async postReviewComment(prNumber: number, body: string): Promise<void> {
-    await GitManager.run(["gh", "pr", "comment", String(prNumber), ...this.repoFlag(), "--body", body]);
+    await this.gh(["gh", "pr", "comment", String(prNumber), ...this.repoFlag(), "--body", body]);
   }
 
   /**
@@ -103,7 +117,7 @@ export class PRManager {
    * local merge + AI conflict resolver instead.
    */
   public static async mergeTaskPR(prNumber: number): Promise<boolean> {
-    const res = await GitManager.run([
+    const res = await this.gh([
       "gh",
       "pr",
       "merge",
