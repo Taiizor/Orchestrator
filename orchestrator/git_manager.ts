@@ -206,13 +206,19 @@ export class GitManager {
     if (!this.isDataMode()) return true;
     const remote = CONFIG.DATA_REMOTE;
     const candidates = [branch, CONFIG.INTEGRATION_BRANCH, CONFIG.BASE_BRANCH];
+    let synced = false;
     for (const ref of candidates) {
       await this.remoteGit(remote, ["fetch", remote, ref]);
-      const res = await this.run(["git", "checkout", `${remote}/${ref}`, "--", ...paths]);
-      if (res.exitCode === 0) {
-        console.log(`📥 Synced ${paths.join(", ")} from ${remote}/${ref}.`);
-        return true;
+      // Checkout paths individually: a data branch may legitimately lack
+      // some of them (e.g. inputs-only seed without workspace/ yet).
+      for (const p of paths) {
+        const res = await this.run(["git", "checkout", `${remote}/${ref}`, "--", p]);
+        if (res.exitCode === 0) {
+          console.log(`📥 Synced ${p} from ${remote}/${ref}.`);
+          synced = true;
+        }
       }
+      if (synced) return true;
     }
     console.log(`ℹ️ No data content found on ${remote} yet (fresh data repo?) — using local templates.`);
     return false;
