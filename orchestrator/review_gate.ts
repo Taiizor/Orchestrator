@@ -74,6 +74,10 @@ function isAllowedFile(task: TaskItem, file: string): boolean {
   // Always allow the task's own progress report and shared contracts updates
   if (file === "workspace/TASK_PROGRESS.md") return true;
   if (file === "workspace/CONTRACTS.md") return true;
+  // Runner-rendered CI artifacts (deterministic, regenerable): never scope
+  // violations, even when legacy publishes committed them onto old branches.
+  if (file === "workspace/.services.env") return true;
+  if (file === "workspace/docker-compose.services.yml") return true;
   // Empty directory placeholders are legitimate scaffolding, not scope creep
   if (file.endsWith("/.gitkeep") || file === ".gitkeep") return true;
   if (file.startsWith("state/")) return false; // state files must only change via orchestrator
