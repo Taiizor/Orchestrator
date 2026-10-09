@@ -439,14 +439,37 @@ export class GitManager {
     // additions the data branch must never absorb. Only inputs/workspace
     // travel in the publish commit.
     await this.run(["git", "reset", "-q"]);
-    await this.run(["git", "add", "-f", CONFIG.INPUTS_DIR, CONFIG.WORKSPACE_DIR]);
+    // Add paths SEPARATELY: one missing path must not nuke the other
+    // (a single `add` fails atomically, which once published NOTHING while
+    // reporting success downstream).
+    for (const p of [CONFIG.INPUTS_DIR, CONFIG.WORKSPACE_DIR]) {
+      const a = await this.run(["git", "add", "-f", p]);
+      if (a.exitCode !== 0) {
+        console.warn(`⚠️ git add -f ${p} failed:`, (a.stdout + a.stderr).slice(0, 300));
+      }
+    }
     // Never publish dependency trees: `add -f` overrides gitignore, and an
     // agent-side `bun install` inside workspace/ would otherwise commit
     // thousands of node_modules files (broke diffs, reviews and merges).
     await this.run(["git", "reset", "-q", `${CONFIG.WORKSPACE_DIR}/node_modules`]);
+    const staged = await this.run(["git", "diff", "--cached", "--name-only"]);
+    const files = staged.stdout.split("\n").map((f) => f.trim()).filter(Boolean);
+    if (files.length === 0) {
+      // Empty stage: either a no-op republish (branch already carries work)
+      // or an agent that produced nothing. Only the former is success.
+      const unique = await this.branchUniqueCommits(branch, CONFIG.INTEGRATION_BRANCH);
+      if (unique > 0) {
+        console.log(`ℹ️ Nothing new to publish on ${branch} (work already on branch).`);
+        return true;
+      }
+      console.error(`❌ Nothing staged for publish on ${branch}: agent produced no committable output.`);
+      return false;
+    }
+    console.log(`📦 Publishing ${files.length} files to ${branch}.`);
     const commitRes = await this.run(["git", "commit", "-m", commitMsg]);
-    if (commitRes.exitCode !== 0 && !/nothing to commit/i.test(commitRes.stdout + commitRes.stderr)) {
+    if (commitRes.exitCode !== 0) {
       console.warn("Data commit output:", commitRes.stdout || commitRes.stderr);
+      return false;
     }
     const remote = this.contentRemote();
     const pushRes = await this.remoteGit(remote, ["push", "-u", remote, `HEAD:${branch}`]);
