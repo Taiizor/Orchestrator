@@ -91,12 +91,15 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Ensure develop / integration branch exists
+          # Ensure develop / integration branch exists (single-repo only;
+          # in dual-repo mode content branches live in the data repo)
+          if [ -z "${DATA_REPO}" ]; then
           if ! git rev-parse --verify origin/develop >/dev/null 2>&1; then
             echo "Creating integration branch 'develop'..."
             git checkout -b develop
             git push origin develop
             git checkout main
+          fi
           fi
 
       - name: 🐳 Start Project Services (if declared)

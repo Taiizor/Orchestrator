@@ -2,13 +2,16 @@ import { CONFIG } from "./config.ts";
 
 export class GitManager {
   /**
-   * Run a shell command via Bun.spawn
+   * Run a shell command via Bun.spawn.
+   * timeoutMs > 0 kills the process group on expiry (returns exitCode 124
+   * with a marker) so hung CLIs can never stall a tick forever.
    */
   public static async run(
     cmd: string[],
     cwd = ".",
     input?: string,
-    envOverrides?: Record<string, string>
+    envOverrides?: Record<string, string>,
+    timeoutMs = 0
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
     try {
       const options: any = {
@@ -23,13 +26,49 @@ export class GitManager {
         options.stdin = new Response(input).body;
       }
       const proc = Bun.spawn(cmd, options);
+      let timedOut = false;
+      const timer =
+        timeoutMs > 0
+          ? setTimeout(() => {
+              timedOut = true;
+              try {
+                proc.kill();
+              } catch {
+                // already exited
+              }
+            }, timeoutMs)
+          : undefined;
       const stdout = await new Response(proc.stdout).text();
       const stderr = await new Response(proc.stderr).text();
       const exitCode = await proc.exited;
+      if (timer) clearTimeout(timer);
+      if (timedOut) {
+        return {
+          stdout: stdout.trim(),
+          stderr: (stderr.trim() + `\n[TIMEOUT after ${timeoutMs}ms: ${cmd[0]}]`).trim(),
+          exitCode: 124,
+        };
+      }
       return { stdout: stdout.trim(), stderr: stderr.trim(), exitCode };
     } catch (err: any) {
       return { stdout: "", stderr: err?.message || String(err), exitCode: 1 };
     }
+  }
+
+  /**
+   * Last-commit timestamp (ms) of a content branch tip, or -1 when the
+   * branch/ref is unknown. Used by the watchdog to tell live workers
+   * (fresh pushes) from dead ones.
+   */
+  public static async branchTipTime(branchName: string): Promise<number> {
+    const remote = this.contentRemote();
+    for (const ref of [`${remote}/${branchName}`, branchName]) {
+      const res = await this.run(["git", "log", "-1", "--format=%ct", ref]);
+      if (res.exitCode === 0 && /^\d+$/.test(res.stdout.trim())) {
+        return parseInt(res.stdout.trim(), 10) * 1000;
+      }
+    }
+    return -1;
   }
 
   /**

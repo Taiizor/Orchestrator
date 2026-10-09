@@ -10,7 +10,9 @@ export interface OpenCodeRunResult {
 
 export class OpenCodeClient {
   /**
-   * Extract text chunks from OpenCode JSON event stream or fallback to raw stdout
+   * Extract text chunks from OpenCode JSON event stream or fallback to raw stdout.
+   * Accepts text/message/content/delta/part event shapes; unknown shapes fall
+   * through to the raw-output fallback so format drift degrades, not breaks.
    */
   public static extractText(rawStdout: string): string {
     const lines = rawStdout.split(/\r?\n/);
@@ -22,10 +24,34 @@ export class OpenCodeClient {
       if (!trimmed.startsWith("{")) continue;
       try {
         const event = JSON.parse(trimmed);
+        const type = String(event?.type || "").toLowerCase();
+        const isTextual =
+          type.includes("text") ||
+          type.includes("message") ||
+          type.includes("content") ||
+          type.includes("delta") ||
+          type.includes("part");
+        if (!isTextual) continue;
         const part = event?.part;
-        if (event?.type === "text" && typeof part?.text === "string") {
+        if (part && typeof part.text === "string") {
           chunks.push(part.text);
           hasJsonEvents = true;
+        } else if (typeof event?.delta === "string") {
+          chunks.push(event.delta);
+          hasJsonEvents = true;
+        } else if (typeof event?.text === "string") {
+          chunks.push(event.text);
+          hasJsonEvents = true;
+        } else if (typeof event?.content === "string") {
+          chunks.push(event.content);
+          hasJsonEvents = true;
+        } else if (Array.isArray(event?.content)) {
+          for (const block of event.content) {
+            if (block && typeof block.text === "string") {
+              chunks.push(block.text);
+              hasJsonEvents = true;
+            }
+          }
         }
       } catch {
         // Not a JSON event line, ignore
@@ -38,6 +64,9 @@ export class OpenCodeClient {
 
     return rawStdout.trim();
   }
+
+  /** Default per-call model budget (ms) when the caller passes none. */
+  public static readonly DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 
   /**
    * Parse "provider/model#variant" into { model, variant }.
@@ -83,7 +112,7 @@ export class OpenCodeClient {
    */
   public static async runWithFallback(
     prompt: string,
-    options?: { preferredModel?: string; preferredVariant?: string }
+    options?: { preferredModel?: string; preferredVariant?: string; timeoutMs?: number }
   ): Promise<OpenCodeRunResult> {
     const candidateModels: { model: string; variant?: string }[] = [];
 
@@ -122,8 +151,9 @@ export class OpenCodeClient {
       const label = OpenCodeClient.displaySpec(spec);
       console.log(`🤖 [OpenCode] Attempting execution with model (${i + 1}/${candidateModels.length}): ${label}...`);
 
+      const timeoutMs = options?.timeoutMs ?? OpenCodeClient.DEFAULT_TIMEOUT_MS;
       const cmd = OpenCodeClient.buildCommand(spec);
-      const res = await GitManager.run(cmd, ".", prompt);
+      const res = await GitManager.run(cmd, ".", prompt, undefined, timeoutMs);
 
       const parsedStdout = OpenCodeClient.extractText(res.stdout);
       const hasContent = parsedStdout.length > 0;
@@ -154,7 +184,9 @@ export class OpenCodeClient {
         const retryRes = await GitManager.run(
           OpenCodeClient.buildCommand({ model: spec.model }),
           ".",
-          prompt
+          prompt,
+          undefined,
+          options?.timeoutMs ?? OpenCodeClient.DEFAULT_TIMEOUT_MS
         );
         const retryParsed = OpenCodeClient.extractText(retryRes.stdout);
         if (retryRes.exitCode === 0 && retryParsed.length > 0) {
@@ -188,7 +220,13 @@ export class OpenCodeClient {
     // Last resort attempt: run without specifying --model flag
     console.log("🔄 [OpenCode] Attempting last-resort execution without explicit --model flag...");
     const fallbackCmd = ["opencode", "run", "--format", "json"];
-    const defaultRes = await GitManager.run(fallbackCmd, ".", prompt);
+    const defaultRes = await GitManager.run(
+      fallbackCmd,
+      ".",
+      prompt,
+      undefined,
+      options?.timeoutMs ?? OpenCodeClient.DEFAULT_TIMEOUT_MS
+    );
     const parsedDefault = OpenCodeClient.extractText(defaultRes.stdout);
     if (defaultRes.exitCode === 0 && parsedDefault.length > 0) {
       return {

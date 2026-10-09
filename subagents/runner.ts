@@ -198,7 +198,7 @@ async function main() {
 
   console.log(`⚡ Running OpenCode CLI for ${task.id} with fallback chain...`);
 
-  const res = await OpenCodeClient.runWithFallback(prompt);
+  const res = await OpenCodeClient.runWithFallback(prompt, { timeoutMs: 30 * 60 * 1000 });
   console.log("OpenCode Output Summary:", res.stdout ? res.stdout.slice(-1000) : "No stdout");
   if (res.exitCode !== 0) {
     console.error("OpenCode process exited with error:", res.stderr);

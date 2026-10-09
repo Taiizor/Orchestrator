@@ -12,9 +12,9 @@ export const CONFIG = {
   // Dual-repo mode (public skeleton + private data).
   // When DATA_REPO is set ("owner/name" or full https URL), the content
   // branches (task/*, develop) live in the PRIVATE data repo while this
-  // public repo keeps engine code + state/roadmap only. inputs/ and
-  // workspace/ are runtime-synced from the data repo and never committed
-  // here. Empty DATA_REPO = legacy single-repo mode.
+  // public repo keeps engine code only. inputs/, workspace/ and state/ are
+  // runtime-synced from the data repo and never committed here.
+  // Empty DATA_REPO = legacy single-repo mode (state/roadmap on main).
   DATA_REPO: process.env.DATA_REPO || "",
   DATA_PAT: process.env.DATA_PAT || process.env.GH_PROJECT_TOKEN || "",
   DATA_REMOTE: "data",

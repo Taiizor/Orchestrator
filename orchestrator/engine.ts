@@ -85,7 +85,7 @@ export class OrchestratorEngine {
     // =========================================================================
     // STAGE 1: Requirements Analyst (Synthesize inputs into COMPILED_SPEC.md)
     // =========================================================================
-    console.log("🧐 [Stage 1/2] Running Requirements Analyst to synthesize inputs into canonical specification...");
+    console.log("🧐 [Stage 1/3] Running Requirements Analyst to synthesize inputs into canonical specification...");
     let compiledSpecContent = "";
 
     const analystPromptPath = "orchestrator/prompts/analyst.md";
@@ -93,7 +93,7 @@ export class OrchestratorEngine {
       const analystPromptTemplate = await Bun.file(analystPromptPath).text();
       const analystPrompt = `${systemPrompt}\n\n${analystPromptTemplate}\n\n${fullInputContext}\nSynthesize all inputs into the canonical specification (state/COMPILED_SPEC.md) now:`;
       
-      const analystRes = await OpenCodeClient.runWithFallback(analystPrompt);
+      const analystRes = await OpenCodeClient.runWithFallback(analystPrompt, { timeoutMs: 10 * 60 * 1000 });
       if (analystRes.exitCode === 0 && analystRes.stdout.trim()) {
         compiledSpecContent = analystRes.stdout.trim();
         // Remove markdown code block wrappers if any
@@ -117,7 +117,7 @@ export class OrchestratorEngine {
         ? `## Synthesized Project Specification:\n${compiledSpecContent.slice(0, 12000)}`
         : fullInputContext.slice(0, 12000);
       const forgerPrompt = `${systemPrompt}\n\n${forgerTemplate}\n\n${forgerContext}\n\nWrite the skill files now (reply with a one-line summary per file written, or "NO_NEW_SKILLS"):`;
-      const forgerRes = await OpenCodeClient.runWithFallback(forgerPrompt);
+      const forgerRes = await OpenCodeClient.runWithFallback(forgerPrompt, { timeoutMs: 10 * 60 * 1000 });
       console.log("🛠️ Forger summary:", (forgerRes.stdout || "(no output)").slice(-500));
       await this.collectForgedSkills();
     } catch (err) {
@@ -136,7 +136,7 @@ export class OrchestratorEngine {
 
     const fullPrompt = `${systemPrompt}\n\n${plannerPrompt}\n\n${specContext}\nGenerate the complete roadmap JSON now:`;
 
-    const res = await OpenCodeClient.runWithFallback(fullPrompt);
+    const res = await OpenCodeClient.runWithFallback(fullPrompt, { timeoutMs: 10 * 60 * 1000 });
 
     // Parse JSON block from OpenCode output
     let roadmapData: Roadmap | null = null;
@@ -161,7 +161,7 @@ export class OrchestratorEngine {
             targetFiles: t.targetFiles || [],
             milestone: t.milestone || (raw.milestones?.[0]?.title ?? "v0.1.0 - Foundation"),
             status: "PENDING",
-            branch: t.branch || `task/${t.id || `TASK-${idx + 1}`}`,
+            branch: t.branch || `task/${t.id || `TASK-${String(idx + 1).padStart(3, "0")}`}`,
             attempts: 0,
             maxAttempts: CONFIG.MAX_TASK_ATTEMPTS,
             createdAt: new Date().toISOString(),
@@ -242,6 +242,9 @@ export class OrchestratorEngine {
 
     // Dispatch initial batch of independent tasks (now they have the committed state available!)
     await this.dispatchReadyTasks(roadmapData);
+    // Persist dispatch markings (IN_PROGRESS/dispatchedAt) so the next tick
+    // doesn't re-dispatch the same tasks.
+    await this.persistRoadmap(roadmapData, "chore(orchestrator): initial dispatch");
   }
 
   /**
@@ -279,9 +282,7 @@ export class OrchestratorEngine {
       }
     } catch { /* no skills directory */ }
     if (valid.length > 0) {
-      await GitManager.run(["git", "add", "inputs/skills"]);
-      await GitManager.run(["git", "commit", "-m", `chore(plan): forged project skills (${valid.join(", ")})`]);
-      console.log(`✅ Collected forged skills: ${valid.join(", ")}`);
+      console.log(`✅ Collected forged skills: ${valid.join(",")} (committed via persist paths).`);
     } else {
       console.log("ℹ️ No new project skills forged.");
     }
@@ -421,7 +422,7 @@ export class OrchestratorEngine {
         `### Git Diff:\n\`\`\`diff\n${diff.slice(0, 10000)}\n\`\`\`\n\n` +
         `Evaluate whether to approve or reject this work:`;
 
-      const res = await OpenCodeClient.runWithFallback(reviewPrompt);
+      const res = await OpenCodeClient.runWithFallback(reviewPrompt, { timeoutMs: 8 * 60 * 1000 });
 
       // Robust JSON parse: fenced block, then largest {...} span. Default REJECT on garbage.
       let reviewResult: ReviewResult | null = null;
@@ -531,8 +532,9 @@ export class OrchestratorEngine {
    * COMPLETED flag). On rebase conflict the remote copy is field-merged
    * with ours (terminal states win) instead of aborting and losing updates.
    */
-  private static async persistRoadmap(roadmap: Roadmap, message: string): Promise<void> {
-    const files = [CONFIG.ROADMAP_FILE, CONFIG.PROGRESS_MD_FILE, CONFIG.COMPILED_SPEC_FILE];
+  public static async persistRoadmap(roadmap: Roadmap, message: string): Promise<void> {
+    // Forged/hand-added project skills travel with state (tracked files).
+    const files = [CONFIG.ROADMAP_FILE, CONFIG.PROGRESS_MD_FILE, CONFIG.COMPILED_SPEC_FILE, "inputs/skills"];
     // Dual-repo: state is private — commit force-added state files onto a
     // local data-state branch tracking data/main, push there. Public main
     // only ever carries engine code (humans).
@@ -742,40 +744,52 @@ export class OrchestratorEngine {
       await StateManager.saveRoadmap(roadmap);
     }
 
-    // Step 0.5: Observe active subagent runs & watchdog monitoring
-    // Stale runs (older than STALE_RUN_TIMEOUT_MINUTES) are cancelled and re-queued.
+    // Step 0.5: Observe active subagent runs & watchdog monitoring.
+    // Half 1 cancels runs older than the stale timeout. Half 2 recovers
+    // tasks whose runs died without a trace (job timeout kills, preemption).
+    // NOTE: subagent workflow runs execute on main, so run.headBranch NEVER
+    // equals a task branch — correlation is by dispatchedAt age + branch-tip
+    // freshness, never by branch-name matching.
     const activeRuns = await GitManager.getActiveSubagentRuns();
+    const now = Date.now();
+    const staleMs = CONFIG.STALE_RUN_TIMEOUT_MINUTES * 60 * 1000;
     if (activeRuns.length > 0) {
       console.log(`👀 Observing ${activeRuns.length} active subagent runs in GitHub Actions:`);
       for (const run of activeRuns) {
         console.log(`   - Run #${run.databaseId}: ${run.name} [${run.status}] on ${run.headBranch}`);
       }
-      const now = Date.now();
-      const staleMs = CONFIG.STALE_RUN_TIMEOUT_MINUTES * 60 * 1000;
       for (const run of activeRuns) {
         const started = run.createdAt ? Date.parse(run.createdAt) : NaN;
         if (Number.isNaN(started) || now - started < staleMs) continue;
-        const staleTask = roadmap.tasks.find(
-          (t) => t.branch === run.headBranch && (t.status === "IN_PROGRESS" || t.status === "IN_REVIEW")
-        );
-        // Cross-check with task-level dispatchedAt to avoid killing a freshly re-dispatched run
-        // that reuses the same branch name.
-        if (staleTask?.dispatchedAt) {
-          const ageMs = now - Date.parse(staleTask.dispatchedAt);
-          if (ageMs < staleMs) continue;
-        }
-        console.warn(`⏰ Watchdog: run #${run.databaseId} on ${run.headBranch} is stale (> ${CONFIG.STALE_RUN_TIMEOUT_MINUTES}m). Cancelling...`);
-        const cancelled = await GitManager.cancelWorkflowRun(run.databaseId);
-        if (cancelled && staleTask) {
-          staleTask.status = "PENDING";
-          staleTask.reviewNotes = `Watchdog: stale run #${run.databaseId} cancelled after ${CONFIG.STALE_RUN_TIMEOUT_MINUTES}m without completion. Re-queued.`;
-          staleTask.updatedAt = new Date().toISOString();
-          await StateManager.saveRoadmap(roadmap);
-          if (roadmap.projectNumber) {
-            await ProjectManager.updateItemStatus(roadmap.projectNumber, staleTask, "Todo");
-            await ProjectManager.postTaskProgressComment(staleTask, `⏰ **Watchdog:** Stale run cancelled, task re-queued.`);
-          }
-        }
+        console.warn(`⏰ Watchdog: cancelling stale run #${run.databaseId} (>${CONFIG.STALE_RUN_TIMEOUT_MINUTES}m old)...`);
+        await GitManager.cancelWorkflowRun(run.databaseId);
+      }
+    }
+    // Dead-task recovery: IN_PROGRESS + old dispatch + stale branch tip means
+    // no live worker (a live one was dispatched recently or pushed recently).
+    // Skipped while any run is active AND the tip is unknown (queued dispatch
+    // may not have pushed yet). Bounded by attempts → FAILED, never infinite.
+    for (const task of roadmap.tasks) {
+      if (task.status !== "IN_PROGRESS" || !task.dispatchedAt) continue;
+      const dispAge = now - Date.parse(task.dispatchedAt);
+      if (Number.isNaN(dispAge) || dispAge < staleMs) continue;
+      const tip = await GitManager.branchTipTime(task.branch);
+      if (tip < 0 && activeRuns.length > 0) continue;
+      if (tip >= 0 && now - tip < staleMs) continue;
+      task.attempts += 1;
+      if (task.attempts >= task.maxAttempts) {
+        task.status = "FAILED";
+        console.error(`❌ [${task.id}] no worker activity for >${CONFIG.STALE_RUN_TIMEOUT_MINUTES}m after ${task.attempts} attempts. Marked FAILED.`);
+        task.reviewNotes = `Watchdog: dead run suspected (no push activity); max attempts reached.`;
+      } else {
+        task.status = "PENDING";
+        console.warn(`⏰ Watchdog: [${task.id}] no worker activity; re-queued (${task.attempts}/${task.maxAttempts}).`);
+        task.reviewNotes = `Watchdog: stale/dead run suspected; re-queued. Previous notes preserved below.\n${task.reviewNotes || ""}`;
+      }
+      task.updatedAt = new Date().toISOString();
+      if (roadmap.projectNumber) {
+        await ProjectManager.updateItemStatus(roadmap.projectNumber, task, "Todo");
+        await ProjectManager.postTaskProgressComment(task, `⏰ **Watchdog:** No worker activity detected; task re-queued (${task.attempts}/${task.maxAttempts}).`);
       }
     }
 
@@ -861,7 +875,10 @@ async function main() {
       break;
     case "review": {
       const roadmap = await StateManager.loadRoadmap();
-      if (roadmap) await OrchestratorEngine.reviewTasks(roadmap);
+      if (roadmap) {
+        await OrchestratorEngine.reviewTasks(roadmap);
+        await OrchestratorEngine.persistRoadmap(roadmap, "chore(orchestrator): review pass");
+      }
       break;
     }
     case "project": {

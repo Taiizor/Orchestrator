@@ -29,7 +29,7 @@ export class ConflictResolver {
 
       const prompt = `${promptTemplate}\n\nFile Path: ${filePath}\n\nConflicted Content:\n\`\`\`\n${fileContent}\n\`\`\`\n\nProvide the resolved file content now:`;
 
-      const aiRes = await OpenCodeClient.runWithFallback(prompt);
+      const aiRes = await OpenCodeClient.runWithFallback(prompt, { timeoutMs: 8 * 60 * 1000 });
 
       // Extract resolved content from markdown code block
       const codeBlockMatch = aiRes.stdout.match(/```(?:[a-zA-Z0-9_\-]+)?\n([\s\S]*?)```/);

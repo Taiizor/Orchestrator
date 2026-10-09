@@ -360,7 +360,8 @@ export class IssueManager {
             (t.reviewNotes ? ` | notes: ${t.reviewNotes.slice(0, 200)}` : "")
           ).join("\n");
           const answer = await OpenCodeClient.runWithFallback(
-            `You are the orchestrator of an autonomous coding team. Answer the operator's question using ONLY the live roadmap below. Be concise, cite task IDs.\n\nRoadmap (${roadmap.projectName}, ${roadmap.globalStatus}):\n${digest}\n\nOperator question: ${question}`
+            `You are the orchestrator of an autonomous coding team. Answer the operator's question using ONLY the live roadmap below. Be concise, cite task IDs.\n\nRoadmap (${roadmap.projectName}, ${roadmap.globalStatus}):\n${digest}\n\nOperator question: ${question}`,
+            { timeoutMs: 4 * 60 * 1000 }
           );
           const text = answer.stdout.trim().slice(0, 3000) || "(empty model response)";
           await this.acknowledgeComment(dashboardNumber, commentId, `❓ **Answer:**\n\n${text}`);
