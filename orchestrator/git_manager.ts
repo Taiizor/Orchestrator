@@ -451,7 +451,10 @@ export class GitManager {
     // Never publish dependency trees: `add -f` overrides gitignore, and an
     // agent-side `bun install` inside workspace/ would otherwise commit
     // thousands of node_modules files (broke diffs, reviews and merges).
+    // Same for `.services.env`: per-run rendered CI endpoints, regenerable
+    // every run — committing it only adds diff noise and scope-gate hits.
     await this.run(["git", "reset", "-q", `${CONFIG.WORKSPACE_DIR}/node_modules`]);
+    await this.run(["git", "reset", "-q", `${CONFIG.WORKSPACE_DIR}/.services.env`]);
     const staged = await this.run(["git", "diff", "--cached", "--name-only"]);
     const files = staged.stdout.split("\n").map((f) => f.trim()).filter(Boolean);
     if (files.length === 0) {
