@@ -27,7 +27,7 @@ Every subagent MUST adhere to these environmental rules:
    - NEVER invoke `node`, `npm`, `npx`, `pnpm`, or `yarn`.
    - Always run commands via `bun run`, `bun test`, `bun add`, or `bunx`.
 2. **Services-First CI Execution (Docker-backed) with Adapter Fallback:**
-   - **Real Services in CI:** GitHub runners provide Docker. When the roadmap declares `services` (`postgres`/`redis`/`mongo`/`minio`), the workflow starts them from the generated `workspace/docker-compose.services.yml` before any agent runs. Connect via the fixed CI endpoints (`DATABASE_URL`, `REDIS_URL`, `MONGO_URL`, `S3_*` — see `container-services` skill).
+   - **Real Services in CI:** GitHub runners provide Docker. When the roadmap declares `services` (presets `postgres`/`redis`/`mongo`/`minio`, or full custom `{name, image, env?, ports?}` definitions), the workflow starts them from the generated `workspace/docker-compose.services.yml` before any agent runs. Connect via env endpoints (`DATABASE_URL`, `REDIS_URL`, `MONGO_URL`, `S3_*`, plus custom `env` — see `container-services` skill).
    - **Data Is Ephemeral:** containers reset every run. Seed fixtures inside tasks/tests; never assume pre-existing rows, buckets, or keys.
    - **Adapter Fallback Retained:** keep SQLite/InMemory fallback paths for runs without Docker (local dev). CI targets real services first.
    - **Production:** same env names, secret-managed values; MinIO speaks S3, so code also runs on R2/AWS unchanged.
