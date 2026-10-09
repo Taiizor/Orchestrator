@@ -1,4 +1,5 @@
 name: 🛠️ Subagent Worker
+run-name: "Subagent: ${{ inputs.taskId }} (${{ inputs.role }})"
 
 on:
   workflow_dispatch:

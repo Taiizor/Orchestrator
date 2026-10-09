@@ -349,7 +349,7 @@ export class OrchestratorEngine {
    * Action: Review tasks waiting in IN_REVIEW
    */
   /** True when a milestone has tasks and all are COMPLETED (reopen guard). */
-  private static isMilestoneComplete(roadmap: Roadmap, title: string): boolean {
+  public static isMilestoneComplete(roadmap: Roadmap, title: string): boolean {
     const ts = roadmap.tasks.filter((t) => t.milestone === title);
     return ts.length > 0 && ts.every((t) => t.status === "COMPLETED");
   }
@@ -429,7 +429,7 @@ export class OrchestratorEngine {
               // (uniqueEarly computed above for the hold check — reused here.)
               const unique = uniqueEarly;
               if (!isDefaultProgress(progressContent) && unique > 0) {
-                if (task.status !== "COMPLETED") {
+                if (task.status !== "COMPLETED" as string) {
                   console.log(
                     `✅ [${task.id}] branch already integrated (empty diff, ${unique} unique commits). Marking COMPLETED.`
                   );

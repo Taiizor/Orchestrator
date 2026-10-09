@@ -369,7 +369,13 @@ export class IssueManager {
 
             // If task is currently active in a workflow, cancel the run and reset to PENDING
             const activeRuns = await GitManager.getActiveSubagentRuns();
-            const taskRun = activeRuns.find((r) => r.headBranch === task.branch);
+            const taskRun = activeRuns.find(
+              (r) =>
+                (task.runId && r.databaseId === task.runId) ||
+                (r.displayTitle && r.displayTitle.includes(task.id)) ||
+                (r.name && r.name.includes(task.id)) ||
+                r.headBranch === task.branch
+            );
             if (taskRun) {
               console.log(`🛑 Cancelling active run #${taskRun.databaseId} to apply new directive...`);
               await GitManager.cancelWorkflowRun(taskRun.databaseId);
@@ -584,7 +590,7 @@ export class IssueManager {
           const deps = depStr
             ? depStr
                 .split(",")
-                .map((d) => d.trim())
+                .map((d: string) => d.trim())
                 .filter(Boolean)
             : [];
           const candidate = {

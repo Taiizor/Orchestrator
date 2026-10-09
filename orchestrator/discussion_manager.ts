@@ -73,7 +73,7 @@ export class DiscussionManager {
     }
     try {
       this.repoIdCache = JSON.parse(res.stdout).data.repository.id;
-      return this.repoIdCache;
+      return this.repoIdCache ?? null;
     } catch {
       this.repoIdCache = null;
       return null;
@@ -105,7 +105,7 @@ export class DiscussionManager {
         nodes.find((c: any) => c.name.toLowerCase() === this.CATEGORY_NAME.toLowerCase()) ||
         nodes.find((c: any) => c.name.toLowerCase() === "general");
       this.catIdCache = hit ? hit.id : null;
-      return this.catIdCache;
+      return this.catIdCache ?? null;
     } catch {
       this.catIdCache = null;
       return null;

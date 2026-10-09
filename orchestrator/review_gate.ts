@@ -90,9 +90,11 @@ function isAllowedFile(task: TaskItem, file: string): boolean {
 
 const SECRET_PATTERNS: { name: string; rx: RegExp }[] = [
   { name: "AWS access key", rx: /AKIA[0-9A-Z]{16}/ },
-  { name: "GitHub PAT", rx: /ghp_[A-Za-z0-9]{20,}/ },
+  { name: "GitHub PAT", rx: /(ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{50,})/ },
   { name: "GitHub OAuth", rx: /gho_[A-Za-z0-9]{20,}/ },
   { name: "Slack token", rx: /xox[bap]-/ },
+  { name: "OpenAI API key", rx: /sk-[A-Za-z0-9]{32,}/ },
+  { name: "Anthropic API key", rx: /sk-ant-[A-Za-z0-9_-]{32,}/ },
   { name: "Private key block", rx: /-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----/ },
 ];
 // NOTE: no `.env`-string content pattern — filenames are covered by the
@@ -132,7 +134,10 @@ function addedLinesByFile(diff: string): Map<string, string[]> {
 
 /** Paths whose secret-shaped literals are fixtures by definition. */
 function isTestPath(file: string): boolean {
-  return /(^|\/)(tests?|__tests__|__mocks__|__fixtures__|fixtures?)\//i.test(file) || /\.(test|spec)\.[a-z]+$/i.test(file);
+  return (
+    /(^|\/)(tests?|__tests__|__mocks__|__fixtures__|fixtures?|test-utils|e2e|cypress)\//i.test(file) ||
+    /\.(test|spec)\.[a-z]+$/i.test(file)
+  );
 }
 
 export function scanSecrets(diff: string, files: string[]): string[] {
@@ -157,11 +162,12 @@ export function scanSecrets(diff: string, files: string[]): string[] {
     if (hits.includes("Generic secret assignment")) break;
   }
   // Sensitive filenames — except the canonical `.env.example` template.
+  // Match actual .pem or .key extensions, not substring hits like sort.key.ts.
   if (
     files.some((f) => {
       const m = f.match(/(^|\/)\.env([^/]*)$/i);
       if (m && m[2] !== ".example") return true;
-      return f.includes(".pem") || f.includes(".key");
+      return /\.(pem|key)$/i.test(f);
     })
   ) {
     hits.push("Sensitive file (.env/.pem/.key) in changeset");

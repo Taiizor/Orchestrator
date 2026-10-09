@@ -617,7 +617,7 @@ export class GitManager {
       "--limit",
       "50",
       "--json",
-      "databaseId,status,conclusion,name,headBranch,createdAt,updatedAt",
+      "databaseId,status,conclusion,name,displayTitle,headBranch,createdAt,updatedAt",
     ]);
 
     if (res.exitCode !== 0) return [];

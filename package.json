@@ -5,6 +5,7 @@
   "main": "orchestrator/engine.ts",
   "type": "module",
   "scripts": {
+    "test": "bun test",
     "orchestrator:tick": "bun run orchestrator/engine.ts --action=tick",
     "orchestrator:plan": "bun run orchestrator/engine.ts --action=plan",
     "orchestrator:review": "bun run orchestrator/engine.ts --action=review",

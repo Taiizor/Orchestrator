@@ -78,8 +78,8 @@ async function main() {
   // (unmergeable, undiffable branches).
   await GitManager.remoteGit(remote, ["fetch", remote, CONFIG.INTEGRATION_BRANCH]);
   await GitManager.remoteGit(remote, ["fetch", remote, branch]);
-  const branchExists = await GitManager.branchExists(branch);
-  if (branchExists) {
+  const remoteBranchRef = (await GitManager.run(["git", "rev-parse", "--verify", `${remote}/${branch}`])).exitCode === 0;
+  if (remoteBranchRef) {
     // -B resets exactly to the remote tip; no pull (pull risks merge
     // commits and masks checkout failures — both broke lineage before).
     const co = await GitManager.run(["git", "checkout", "-B", branch, `${remote}/${branch}`]);

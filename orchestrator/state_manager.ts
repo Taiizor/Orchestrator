@@ -1,9 +1,20 @@
-import { existsSync, mkdirSync } from "fs";
+import { existsSync, mkdirSync, renameSync } from "fs";
 import { dirname } from "path";
 import { CONFIG } from "./config.ts";
 import type { Roadmap, TaskItem, TaskStatus } from "./types.ts";
 
 export class StateManager {
+  /** Safely write to a temporary file first, then atomically rename into place. */
+  private static async atomicWrite(targetPath: string, content: string): Promise<void> {
+    const dir = dirname(targetPath);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    const tmp = `${targetPath}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.tmp`;
+    await Bun.write(tmp, content);
+    renameSync(tmp, targetPath);
+  }
+
   /**
    * Load roadmap from state file. Returns null if not initialized yet.
    */
@@ -21,16 +32,11 @@ export class StateManager {
   }
 
   /**
-   * Save roadmap to JSON and auto-generate state/PROGRESS.md
+   * Save roadmap to JSON and auto-generate state/PROGRESS.md atomically.
    */
   public static async saveRoadmap(roadmap: Roadmap): Promise<void> {
-    const dir = dirname(CONFIG.ROADMAP_FILE);
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
-
     roadmap.updatedAt = new Date().toISOString();
-    await Bun.write(CONFIG.ROADMAP_FILE, JSON.stringify(roadmap, null, 2));
+    await this.atomicWrite(CONFIG.ROADMAP_FILE, JSON.stringify(roadmap, null, 2));
     await this.updateProgressMarkdown(roadmap);
   }
 
@@ -125,7 +131,7 @@ export class StateManager {
 
   public static async updateProgressMarkdown(roadmap: Roadmap): Promise<void> {
     const md = this.renderProgressMarkdown(roadmap);
-    await Bun.write(CONFIG.PROGRESS_MD_FILE, md);
+    await this.atomicWrite(CONFIG.PROGRESS_MD_FILE, md);
   }
 
   /**
