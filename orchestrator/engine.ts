@@ -407,6 +407,15 @@ export class OrchestratorEngine {
     for (const task of tasksInReview) {
       console.log(`🧐 Reviewing deliverables for [${task.id}] on branch ${task.branch}...`);
 
+      // LLM cost saver: identical tip already verdict → skip re-review.
+      // (Verdicts always move the task out of IN_REVIEW, so a repeat here
+      // with the same tip means a no-op cycle re-queued it.)
+      const tipSha = await GitManager.branchTipSha(task.branch);
+      if (tipSha && task.lastReviewSha === tipSha) {
+        console.log(`⏭️ [${task.id}] branch unchanged since last review (${tipSha.slice(0, 7)}); skipping re-review.`);
+        continue;
+      }
+
       // Get diff against integration branch
       const diff = await GitManager.getBranchDiff(task.branch, CONFIG.INTEGRATION_BRANCH);
 
@@ -422,6 +431,7 @@ export class OrchestratorEngine {
       const rejectTask = async (notes: string, fixes: string[]) => {
         console.warn(`⚠️ [${task.id}] REJECTED: ${notes}`);
         task.attempts += 1;
+        if (tipSha) task.lastReviewSha = tipSha;
         task.reviewNotes = notes + (fixes.length > 0 ? `\nFixes: ${fixes.join(", ")}` : "");
         if (task.attempts >= task.maxAttempts) {
           task.status = "FAILED";
@@ -449,6 +459,7 @@ export class OrchestratorEngine {
         if (onlyEmptyDiff) {
           console.log(`✅ [${task.id}] branch already integrated (empty diff). Marking COMPLETED.`);
           task.status = "COMPLETED";
+          if (tipSha) task.lastReviewSha = tipSha;
           task.reviewNotes = "Branch diff vs develop is empty; deliverables already integrated.";
           task.updatedAt = new Date().toISOString();
           if (roadmap.projectNumber) {
@@ -541,6 +552,7 @@ export class OrchestratorEngine {
 
         if (merged) {
           task.status = "COMPLETED";
+          if (tipSha) task.lastReviewSha = tipSha;
           task.reviewNotes = (reviewResult.notes || "Approved and integrated.") + (viaPR ? ` (PR ${viaPR})` : "");
           task.updatedAt = new Date().toISOString();
           if (roadmap.projectNumber) {
@@ -776,6 +788,9 @@ export class OrchestratorEngine {
       await this.plan();
       return;
     }
+    // Board-sync saver: snapshot the status signature now; the end-of-tick
+    // drift heal is skipped when nothing changed and the last sync is fresh.
+    const statusSigBefore = roadmap.tasks.map((t) => `${t.id}:${t.status}`).join(",");
     await this.ensureServiceFiles(roadmap);
 
     // Ensure GitHub Milestones and Issues exist for all tasks
@@ -935,10 +950,19 @@ export class OrchestratorEngine {
     // Step 3: Dispatch any tasks unblocked by approvals (unless paused)
     await this.dispatchReadyTasks(roadmap);
 
-    // Board drift heal: cheap steady-state sync (~3 calls) so cards/issues
-    // always mirror the roadmap even if an event-driven update was skipped.
+    // Board drift heal: sync when statuses moved, or hourly as a backstop
+    // for human edits on the board. Idle ticks skip the snapshot entirely
+    // (GraphQL saver) — event-driven writes already covered live changes.
     if (roadmap.projectNumber) {
-      await ProjectManager.syncBoardState(roadmap, roadmap.projectNumber);
+      const sigNow = roadmap.tasks.map((t) => `${t.id}:${t.status}`).join(",");
+      const lastSync = Date.parse(roadmap.lastBoardSyncAt || "");
+      const stale = Number.isNaN(lastSync) || Date.now() - lastSync > 60 * 60 * 1000;
+      if (sigNow !== statusSigBefore || stale) {
+        await ProjectManager.syncBoardState(roadmap, roadmap.projectNumber);
+        roadmap.lastBoardSyncAt = new Date().toISOString();
+      } else {
+        console.log("ℹ️ Board in sync (no status drift); skipping snapshot.");
+      }
     }
 
     // Save, sync dashboard issue, and commit progress (merge-safe persist)

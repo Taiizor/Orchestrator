@@ -36,6 +36,7 @@ export interface TaskItem {
   maxAttempts: number;             // Maximum allowed retry attempts
   failedAt?: string;               // ISO timestamp of last FAILED transition (auto-resurrect cooldown)
   resurrections?: number;          // Auto-resurrect count (bounded; human /retry resets to 0)
+  lastReviewSha?: string;          // Branch tip SHA of last completed review (skip re-review when unchanged)
   createdAt: string;
   updatedAt: string;
 }
@@ -60,6 +61,7 @@ export interface Roadmap {
   globalStatus: "PLANNING" | "IN_PROGRESS" | "COMPLETED" | "PAUSED" | "FAILED";
   tasks: TaskItem[];
   updatedAt: string;
+  lastBoardSyncAt?: string;        // Last successful board drift-heal (skip idle snapshots)
 }
 
 export interface TaskProgressReport {

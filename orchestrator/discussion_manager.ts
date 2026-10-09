@@ -116,7 +116,7 @@ export class DiscussionManager {
       "-F", ownerVar,
       "-F", nameVar,
       "-f",
-      "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){discussions(first:100,orderBy:{field:UPDATED_AT,direction:DESC}){nodes{id,number,title}}}}",
+      "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){discussions(first:30,orderBy:{field:UPDATED_AT,direction:DESC}){nodes{id,number,title}}}}",
     ]);
     if (res.exitCode !== 0) {
       this.scopeHint(res.stderr);

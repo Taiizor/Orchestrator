@@ -107,6 +107,21 @@ export class GitManager {
   }
 
   /**
+   * Tip commit SHA of a content branch, or null when unresolvable.
+   * Used to skip re-reviewing unchanged branches (LLM cost saver).
+   */
+  public static async branchTipSha(branchName: string): Promise<string | null> {
+    await this.fetchAll();
+    const remote = this.contentRemote();
+    for (const ref of [`${remote}/${branchName}`, branchName]) {
+      const res = await this.run(["git", "rev-parse", ref]);
+      const sha = res.stdout.trim();
+      if (res.exitCode === 0 && /^[0-9a-f]{40}$/.test(sha)) return sha;
+    }
+    return null;
+  }
+
+  /**
    * Last-commit timestamp (ms) of a content branch tip, or -1 when the
    * branch/ref is unknown. Used by the watchdog to tell live workers
    * (fresh pushes) from dead ones.
