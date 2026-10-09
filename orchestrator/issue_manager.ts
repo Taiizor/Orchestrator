@@ -225,11 +225,12 @@ export class IssueManager {
           }
         }
       } else if (body.startsWith("/revise")) {
-        // /revise <TASK-ID> "instruction" — rework for FINISHED tasks.
-        // Unlike /directive (active/pending only), this reopens the target
-        // plus all transitive dependents (they were built on the old output),
-        // resets attempts, reopens the issue, and cancels active runs.
-        // Closed milestones with unfinished tasks reopen on next tick.
+        // /revise <TASK-ID> "instruction" — surgical rework as a FOCUSED task.
+        // Unlike cascade resets (which avalanche-rebuild dependents), this
+        // queues ONE task depending on the target: it audits every workspace
+        // change related to the topic, applies the fix, and re-verifies.
+        // Originals stay COMPLETED (history preserved); downstream owners get
+        // an FYI list for optional follow-up revises.
         const match = body.match(/\/revise\s+([A-Za-z0-9_-]+)\s+([\s\S]+)/);
         if (!match) {
           await this.acknowledgeComment(dashboardNumber, commentId, `⚠️ Usage: \`/revise <TASK-ID> "what to change"\`.`);
@@ -241,46 +242,50 @@ export class IssueManager {
             await this.acknowledgeComment(dashboardNumber, commentId, `⚠️ **Task Not Found:** No task with ID \`${taskId}\`.`);
           } else {
             console.log(`🔁 ChatOps command received: /revise for ${taskId}: ${instruction}`);
-            // Transitive dependents (BFS over reverse edges; DAG => terminates)
-            const affected = new Map<string, string>();
-            affected.set(task.id, `[REVISION DIRECTIVE]: ${instruction}`);
-            const queue = [task.id];
-            while (queue.length > 0) {
-              const cur = queue.shift()!;
-              for (const t of roadmap.tasks) {
-                if (t.dependencies.includes(cur) && !affected.has(t.id)) {
-                  affected.set(t.id, `[REVISION CASCADE]: upstream [${cur}] is being reworked; rebuild against its new output. ` + (t.reviewNotes || ""));
-                  queue.push(t.id);
-                }
-              }
+            const { validateRoadmap, formatValidation } = await import("./roadmap_validator.ts");
+            const { CONFIG } = await import("./config.ts");
+            const nums = roadmap.tasks.map((t) => parseInt((t.id.match(/(\d+)/) || ["0", "0"])[1], 10) || 0);
+            const nextId = `TASK-${String(Math.max(0, ...nums) + 1).padStart(3, "0")}`;
+            const downstream = roadmap.tasks.filter((t) => t.dependencies.includes(taskId)).map((t) => t.id);
+            const check = validateRoadmap({
+              tasks: [...roadmap.tasks.map((t) => ({ id: t.id, role: t.role, dependencies: t.dependencies, targetFiles: t.targetFiles, milestone: t.milestone })), { id: nextId, role: task.role, dependencies: [taskId], targetFiles: [], milestone: task.milestone }],
+              milestones: roadmap.milestones,
+            });
+            if (check.errors.length > 0) {
+              await this.acknowledgeComment(dashboardNumber, commentId, `⚠️ **Revision rejected by DAG validation:**\n${formatValidation(check)}`);
+            } else {
+              const now = new Date().toISOString();
+              roadmap.tasks.push({
+                id: nextId,
+                title: `Revise [${taskId}]: ${instruction.slice(0, 80)}`,
+                description:
+                  `Surgical revision of completed task [${taskId}] (${task.title}).\n\n` +
+                  `Operator instruction (highest priority): ${instruction}\n\n` +
+                  `Scope: audit EVERY workspace change related to this topic (it may span files owned by other tasks), apply the fix, keep unrelated behavior intact. ` +
+                  `Update workspace/CONTRACTS.md if any contract changes. ` +
+                  `Re-run the verifications that cover the touched behavior (including downstream areas: ${downstream.length > 0 ? downstream.map((d) => `\`${d}\``).join(", ") : "none downstream"}). ` +
+                  `Provide bun test proof in TASK_PROGRESS.md.`,
+                role: task.role,
+                dependencies: [taskId],
+                targetFiles: [],
+                status: "PENDING",
+                branch: `task/${nextId}`,
+                milestone: task.milestone,
+                attempts: 0,
+                maxAttempts: CONFIG.MAX_TASK_ATTEMPTS,
+                reviewNotes: `[REVISION of ${taskId}] Unscoped task — reviewer judges file relevance. Original [${taskId}] stays COMPLETED.`,
+                createdAt: now,
+                updatedAt: now,
+              });
+              hasChanges = true;
+              const fyi = downstream.length > 0
+                ? `\n\nDownstream FYI (verify, revise only if broken): ${downstream.map((d) => `\`${d}\``).join(", ")}.`
+                : "";
+              await this.acknowledgeComment(
+                dashboardNumber, commentId,
+                `🔁 **Revision [${nextId}] queued** (depends on \`${taskId}\`, role \`${task.role}\`). Issue + board sync on next tick.${fyi}`
+              );
             }
-            const activeRuns = await GitManager.getActiveSubagentRuns();
-            const reopened: string[] = [];
-            for (const t of roadmap.tasks) {
-              if (!affected.has(t.id)) continue;
-              const run = activeRuns.find(r => r.headBranch === t.branch);
-              if (run) {
-                console.log(`🛑 Cancelling active run #${run.databaseId} for revision...`);
-                await GitManager.cancelWorkflowRun(run.databaseId);
-              }
-              t.reviewNotes = affected.get(t.id);
-              t.status = "PENDING";
-              t.attempts = 0;
-              t.updatedAt = new Date().toISOString();
-              reopened.push(t.id);
-              if (t.issueNumber) {
-                await GitManager.run(["gh", "issue", "reopen", String(t.issueNumber)]);
-              }
-              if (roadmap.projectNumber) {
-                const { ProjectManager } = await import("./project_manager.ts");
-                await ProjectManager.updateItemStatus(roadmap.projectNumber, t, "Todo");
-              }
-            }
-            hasChanges = true;
-            await this.acknowledgeComment(
-              dashboardNumber, commentId,
-              `🔁 **Revision queued for [${taskId}]:**\n> "${instruction}"\n\nReopened (${reopened.length}): ${reopened.map((id) => `\`${id}\``).join(", ")} — attempts reset, dependents cascade-rebuilt.`
-            );
           }
         }
       } else if (body.startsWith("/status")) {

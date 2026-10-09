@@ -138,9 +138,17 @@ export async function runReviewGate(
 
   const outOfScope = fileList.filter((f) => !isAllowedFile(task, f));
   if (outOfScope.length > 0) {
-    failures.push(
-      `Out-of-scope files modified (${outOfScope.slice(0, 10).join(", ")}${outOfScope.length > 10 ? ` +${outOfScope.length - 10} more` : ""}). Allowed: ${(task.targetFiles || []).join(", ")}.`
-    );
+    // Operator-created tasks (/add, /revise) carry no disjoint targetFiles
+    // scoping — warn instead of failing, the reviewer judges relevance.
+    if (!task.targetFiles || task.targetFiles.length === 0) {
+      warnings.push(
+        `Unscoped task touched ${outOfScope.length} files outside any targetFiles contract; reviewer must verify relevance.`
+      );
+    } else {
+      failures.push(
+        `Out-of-scope files modified (${outOfScope.slice(0, 10).join(", ")}${outOfScope.length > 10 ? ` +${outOfScope.length - 10} more` : ""}). Allowed: ${(task.targetFiles || []).join(", ")}.`
+      );
+    }
   }
 
   const secrets = scanSecrets(diff, fileList);
