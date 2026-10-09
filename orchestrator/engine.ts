@@ -232,7 +232,7 @@ export class OrchestratorEngine {
       const seedNeeded = !(await GitManager.remoteHasBranch(remote, CONFIG.INTEGRATION_BRANCH));
       if (seedNeeded) {
         console.log(`🌱 Seeding ${remote}/${CONFIG.INTEGRATION_BRANCH} with template tree...`);
-        await GitManager.run(["git", "push", remote, `HEAD:${CONFIG.INTEGRATION_BRANCH}`]);
+        await GitManager.remoteGit(remote, ["push", remote, `HEAD:${CONFIG.INTEGRATION_BRANCH}`]);
       } else {
         console.log(`ℹ️ Data branch ${remote}/${CONFIG.INTEGRATION_BRANCH} exists; leaving project data untouched.`);
       }
@@ -607,10 +607,10 @@ export class OrchestratorEngine {
       // Forged/hand-added project skills travel with state in data mode.
       for (const f of [...files, "inputs/skills"]) await GitManager.run(["git", "add", "-f", f]);
       await GitManager.run(["git", "commit", "-m", message]);
-      const push = await GitManager.run(["git", "push", remote, `HEAD:${CONFIG.BASE_BRANCH}`]);
+      const push = await GitManager.remoteGit(remote, ["push", remote, `HEAD:${CONFIG.BASE_BRANCH}`]);
       if (push.exitCode === 0) return;
       console.warn(`⚠️ Data state push rejected (attempt ${attempt}/3). Re-syncing...`);
-      await GitManager.run(["git", "fetch", remote, CONFIG.BASE_BRANCH]);
+      await GitManager.remoteGit(remote, ["fetch", remote, CONFIG.BASE_BRANCH]);
       await GitManager.run(["git", "checkout", "-B", "data-state", `${remote}/${CONFIG.BASE_BRANCH}`]);
       try {
         const show = await GitManager.run(["git", "show", `${remote}/${CONFIG.BASE_BRANCH}:${CONFIG.ROADMAP_FILE}`]);

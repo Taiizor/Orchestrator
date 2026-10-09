@@ -115,6 +115,49 @@ export class GitManager {
   }
 
   /**
+   * Env override neutralizing the credential that actions/checkout stores
+   * (http.https://github.com/.extraheader with the PUBLIC repo's
+   * GITHUB_TOKEN). Without this, every data-remote call sends the wrong
+   * Authorization header and GitHub answers "Repository not found" — even
+   * with a perfectly valid PAT embedded in the URL.
+   */
+  private static dataGitEnv(): Record<string, string> {
+    return {
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: "http.https://github.com/.extraheader",
+      GIT_CONFIG_VALUE_0: "",
+      GIT_TERMINAL_PROMPT: "0",
+    };
+  }
+
+  /** git invocation for data-remote network ops (fetch/push/ls-remote). */
+  public static async dataGit(
+    args: string[],
+    cwd = ".",
+    input?: string
+  ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+    return this.run(["git", ...args], cwd, input, this.dataGitEnv());
+  }
+
+  /**
+   * Network op against a named remote: data-remote calls go through the
+   * extraheader-neutralized path, everything else uses ambient auth.
+   * (Neutralizing globally would break origin pushes that rely on the
+   * checkout-stored credential.)
+   */
+  public static async remoteGit(
+    remote: string,
+    args: string[],
+    cwd = ".",
+    input?: string
+  ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+    if (this.isDataMode() && remote === CONFIG.DATA_REMOTE) {
+      return this.dataGit(args, cwd, input);
+    }
+    return this.run(["git", ...args], cwd, input);
+  }
+
+  /**
    * Register + fetch the data remote (PAT-authenticated). Idempotent.
    * Returns false when DATA_REPO is unset or unreachable — callers fall
    * back to single-repo behavior.
@@ -145,7 +188,7 @@ export class GitManager {
     }
     // Scrub note: the PAT lives only in local .git/config of the ephemeral
     // runner and is never printed (we never log remote URLs).
-    const fetchRes = await this.run(["git", "fetch", remote]);
+    const fetchRes = await this.remoteGit(remote, ["fetch", remote]);
     if (fetchRes.exitCode !== 0) {
       console.warn(`⚠️ Could not fetch data remote "${slug}":`, fetchRes.stderr);
       return false;
@@ -164,7 +207,7 @@ export class GitManager {
     const remote = CONFIG.DATA_REMOTE;
     const candidates = [branch, CONFIG.INTEGRATION_BRANCH, CONFIG.BASE_BRANCH];
     for (const ref of candidates) {
-      await this.run(["git", "fetch", remote, ref]);
+      await this.remoteGit(remote, ["fetch", remote, ref]);
       const res = await this.run(["git", "checkout", `${remote}/${ref}`, "--", ...paths]);
       if (res.exitCode === 0) {
         console.log(`📥 Synced ${paths.join(", ")} from ${remote}/${ref}.`);
@@ -254,7 +297,7 @@ export class GitManager {
     const remote = this.contentRemote();
     // Ensure local target tracks the content remote's integration branch
     await this.run(["git", "checkout", "-B", targetBranch, `${remote}/${targetBranch}`]);
-    await this.run(["git", "pull", remote, targetBranch]);
+    await this.remoteGit(remote, ["pull", remote, targetBranch]);
 
     const mergeRes = await this.run(["git", "merge", "--no-ff", `${remote}/${taskBranch}`, "-m", commitMsg]);
     if (mergeRes.exitCode !== 0) {
@@ -273,7 +316,7 @@ export class GitManager {
       }
     }
 
-    const pushRes = await this.run(["git", "push", remote, targetBranch]);
+    const pushRes = await this.remoteGit(remote, ["push", remote, targetBranch]);
     return pushRes.exitCode === 0;
   }
 
@@ -281,7 +324,7 @@ export class GitManager {
    * Check if a branch exists on a remote (no local checkout needed).
    */
   public static async remoteHasBranch(remote: string, branch: string): Promise<boolean> {
-    const res = await this.run(["git", "ls-remote", "--heads", remote, branch]);
+    const res = await this.remoteGit(remote, ["ls-remote", "--heads", remote, branch]);
     return res.exitCode === 0 && res.stdout.trim().length > 0;
   }
 
@@ -297,7 +340,7 @@ export class GitManager {
       console.warn("Data commit output:", commitRes.stdout || commitRes.stderr);
     }
     const remote = this.contentRemote();
-    const pushRes = await this.run(["git", "push", "-u", remote, `HEAD:${branch}`]);
+    const pushRes = await this.remoteGit(remote, ["push", "-u", remote, `HEAD:${branch}`]);
     if (pushRes.exitCode !== 0) {
       console.error(`❌ Could not push data branch ${branch} to ${remote}:`, pushRes.stderr);
       return false;
