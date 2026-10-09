@@ -105,8 +105,8 @@ async function main() {
   const ROLE_SKILLS: Record<string, string[]> = {
     architect: ["sqlite-hardening", "api-contracts", "sql-review"],
     backend: ["api-contracts", "error-handling", "backend-structure", "security-scan"],
-    frontend: ["ui-conventions", "design-system", "i18n"],
-    mobile: ["ui-conventions", "mobile-essentials", "i18n"],
+    frontend: ["ui-conventions", "design-system", "i18n", "frontend-stack"],
+    mobile: ["ui-conventions", "mobile-essentials", "i18n", "frontend-stack"],
     qa: ["test-evidence", "test-driven-development", "code-review"],
     security: ["security-scan", "auth-review"],
     reviewer: ["code-review", "api-design", "documentation-discipline"],
@@ -121,6 +121,26 @@ async function main() {
       // Strip frontmatter for prompt injection (native tool reads it separately)
       const raw = await Bun.file(p).text();
       skillsText += `\n\n${raw.replace(/^---[\s\S]*?---\s*/, "")}`;
+    }
+  }
+  // Project-level skill drops: inputs/skills/<role>-*/SKILL.md (e.g.
+  // inputs/skills/frontend-nextjs/SKILL.md). They override generic guidance
+  // and travel with the project data repo, not the template.
+  const projectSkillDirs: string[] = [];
+  try {
+    const glob = new Bun.Glob("inputs/skills/*");
+    for await (const rel of glob.scan({ cwd: ".", onlyFiles: false })) {
+      const base = rel.split(/[/\\]/).pop() || "";
+      if (base.startsWith(`${role}-`)) projectSkillDirs.push(rel);
+    }
+  } catch { /* no project skills */ }
+  for (const dir of projectSkillDirs.sort()) {
+    const norm = dir.replace(/\\/g, "/");
+    const p = `${norm}/SKILL.md`;
+    if (existsSync(p)) {
+      const raw = await Bun.file(p).text();
+      skillsText += `\n\n${raw.replace(/^---[\s\S]*?---\s*/, "")}`;
+      skillNames.push(norm.split("/").pop() || norm);
     }
   }
   if (skillNames.length > 0) {

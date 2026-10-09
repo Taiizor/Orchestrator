@@ -23,6 +23,9 @@ You are an autonomous subagent executing a dedicated task inside GitHub Actions.
 5. **Contract Collaboration (`workspace/CONTRACTS.md`):**
    - Check `workspace/CONTRACTS.md` for existing API schemas and contracts.
    - If you implement or alter an API or schema, document it in `workspace/CONTRACTS.md`.
+6. **Docs-First for Frameworks:**
+   - NEVER trust training memory for framework APIs (components, hooks, props, CLIs). Pin the exact installed version and fetch official docs via `webfetch` before use.
+   - If `inputs/skills/<your-role>-*/SKILL.md` exists, it overrides generic guidance — follow it.
 
 ---
 
