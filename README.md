@@ -136,8 +136,10 @@ flowchart LR
 Before any branch is merged into `develop`:
 - **Security Auditor ([`subagents/prompts/roles/security.md`](subagents/prompts/roles/security.md)):**  
   Scans code for SQLite SQL Injection (enforcing prepared statements), secret/token leaks, path traversal, command injection, and resource exhaustion. Generates `workspace/SECURITY_AUDIT.md`.
-- **SQLite Hardening ([`subagents/skills/sqlite_hardening.md`](subagents/skills/sqlite_hardening.md)):**  
+- **SQLite Hardening (skill `sqlite-hardening`):**
   Enforces WAL mode (`PRAGMA journal_mode = WAL;`), 5000ms busy timeouts, and foreign keys for high CI concurrency.
+- **API Contracts (skill `api-contracts`), UI Conventions (skill `ui-conventions`), Test Evidence (skill `test-evidence`):**
+  Role-specific native skills under [`.opencode/skills/`](.opencode/skills/) — deterministically injected per role and reloadable on demand via the `skill` tool.
 - **Code Reviewer ([`subagents/prompts/roles/reviewer.md`](subagents/prompts/roles/reviewer.md)):**  
   Enforces clean code standards, SOLID principles, error boundaries, and regression safety.
 

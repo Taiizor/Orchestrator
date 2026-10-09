@@ -99,19 +99,31 @@ async function main() {
     rolePrompt = await Bun.file(rolePromptPath).text();
   }
 
-  // Dynamically attach relevant skills
+  // Dynamically attach relevant skills (deterministic injection; the same
+  // skills are natively discoverable via the `skill` tool from
+  // .opencode/skills/<name>/SKILL.md — reload them on demand by name).
+  const ROLE_SKILLS: Record<string, string[]> = {
+    architect: ["sqlite-hardening", "api-contracts"],
+    backend: ["sqlite-hardening", "security-scan", "api-contracts"],
+    frontend: ["ui-conventions"],
+    qa: ["test-evidence", "code-review"],
+    security: ["security-scan"],
+    reviewer: ["code-review"],
+    tracker: ["code-review"],
+    fullstack: ["sqlite-hardening", "api-contracts", "ui-conventions", "code-review"],
+  };
   let skillsText = "";
-  if (["backend", "architect"].includes(role)) {
-    const sqliteSkill = "subagents/skills/sqlite_hardening.md";
-    if (existsSync(sqliteSkill)) skillsText += `\n\n${await Bun.file(sqliteSkill).text()}`;
+  const skillNames = ROLE_SKILLS[role] || [];
+  for (const name of skillNames) {
+    const p = `.opencode/skills/${name}/SKILL.md`;
+    if (existsSync(p)) {
+      // Strip frontmatter for prompt injection (native tool reads it separately)
+      const raw = await Bun.file(p).text();
+      skillsText += `\n\n${raw.replace(/^---[\s\S]*?---\s*/, "")}`;
+    }
   }
-  if (["security", "backend"].includes(role)) {
-    const secSkill = "subagents/skills/security_scan.md";
-    if (existsSync(secSkill)) skillsText += `\n\n${await Bun.file(secSkill).text()}`;
-  }
-  if (["reviewer", "qa", "tracker"].includes(role)) {
-    const reviewSkill = "subagents/skills/code_review.md";
-    if (existsSync(reviewSkill)) skillsText += `\n\n${await Bun.file(reviewSkill).text()}`;
+  if (skillNames.length > 0) {
+    skillsText += `\n\n> You can reload any of these skills on demand with the skill tool: ${skillNames.map((n) => `\`${n}\``).join(", ")}.`;
   }
 
   // Check for shared system contracts
