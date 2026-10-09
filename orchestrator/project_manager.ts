@@ -83,19 +83,20 @@ export class ProjectManager {
       if (!projectId) { console.warn("⚠️ Could not resolve board node id; skipping option sync."); return; }
       const fq = await this.projectGh(["gh", "api", "graphql",
         "-F", `nodeId=${projectId}`,
-        "-f", "query=query($nodeId:ID!){node(id:$nodeId){... on ProjectV2{fields(first:30){nodes{... on ProjectV2SingleSelectField{id name options{id name}}}}}}}",
+        "-f", "query=query($nodeId:ID!){node(id:$nodeId){... on ProjectV2{fields(first:30){nodes{... on ProjectV2SingleSelectField{id name options{id name color}}}}}}}",
       ]);
       if (fq.exitCode !== 0) { this.hintProjectScope(fq.stderr); return; }
       const nodes: any[] = JSON.parse(fq.stdout)?.data?.node?.fields?.nodes || [];
       const status = nodes.find((f: any) => f.id && f.name === "Status");
       if (!status) { console.warn("⚠️ Board has no Status field; skipping option sync."); return; }
-      const have: { id: string; name: string }[] = status.options || [];
+      const have: { id: string; name: string; color?: string }[] = status.options || [];
       const missing = want.filter((w) => !have.some((h) => h.name === w));
       if (missing.length === 0) return;
-      // Inline the option literals (names are JSON-escaped, ids are opaque
-      // base64) — avoids gh variable plumbing for input-object lists.
+      // The API requires `color` on EVERY option in the list (existing ones
+      // included), so colors are queried and passed through, not just set
+      // on the new entries.
       const optsLit = [
-        ...have.map((h) => `{id:"${h.id}",name:${JSON.stringify(h.name)}}`),
+        ...have.map((h) => `{id:"${h.id}",name:${JSON.stringify(h.name)},color:${h.color || "GRAY"}}`),
         ...missing.map((m) => `{name:${JSON.stringify(m)},color:${colors[m] || "GRAY"}}`),
       ].join(",");
       const mq = `mutation{updateProjectV2Field(input:{fieldId:"${status.id}",singleSelectOptions:[${optsLit}]}){projectV2Field{... on ProjectV2SingleSelectField{options{name}}}}}`;
