@@ -219,9 +219,12 @@ export class IssueManager {
           }
         }
       } else if (body.startsWith("/retry")) {
-        const match = body.match(/\/retry\s+([A-Za-z0-9_-]+)/);
-        if (match) {
-          const taskId = match[1];
+        // Stacked retries in one comment are all honored (/retry A \n /retry B).
+        const targets = [...body.matchAll(/\/retry\s+([A-Za-z0-9_-]+)/g)].map((m) => m[1]);
+        if (targets.length === 0) {
+          await this.acknowledgeComment(dashboardNumber, commentId, `⚠️ Usage: \`/retry <TASK-ID>\` (one per line, several allowed).`);
+        }
+        for (const taskId of targets) {
           const task = roadmap.tasks.find(t => t.id === taskId);
           if (task) {
             console.log(`🔄 ChatOps command received: /retry ${taskId}`);
