@@ -220,22 +220,26 @@ export class IssueManager {
         }
       } else if (body.startsWith("/retry")) {
         // Stacked retries in one comment are all honored (/retry A \n /retry B).
+        // Results are batched into a SINGLE reply to avoid comment spam.
         const targets = [...body.matchAll(/\/retry\s+([A-Za-z0-9_-]+)/g)].map((m) => m[1]);
         if (targets.length === 0) {
           await this.acknowledgeComment(dashboardNumber, commentId, `⚠️ Usage: \`/retry <TASK-ID>\` (one per line, several allowed).`);
-        }
-        for (const taskId of targets) {
-          const task = roadmap.tasks.find(t => t.id === taskId);
-          if (task) {
-            console.log(`🔄 ChatOps command received: /retry ${taskId}`);
-            task.status = "PENDING";
-            task.attempts = 0;
-            task.resurrections = 0;
-            hasChanges = true;
-            await this.acknowledgeComment(dashboardNumber, commentId, `🔄 **Task [${taskId}] Re-queued:** Reset attempts to 0 and marked status as PENDING.`);
-          } else {
-            await this.acknowledgeComment(dashboardNumber, commentId, `⚠️ **Task Not Found:** No task found with ID \`${taskId}\`.`);
+        } else {
+          const lines: string[] = [];
+          for (const taskId of targets) {
+            const task = roadmap.tasks.find(t => t.id === taskId);
+            if (task) {
+              console.log(`🔄 ChatOps command received: /retry ${taskId}`);
+              task.status = "PENDING";
+              task.attempts = 0;
+              task.resurrections = 0;
+              hasChanges = true;
+              lines.push(`🔄 **Task [${taskId}] Re-queued:** attempts reset, status → PENDING.`);
+            } else {
+              lines.push(`⚠️ **Task Not Found:** no task with ID \`${taskId}\`.`);
+            }
           }
+          await this.acknowledgeComment(dashboardNumber, commentId, lines.join("\n"));
         }
       } else if (body.startsWith("/directive")) {
         const match = body.match(/\/directive\s+([A-Za-z0-9_-]+)\s+([\s\S]+)/);
