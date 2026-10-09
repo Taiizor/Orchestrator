@@ -55,6 +55,19 @@ export class IssueManager {
   }
 
   /**
+   * Pin the dashboard issue above the repo issues list (max 3 pinned).
+   * Best-effort: already-pinned or quota-full must never fail the tick.
+   */
+  private static async pinDashboardIssue(issueNumber: number): Promise<void> {
+    const res = await GitManager.run(["gh", "issue", "pin", String(issueNumber)]);
+    if (res.exitCode !== 0) {
+      console.warn(`⚠️ Could not pin Dashboard Issue #${issueNumber}:`, res.stderr.slice(0, 300));
+    } else {
+      console.log(`📌 Pinned Dashboard Issue #${issueNumber}`);
+    }
+  }
+
+  /**
    * Find or create the Master Issue Dashboard
    */
   public static async syncDashboardIssue(roadmap: Roadmap): Promise<number | null> {
@@ -82,6 +95,7 @@ export class IssueManager {
         "--body", bodyContent
       ]);
       console.log(`📋 Updated Dashboard Issue #${issueNumber}`);
+      await this.pinDashboardIssue(issueNumber);
       return issueNumber;
     } else {
       // Create new Dashboard Issue (separate --label flags; comma form creates one bogus label)
@@ -100,6 +114,7 @@ export class IssueManager {
         if (match) {
           issueNumber = parseInt(match[1], 10);
           console.log(`🎉 Created Master Dashboard Issue #${issueNumber}`);
+          await this.pinDashboardIssue(issueNumber);
           return issueNumber;
         }
       }
