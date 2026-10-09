@@ -103,12 +103,14 @@ async function main() {
   // prompt reads. Restore them (warn-only; index pollution is scrubbed
   // in publishTaskBranch before committing).
   await GitManager.restoreEngineFiles();
-  // Lineage guard (fail-closed): the workdir MUST descend from the content
-  // integration branch. Never work on a broken fork — exit loudly so the
-  // watchdog retries after lineage repair instead of producing unmergeable
-  // branches.
-  const lineage = await GitManager.run(["git", "merge-base", "--is-ancestor", `${remote}/${CONFIG.INTEGRATION_BRANCH}`, "HEAD"]);
-  if (lineage.exitCode !== 0) {
+  // Lineage guard (fail-closed): the workdir MUST share history with the
+  // content integration branch. NOTE: merge-base EXISTENCE, not
+  // --is-ancestor — a healthy branch forked from an older develop is merely
+  // diverged (behind + ahead), still perfectly mergeable. Demanding strict
+  // descendance stalls every in-flight branch as develop advances.
+  // Exit loudly only on truly unrelated histories.
+  const related = await GitManager.haveCommonAncestor(`${remote}/${CONFIG.INTEGRATION_BRANCH}`, "HEAD");
+  if (!related) {
     const diag = await GitManager.run([
       "git",
       "rev-parse",
@@ -118,7 +120,7 @@ async function main() {
       "HEAD",
     ]);
     console.error(
-      `❌ [${taskId}] branch ${branch} does not descend from ${remote}/${CONFIG.INTEGRATION_BRANCH}; refusing to work on broken lineage. Refs: ${diag.stdout.trim().replace(/\n/g, " ")}`
+      `❌ [${taskId}] branch ${branch} shares no history with ${remote}/${CONFIG.INTEGRATION_BRANCH}; refusing to work on broken lineage. Refs: ${diag.stdout.trim().replace(/\n/g, " ")}`
     );
     process.exit(1);
   }
