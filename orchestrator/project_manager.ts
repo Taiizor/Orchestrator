@@ -622,7 +622,7 @@ export class ProjectManager {
     const owner = await this.getBoardOwner();
     console.log(`📊 Moving [${task.id}] to '${status}' in Project #${projectNumber}...`);
 
-    const editRes = await this.projectGh([
+    const editArgs = [
       "gh",
       "project",
       "item-edit",
@@ -635,7 +635,20 @@ export class ProjectManager {
       "Status",
       "--value",
       status,
-    ]);
+    ];
+    let editRes = await this.projectGh(editArgs);
+    if (editRes.exitCode !== 0 && /is not an item in project/i.test(editRes.stderr)) {
+      // Self-heal: stale boards (same-titled ghosts) or fresh items missing
+      // from the board — add first, then retry the edit once.
+      console.log(`➕ Issue not on board; adding before status edit...`);
+      const addRes = await this.projectGh(["gh", "project", "item-add", String(projectNumber), "--owner", owner, "--url", task.issueUrl]);
+      if (addRes.exitCode === 0) {
+        editRes = await this.projectGh(editArgs);
+      } else {
+        this.hintProjectScope(addRes.stderr);
+        console.warn(`⚠️ Could not add issue #${task.issueNumber} to project:`, addRes.stderr.slice(0, 200));
+      }
+    }
     if (editRes.exitCode !== 0) {
       this.hintProjectScope(editRes.stderr);
       console.warn(
