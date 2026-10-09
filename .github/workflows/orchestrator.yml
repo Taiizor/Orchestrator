@@ -24,11 +24,6 @@ on:
   issue_comment:
     types: [created]
 
-concurrency:
-  # Default for jobs without their own group (kept for safety).
-  group: orchestrator-singleton
-  cancel-in-progress: false
-
 jobs:
   orchestrate:
     concurrency:
