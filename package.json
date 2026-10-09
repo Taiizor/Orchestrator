@@ -8,7 +8,10 @@
     "orchestrator:tick": "bun run orchestrator/engine.ts --action=tick",
     "orchestrator:plan": "bun run orchestrator/engine.ts --action=plan",
     "orchestrator:review": "bun run orchestrator/engine.ts --action=review",
-    "subagent:run": "bun run subagents/runner.ts"
+    "subagent:run": "bun run subagents/runner.ts",
+    "build": "bun build orchestrator/engine.ts orchestrator/git_manager.ts orchestrator/review_gate.ts subagents/runner.ts --outdir ./state/build_check --target bun",
+    "format": "bunx prettier --write \"orchestrator/**/*.ts\" \"subagents/**/*.ts\"",
+    "format:check": "bunx prettier --check \"orchestrator/**/*.ts\" \"subagents/**/*.ts\""
   },
   "keywords": [
     "opencode",
@@ -20,6 +23,7 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "prettier": "^3.9.9"
   }
 }
