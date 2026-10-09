@@ -80,11 +80,14 @@ jobs:
           if [ -n "$DOCKERHUB_POOL" ]; then
             N=$(echo "$DOCKERHUB_POOL" | jq 'length' 2>/dev/null || echo 0)
             if [ "$N" -gt 0 ] 2>/dev/null; then
-              I=$(( GITHUB_RUN_ID % N ))
+              I=$(( GITHUB_RUN_ID % N )) || true
               U=$(echo "$DOCKERHUB_POOL" | jq -r ".[$I].username // empty")
               T=$(echo "$DOCKERHUB_POOL" | jq -r ".[$I].token // empty")
               if [ -n "$U" ] && [ -n "$T" ]; then
-                echo "$T" | docker login -u "$U" --password-stdin && echo "Logged in as pool account #$((I + 1))/$N." && exit 0
+                if echo "$T" | docker login -u "$U" --password-stdin; then
+                  echo "Logged in as pool account #$((I + 1))/$N."
+                  exit 0
+                fi
                 echo "Pool login failed; falling back."
               fi
             fi
@@ -104,6 +107,7 @@ jobs:
           INTEGRATION_BRANCH: develop
           DATA_REPO: ${{ secrets.DATA_REPO }}
           DATA_PAT: ${{ secrets.DATA_PAT }}
+          DOCKERHUB_POOL: ${{ secrets.DOCKERHUB_POOL }}
         run: |
           bun run orchestrator/engine.ts --action=services
           FILE="workspace/docker-compose.services.yml"
@@ -112,10 +116,35 @@ jobs:
             exit 0
           fi
           echo "Starting ephemeral CI services from $FILE..."
-          # Retry pulls: a transient registry blip must not kill a 35-min run.
+          # Pool rotation helper (re-login as another account on rate limit).
+          pool_login() {
+            U=$(echo "$DOCKERHUB_POOL" | jq -r ".[$1].username // empty")
+            T=$(echo "$DOCKERHUB_POOL" | jq -r ".[$1].token // empty")
+            [ -n "$U" ] && [ -n "$T" ] && echo "$T" | docker login -u "$U" --password-stdin
+          }
+          POOL_SIZE=$(echo "${DOCKERHUB_POOL:-}" | jq 'length' 2>/dev/null || echo 0)
+          [ "$POOL_SIZE" -gt 0 ] 2>/dev/null || POOL_SIZE=0
+          START_IDX=0
+          if [ "$POOL_SIZE" -gt 0 ] 2>/dev/null; then START_IDX=$(( GITHUB_RUN_ID % POOL_SIZE )) || true; fi
           ATTEMPT=0
-          until docker compose -f "$FILE" up -d --wait --wait-timeout 120; do
-            ATTEMPT=$((ATTEMPT + 1))
+          ROTATED=0
+          while true; do
+            OUT=$(docker compose -f "$FILE" up -d --wait --wait-timeout 120 2>&1) && CODE=0 || CODE=$?
+            echo "$OUT" | tail -n 4
+            if [ "$CODE" -eq 0 ]; then break; fi
+            # Rate-limited account? Rotate to an untried pool account first.
+            if echo "$OUT" | grep -qi 'toomanyrequests\|rate limit'; then
+              if [ "$POOL_SIZE" -gt 1 ] && [ "$ROTATED" -lt $(( POOL_SIZE - 1 )) ]; then
+                NEXT=$(( (START_IDX + 1 + ROTATED) % POOL_SIZE )) || true
+                ROTATED=$(( ROTATED + 1 )) || true
+                if pool_login "$NEXT"; then
+                  echo "Rate limited — rotated to pool account #$(( NEXT + 1 ))/$POOL_SIZE."
+                  continue
+                fi
+              fi
+            fi
+            # Transient blips get plain retries (a failing rotation falls here too).
+            ATTEMPT=$(( ATTEMPT + 1 )) || true
             if [ "$ATTEMPT" -ge 3 ]; then
               echo "Services failed to start after 3 attempts."
               exit 1
