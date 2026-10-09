@@ -101,16 +101,33 @@ export class OrchestratorEngine {
           compiledSpecContent = compiledSpecContent.replace(/^```markdown\s*/, "").replace(/```$/, "").trim();
         }
         await Bun.write(CONFIG.COMPILED_SPEC_FILE, compiledSpecContent);
-        console.log(`✅ [Stage 1/2] Canonical specification synthesized and saved to ${CONFIG.COMPILED_SPEC_FILE} (${compiledSpecContent.length} bytes)!`);
+        console.log(`✅ [Stage 1/3] Canonical specification synthesized and saved to ${CONFIG.COMPILED_SPEC_FILE} (${compiledSpecContent.length} bytes)!`);
       } else {
         console.warn("⚠️ Analyst run did not return content; falling back to raw inputs for planner.");
       }
     }
 
     // =========================================================================
+    // STAGE 1.5: Skill Forger (project-specific skills into inputs/skills/)
+    // =========================================================================
+    console.log("🛠️ [Stage 1.5/3] Running Skill Forger to detect stack-specific gaps...");
+    try {
+      const forgerTemplate = await Bun.file("orchestrator/prompts/skill_forger.md").text();
+      const forgerContext = compiledSpecContent
+        ? `## Synthesized Project Specification:\n${compiledSpecContent.slice(0, 12000)}`
+        : fullInputContext.slice(0, 12000);
+      const forgerPrompt = `${systemPrompt}\n\n${forgerTemplate}\n\n${forgerContext}\n\nWrite the skill files now (reply with a one-line summary per file written, or "NO_NEW_SKILLS"):`;
+      const forgerRes = await OpenCodeClient.runWithFallback(forgerPrompt);
+      console.log("🛠️ Forger summary:", (forgerRes.stdout || "(no output)").slice(-500));
+      await this.collectForgedSkills();
+    } catch (err) {
+      console.warn("⚠️ Skill forging skipped (non-fatal):", (err as Error)?.message || err);
+    }
+
+    // =========================================================================
     // STAGE 2: DAG Planner (Decompose compiled spec into task roadmap DAG)
     // =========================================================================
-    console.log("🧭 [Stage 2/2] Running DAG Planner to decompose specification into roadmap.json...");
+    console.log("🧭 [Stage 2/3] Running DAG Planner to decompose specification into roadmap.json...");
     const plannerPrompt = await Bun.file("orchestrator/prompts/planner.md").text();
 
     const specContext = compiledSpecContent 
@@ -222,6 +239,50 @@ export class OrchestratorEngine {
 
     // Dispatch initial batch of independent tasks (now they have the committed state available!)
     await this.dispatchReadyTasks(roadmapData);
+  }
+
+  /**
+   * Collect forged project skills: validate frontmatter (name == directory,
+   * description present) and commit them immediately so they survive the run
+   * in both single-repo and dual-repo modes.
+   */
+  private static async collectForgedSkills(): Promise<string[]> {
+    const valid: string[] = [];
+    try {
+      const glob = new Bun.Glob("inputs/skills/*");
+      const dirs: string[] = [];
+      for await (const rel of glob.scan({ cwd: ".", onlyFiles: false })) {
+        const base = rel.split(/[/\\]/).pop() || "";
+        if (!base.startsWith(".") && base !== ".gitkeep") dirs.push(rel.replace(/\\/g, "/"));
+      }
+      for (const dir of dirs.sort().slice(0, 6)) {
+        const p = `${dir}/SKILL.md`;
+        try {
+          const raw = await Bun.file(p).text();
+          const m = raw.match(/^---\n([\s\S]*?)\n---\n/);
+          const name = m && (m[1].match(/^name:\s*(.+)$/m) || [])[1]?.trim();
+          const base = dir.split("/").pop()!;
+          if (name === base && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(name)) {
+            valid.push(base);
+          } else {
+            console.warn(`⚠️ Ignoring malformed forged skill (name must equal directory): ${p}`);
+          }
+        } catch {
+          console.warn(`⚠️ Ignoring ${dir} (no readable SKILL.md).`);
+        }
+      }
+      if (dirs.length > 6) {
+        console.warn(`⚠️ Forger produced ${dirs.length} skill dirs; keeping first 6 alphabetically.`);
+      }
+    } catch { /* no skills directory */ }
+    if (valid.length > 0) {
+      await GitManager.run(["git", "add", "inputs/skills"]);
+      await GitManager.run(["git", "commit", "-m", `chore(plan): forged project skills (${valid.join(", ")})`]);
+      console.log(`✅ Collected forged skills: ${valid.join(", ")}`);
+    } else {
+      console.log("ℹ️ No new project skills forged.");
+    }
+    return valid;
   }
 
   /**
@@ -538,7 +599,8 @@ export class OrchestratorEngine {
     }
     for (let attempt = 1; attempt <= 3; attempt++) {
       await StateManager.saveRoadmap(roadmap);
-      for (const f of files) await GitManager.run(["git", "add", "-f", f]);
+      // Forged/hand-added project skills travel with state in data mode.
+      for (const f of [...files, "inputs/skills"]) await GitManager.run(["git", "add", "-f", f]);
       await GitManager.run(["git", "commit", "-m", message]);
       const push = await GitManager.run(["git", "push", remote, `HEAD:${CONFIG.BASE_BRANCH}`]);
       if (push.exitCode === 0) return;

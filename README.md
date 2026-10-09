@@ -142,6 +142,7 @@ Before any branch is merged into `develop`:
   Role-specific native skills under [`.opencode/skills/`](.opencode/skills/) — deterministically injected per role and reloadable on demand via the `skill` tool.
 - **Universal craft skills:** `systematic-debugging`, `test-driven-development`, `api-design`, `sql-review`, `web-accessibility`, `auth-review`, `i18n`, `design-system`, `error-handling`, `backend-structure`, `mobile-essentials`, `deployment-readiness`, `observability-basics`, `performance-budgets`, `external-integrations`, `documentation-discipline`, `frontend-stack` — injected for the most relevant roles, natively discoverable by every agent.
 - **No framework lock-in:** shadcn/Next.js/Nuxt/Blazor skills are deliberately NOT vendored (stale fast, bloat). Instead: docs-first protocol (`frontend-stack`), live official docs via `webfetch`, and project skill drops at `inputs/skills/<role>-<name>/SKILL.md` (auto-injected for that role, travel with project data).
+- **Skill forge:** on every `plan`, the Skill Forger analyzes the stack and writes missing project-specific skills into `inputs/skills/` (max 6, validated, committed). Manual drops welcome anytime — same convention.
 - **Code Reviewer ([`subagents/prompts/roles/reviewer.md`](subagents/prompts/roles/reviewer.md)):**  
   Enforces clean code standards, SOLID principles, error boundaries, and regression safety.
 

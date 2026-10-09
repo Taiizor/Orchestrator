@@ -14,14 +14,13 @@ workspace/data/*.db-shm
 # Dual-repo mode: project data lives in the private DATA_REPO and is
 # runtime-synced into the workdir. Never commit it to the public skeleton.
 # Tracked template files stay: inputs/README.md, inputs/spec.md,
-# inputs/assets/.gitkeep, inputs/references/.gitkeep, inputs/skills/.gitkeep,
-# workspace/.gitkeep.
+# inputs/assets/.gitkeep, inputs/references/.gitkeep, workspace/.gitkeep.
+# inputs/skills/ is tracked normally: forged + hand-added project skills are
+# methodology (generic patterns only, never secrets) and must persist.
 inputs/assets/*
 !inputs/assets/.gitkeep
 inputs/references/*
 !inputs/references/.gitkeep
-inputs/skills/*
-!inputs/skills/.gitkeep
 workspace/*
 !workspace/.gitkeep
 # Runtime state (roadmap/progress/spec): synced from the data repo in
