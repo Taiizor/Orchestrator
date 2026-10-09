@@ -1,0 +1,99 @@
+name: 🛠️ Subagent Worker
+
+on:
+  workflow_dispatch:
+    inputs:
+      taskId:
+        description: 'Task Identifier (e.g. TASK-001)'
+        required: true
+        type: string
+      role:
+        description: 'Assigned Role (architect, backend, frontend, qa, reviewer)'
+        required: true
+        type: string
+      branch:
+        description: 'Target task branch (e.g. task/TASK-001-setup-db)'
+        required: true
+        type: string
+
+concurrency:
+  # Isolated per task ID: independent tasks execute concurrently without blocking each other
+  group: subagent-${{ inputs.taskId }}
+  cancel-in-progress: false
+
+jobs:
+  execute-task:
+    name: "Subagent: ${{ inputs.taskId }} (${{ inputs.role }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: write
+      actions: write
+      pull-requests: write
+      issues: write
+      discussions: write
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🥟 Setup Bun Runtime
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: ⚡ Cache Bun Modules & OpenCode Binary
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            ~/.bun/bin/opencode
+          key: ${{ runner.os }}-bun-cache-${{ hashFiles('package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-cache-
+
+      - name: ⚙️ Install OpenCode CLI
+        run: |
+          if ! command -v opencode &> /dev/null; then
+            echo "Installing OpenCode CLI..."
+            bun install -g --trust @opencode/cli
+          fi
+          echo "$HOME/.bun/bin" >> $GITHUB_PATH
+          export PATH="$HOME/.bun/bin:$PATH"
+          mkdir -p "$HOME/.config/opencode"
+          printf '{\n  "permission": {\n    "*": "allow"\n  }\n}\n' > "$HOME/.config/opencode/opencode.json"
+          opencode --version || echo "OpenCode installed"
+
+      - name: 📦 Install Project Dependencies
+        run: bun install
+
+      - name: 🤖 Execute Subagent Task
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_PROJECT_TOKEN: ${{ secrets.GH_PROJECT_TOKEN }}
+          OPENCODE_MODEL: ${{ secrets.OPENCODE_MODEL }}
+          OPENCODE_VARIANT: ${{ secrets.OPENCODE_VARIANT }}
+          INTEGRATION_BRANCH: develop
+        run: |
+          bun run subagents/runner.ts \
+            --taskId="${{ inputs.taskId }}" \
+            --role="${{ inputs.role }}" \
+            --branch="${{ inputs.branch }}"
+
+      - name: 🔔 Wake Up Orchestrator
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Checking for an already-queued orchestrator run before dispatching..."
+          PENDING=$(gh run list --workflow orchestrator.yml --limit 10 --json status --jq '[.[] | select(.status == "queued" or .status == "in_progress" or .status == "waiting" or .status == "requested")] | length' 2>/dev/null || echo 0)
+          if [ "$PENDING" -gt 0 ]; then
+            echo "Orchestrator already queued/running ($PENDING) — skipping duplicate wake."
+          else
+            echo "Triggering Orchestrator to inspect task status..."
+            gh workflow run orchestrator.yml || true
+          fi

@@ -1,0 +1,736 @@
+import { parseArgs } from "util";
+import { existsSync } from "fs";
+import { CONFIG } from "./config.ts";
+import { StateManager } from "./state_manager.ts";
+import { GitManager } from "./git_manager.ts";
+import { OpenCodeClient } from "./opencode_client.ts";
+import { IssueManager } from "./issue_manager.ts";
+import { ProjectManager } from "./project_manager.ts";
+import { hasStructuredProgress, runReviewGate } from "./review_gate.ts";
+import { validateRoadmap, formatValidation } from "./roadmap_validator.ts";
+import type { Roadmap, TaskItem, ReviewResult } from "./types.ts";
+
+export class OrchestratorEngine {
+  /**
+   * Action: Plan roadmap from inputs
+   */
+  public static async plan(): Promise<void> {
+    console.log("🧭 Planning roadmap from inputs/...");
+
+    if (!existsSync(CONFIG.INPUTS_DIR)) {
+      console.error(`❌ inputs/ directory does not exist.`);
+      process.exit(1);
+    }
+
+    const glob = new Bun.Glob("**/*");
+    let fullInputContext = "## Project Specifications & Input Documents:\n\n";
+    const assetList: string[] = [];
+    let fileCount = 0;
+
+    const imageExts = new Set([".png", ".jpg", ".jpeg", ".svg", ".webp", ".gif", ".ico", ".pdf", ".bmp"]);
+
+    for await (const relPath of glob.scan({ cwd: CONFIG.INPUTS_DIR })) {
+      if (relPath.endsWith(".gitkeep")) continue;
+      // Skip default input guide README
+      if (relPath === "README.md") continue;
+
+      const fullPath = `${CONFIG.INPUTS_DIR}/${relPath}`;
+      const dotIdx = relPath.lastIndexOf(".");
+      const ext = dotIdx !== -1 ? relPath.slice(dotIdx).toLowerCase() : "";
+
+      if (imageExts.has(ext)) {
+        assetList.push(relPath);
+      } else {
+        try {
+          const content = await Bun.file(fullPath).text();
+          // If spec.md is untouched with only template comments, skip it so it doesn't clutter the context
+          if (relPath === "spec.md") {
+            const stripped = content.replace(/<!--[\s\S]*?-->/g, "").replace(/^#.*$/gm, "").trim();
+            if (!stripped) continue;
+            fullInputContext = `### High-Level Directives & Project Overrides (\`inputs/spec.md\`):\n\`\`\`\n${content}\n\`\`\`\n\n` + fullInputContext;
+            fileCount++;
+            continue;
+          }
+          if (content.trim()) {
+            fullInputContext += `### File: \`inputs/${relPath}\`\n\`\`\`\n${content}\n\`\`\`\n\n`;
+            fileCount++;
+          }
+        } catch (err) {
+          console.warn(`Could not read text file inputs/${relPath}:`, err);
+        }
+      }
+    }
+
+    if (fileCount === 0 && assetList.length === 0) {
+      console.error("❌ No input specification files found in inputs/ directory. Please drop your project files or folder into inputs/.");
+      process.exit(1);
+    }
+
+    if (assetList.length > 0) {
+      fullInputContext += `### Available Visual Assets & Mockups:\n${assetList.map(a => `- \`inputs/${a}\``).join("\n")}\n\n`;
+    }
+
+    console.log(`📂 Ingested ${fileCount} input document(s) and ${assetList.length} visual asset(s) from inputs/`);
+
+    const systemPrompt = await Bun.file("orchestrator/prompts/system.md").text();
+
+    // =========================================================================
+    // STAGE 1: Requirements Analyst (Synthesize inputs into COMPILED_SPEC.md)
+    // =========================================================================
+    console.log("🧐 [Stage 1/2] Running Requirements Analyst to synthesize inputs into canonical specification...");
+    let compiledSpecContent = "";
+
+    const analystPromptPath = "orchestrator/prompts/analyst.md";
+    if (existsSync(analystPromptPath)) {
+      const analystPromptTemplate = await Bun.file(analystPromptPath).text();
+      const analystPrompt = `${systemPrompt}\n\n${analystPromptTemplate}\n\n${fullInputContext}\nSynthesize all inputs into the canonical specification (state/COMPILED_SPEC.md) now:`;
+      
+      const analystRes = await OpenCodeClient.runWithFallback(analystPrompt);
+      if (analystRes.exitCode === 0 && analystRes.stdout.trim()) {
+        compiledSpecContent = analystRes.stdout.trim();
+        // Remove markdown code block wrappers if any
+        if (compiledSpecContent.startsWith("```markdown")) {
+          compiledSpecContent = compiledSpecContent.replace(/^```markdown\s*/, "").replace(/```$/, "").trim();
+        }
+        await Bun.write(CONFIG.COMPILED_SPEC_FILE, compiledSpecContent);
+        console.log(`✅ [Stage 1/2] Canonical specification synthesized and saved to ${CONFIG.COMPILED_SPEC_FILE} (${compiledSpecContent.length} bytes)!`);
+      } else {
+        console.warn("⚠️ Analyst run did not return content; falling back to raw inputs for planner.");
+      }
+    }
+
+    // =========================================================================
+    // STAGE 2: DAG Planner (Decompose compiled spec into task roadmap DAG)
+    // =========================================================================
+    console.log("🧭 [Stage 2/2] Running DAG Planner to decompose specification into roadmap.json...");
+    const plannerPrompt = await Bun.file("orchestrator/prompts/planner.md").text();
+
+    const specContext = compiledSpecContent 
+      ? `## Synthesized Project Specification (${CONFIG.COMPILED_SPEC_FILE}):\n${compiledSpecContent}`
+      : fullInputContext;
+
+    const fullPrompt = `${systemPrompt}\n\n${plannerPrompt}\n\n${specContext}\nGenerate the complete roadmap JSON now:`;
+
+    const res = await OpenCodeClient.runWithFallback(fullPrompt);
+
+    // Parse JSON block from OpenCode output
+    let roadmapData: Roadmap | null = null;
+    const jsonMatch = res.stdout.match(/```json([\s\S]*?)```/) || res.stdout.match(/(\{[\s\S]*\})/);
+    if (jsonMatch) {
+      try {
+        const raw = JSON.parse(jsonMatch[1].trim());
+        roadmapData = {
+          projectName: raw.projectName || "Generated Project",
+          version: raw.version || 1,
+          summary: raw.summary || "",
+          globalStatus: "IN_PROGRESS",
+          milestones: raw.milestones || [],
+          updatedAt: new Date().toISOString(),
+          tasks: (raw.tasks || []).map((t: any, idx: number) => ({
+            id: t.id || `TASK-${String(idx + 1).padStart(3, "0")}`,
+            title: t.title || "Untitled Task",
+            description: t.description || "",
+            role: t.role || "backend",
+            dependencies: t.dependencies || [],
+            targetFiles: t.targetFiles || [],
+            milestone: t.milestone || (raw.milestones?.[0]?.title ?? "v0.1.0 - Foundation"),
+            status: "PENDING",
+            branch: t.branch || `task/${t.id || `TASK-${idx + 1}`}`,
+            attempts: 0,
+            maxAttempts: CONFIG.MAX_TASK_ATTEMPTS,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          })),
+        };
+      } catch (e) {
+        console.error("Failed to parse roadmap JSON:", e);
+      }
+    }
+
+    if (!roadmapData || roadmapData.tasks.length === 0) {
+      console.error("❌ Failed to generate valid roadmap tasks from OpenCode output.");
+      console.log("Raw output:", res.stdout);
+      process.exit(1);
+    }
+
+    // Deterministic DAG validation BEFORE persisting (cycles, dupes, bad roles, missing deps)
+    const validation = validateRoadmap({
+      tasks: roadmapData.tasks.map((t) => ({
+        id: t.id,
+        role: t.role,
+        dependencies: t.dependencies,
+        targetFiles: t.targetFiles,
+        milestone: t.milestone,
+      })),
+      milestones: roadmapData.milestones,
+    });
+    if (validation.warnings.length > 0) {
+      console.warn("⚠️ Roadmap validation warnings:\n" + formatValidation({ errors: [], warnings: validation.warnings }));
+    }
+    if (validation.errors.length > 0) {
+      console.error("❌ Roadmap validation failed:\n" + formatValidation({ errors: validation.errors, warnings: [] }));
+      console.error("Aborting plan. Fix the planner output or inputs and retry.");
+      process.exit(1);
+    }
+    console.log("✅ Roadmap DAG validation passed.");
+
+    await StateManager.saveRoadmap(roadmapData);
+    console.log(`✅ Roadmap created with ${roadmapData.tasks.length} tasks.`);
+
+    // Initialize GitHub Project (v2), Milestones, and Issues
+    if (roadmapData.milestones && roadmapData.milestones.length > 0) {
+      await ProjectManager.ensureMilestones(roadmapData.milestones);
+    }
+    const projectNum = await ProjectManager.ensureProject(roadmapData);
+    for (const task of roadmapData.tasks) {
+      await ProjectManager.ensureTaskIssue(task, task.milestone);
+    }
+    if (projectNum) {
+      await ProjectManager.syncBoardState(roadmapData, projectNum);
+    }
+    await StateManager.saveRoadmap(roadmapData);
+
+    // Save and commit synthesized spec, roadmap, and progress to git BEFORE dispatching subagents
+    await StateManager.saveRoadmap(roadmapData);
+    await IssueManager.syncDashboardIssue(roadmapData);
+    await GitManager.commitAndPush(
+      "chore(orchestrator): initial plan and synthesized specification",
+      [CONFIG.ROADMAP_FILE, CONFIG.PROGRESS_MD_FILE, CONFIG.COMPILED_SPEC_FILE]
+    );
+
+    // Keep the develop integration branch synced (state lives on main only)
+    await GitManager.run(["git", "push", "origin", `HEAD:${CONFIG.INTEGRATION_BRANCH}`]);
+
+    // Dispatch initial batch of independent tasks (now they have the committed state available!)
+    await this.dispatchReadyTasks(roadmapData);
+  }
+
+  /**
+   * Action: Review tasks waiting in IN_REVIEW
+   */
+  public static async reviewTasks(roadmap: Roadmap): Promise<boolean> {
+    let hasChanges = false;
+
+    // Auto-detect completed task branches via STRUCTURED progress report
+    // (all 4 sections required) AND a branch diff check:
+    // - non-empty code diff  -> IN_REVIEW (normal path)
+    // - empty diff (already merged into develop) -> COMPLETED directly.
+    //   Without the second rule, merged tasks stuck at IN_PROGRESS/PENDING
+    //   linger forever: not reviewable, yet never completed.
+    for (const task of roadmap.tasks) {
+      if (task.status === "COMPLETED" || task.status === "FAILED") continue;
+      {
+        const branchExists = await GitManager.branchExists(task.branch);
+        if (branchExists) {
+          const progressRes = await GitManager.run(["git", "show", `origin/${task.branch}:workspace/${CONFIG.TASK_PROGRESS_FILE}`]);
+          if (progressRes.exitCode === 0 && hasStructuredProgress(progressRes.stdout)) {
+            const files = await GitManager.getBranchFileList(task.branch, CONFIG.INTEGRATION_BRANCH);
+            const realChanges = files.filter((f) => f !== `workspace/${CONFIG.TASK_PROGRESS_FILE}`);
+            if (realChanges.length === 0) {
+              // Don't complete a task that may still have an active runner:
+              // IN_PROGRESS + recently dispatched = subagent possibly working.
+              if (task.status === "IN_PROGRESS" && task.dispatchedAt) {
+                const ageMs = Date.now() - Date.parse(task.dispatchedAt);
+                if (ageMs < 45 * 60 * 1000) {
+                  console.log(`ℹ️ [${task.id}] empty diff but dispatched ${Math.round(ageMs / 60000)}m ago; run may be active, leaving IN_PROGRESS.`);
+                  continue;
+                }
+              }
+              if (task.status !== "COMPLETED") {
+                console.log(`✅ [${task.id}] branch already integrated (empty diff). Marking COMPLETED.`);
+                task.status = "COMPLETED";
+                task.reviewNotes = "Branch diff vs develop is empty; deliverables already integrated.";
+                task.updatedAt = new Date().toISOString();
+                if (roadmap.projectNumber) {
+                  await ProjectManager.updateItemStatus(roadmap.projectNumber, task, "Done");
+                }
+                hasChanges = true;
+              }
+              continue;
+            }
+            if (task.status === "IN_PROGRESS" || task.status === "PENDING") {
+              console.log(`🔎 Detected completed deliverables for [${task.id}] on branch ${task.branch}. Transitioning to IN_REVIEW.`);
+              task.status = "IN_REVIEW";
+              task.updatedAt = new Date().toISOString();
+              hasChanges = true;
+            }
+          }
+        }
+      }
+    }
+
+    const tasksInReview = roadmap.tasks.filter((t) => t.status === "IN_REVIEW");
+    if (tasksInReview.length === 0) {
+      if (hasChanges) await StateManager.saveRoadmap(roadmap);
+      return hasChanges;
+    }
+
+    console.log(`🔍 Reviewing ${tasksInReview.length} completed tasks...`);
+    const reviewerPromptTemplate = await Bun.file("orchestrator/prompts/reviewer.md").text();
+
+    for (const task of tasksInReview) {
+      console.log(`🧐 Reviewing deliverables for [${task.id}] on branch ${task.branch}...`);
+
+      // Get diff against integration branch
+      const diff = await GitManager.getBranchDiff(task.branch, CONFIG.INTEGRATION_BRANCH);
+
+      // Attempt to read task progress file from branch
+      const progressCmd = await GitManager.run(["git", "show", `origin/${task.branch}:workspace/${CONFIG.TASK_PROGRESS_FILE}`]);
+      const taskProgress = progressCmd.exitCode === 0 ? progressCmd.stdout : "No progress file provided.";
+
+      // Step 1: Deterministic pre-LLM gate (no LLM cost on obvious failures)
+      const gate = await runReviewGate(task, diff, taskProgress);
+      if (gate.warnings.length > 0) {
+        console.warn(`⚠️ [${task.id}] gate warnings:\n- ${gate.warnings.join("\n- ")}`);
+      }
+      const rejectTask = async (notes: string, fixes: string[]) => {
+        console.warn(`⚠️ [${task.id}] REJECTED: ${notes}`);
+        task.attempts += 1;
+        task.reviewNotes = notes + (fixes.length > 0 ? `\nFixes: ${fixes.join(", ")}` : "");
+        if (task.attempts >= task.maxAttempts) {
+          task.status = "FAILED";
+          console.error(`❌ [${task.id}] exceeded maximum attempts (${task.maxAttempts}). Marked as FAILED.`);
+        } else {
+          task.status = "PENDING";
+        }
+        if (roadmap.projectNumber) {
+          await ProjectManager.updateItemStatus(roadmap.projectNumber, task, "Todo");
+          await ProjectManager.postTaskProgressComment(
+            task,
+            `⚠️ **Review Feedback:** ${task.reviewNotes}\nRe-queuing for correction (${task.attempts}/${task.maxAttempts}).`
+          );
+        }
+        hasChanges = true;
+      };
+
+      if (!gate.passed) {
+        // Empty branch diff + structured progress = work already integrated
+        // into develop (e.g. merged by an earlier tick). Complete silently
+        // instead of looping reject → re-dispatch forever.
+        const onlyEmptyDiff =
+          gate.failures.length === 1 && gate.failures[0].startsWith("Empty diff");
+        if (onlyEmptyDiff) {
+          console.log(`✅ [${task.id}] branch already integrated (empty diff). Marking COMPLETED.`);
+          task.status = "COMPLETED";
+          task.reviewNotes = "Branch diff vs develop is empty; deliverables already integrated.";
+          task.updatedAt = new Date().toISOString();
+          if (roadmap.projectNumber) {
+            await ProjectManager.updateItemStatus(roadmap.projectNumber, task, "Done");
+            await ProjectManager.postTaskProgressComment(task, `✅ **Already Integrated:** empty branch diff, marked COMPLETED without re-merge.`);
+          }
+          hasChanges = true;
+          continue;
+        }
+        await rejectTask(
+          `Deterministic gate failed:\n- ${gate.failures.join("\n- ")}`,
+          gate.failures
+        );
+        continue;
+      }
+
+      const reviewPrompt = `${reviewerPromptTemplate}\n\n` +
+        `### Task: [${task.id}] - ${task.title}\n` +
+        `**Expected Deliverables:**\n${task.description}\n\n` +
+        `### Subagent Progress Report (TASK_PROGRESS.md):\n${taskProgress}\n\n` +
+        `### Changed files (${gate.fileList.length}):\n${gate.fileList.slice(0, 50).join("\n")}\n\n` +
+        `### Diff stat:\n\`\`\`\n${gate.diffStat}\n\`\`\`\n\n` +
+        `### Gate warnings (already checked, informational):\n${gate.warnings.length > 0 ? gate.warnings.join("\n") : "none"}\n\n` +
+        `### Git Diff:\n\`\`\`diff\n${diff.slice(0, 10000)}\n\`\`\`\n\n` +
+        `Evaluate whether to approve or reject this work:`;
+
+      const res = await OpenCodeClient.runWithFallback(reviewPrompt);
+
+      // Robust JSON parse: fenced block, then largest {...} span. Default REJECT on garbage.
+      let reviewResult: ReviewResult | null = null;
+      const fenced = res.stdout.match(/```json([\s\S]*?)```/);
+      const candidates = fenced ? [fenced[1]] : [];
+      const greedy = res.stdout.match(/\{[\s\S]*\}/);
+      if (greedy) candidates.push(greedy[0]);
+      for (const c of candidates) {
+        try {
+          const parsed = JSON.parse(c.trim());
+          if (typeof parsed.approved === "boolean") {
+            reviewResult = {
+              approved: parsed.approved,
+              notes: String(parsed.notes || ""),
+              suggestedFixes: Array.isArray(parsed.suggestedFixes) ? parsed.suggestedFixes.map(String) : [],
+            };
+            break;
+          }
+        } catch { /* try next candidate */ }
+      }
+      if (!reviewResult) {
+        await rejectTask(
+          `Reviewer output unparseable (no valid {approved, notes} JSON). Raw head: ${res.stdout.slice(0, 300)}`,
+          ["Ensure reviewer returns fenced ```json with approved:boolean"]
+        );
+        continue;
+      }
+
+      if (reviewResult.approved) {
+        console.log(`✅ [${task.id}] APPROVED! Integrating branch ${task.branch} into ${CONFIG.INTEGRATION_BRANCH} via PR...`);
+        const { PRManager } = await import("./pr_manager.ts");
+        let merged = false;
+        let viaPR: string | null = null;
+
+        // Preferred path: real PR with review audit trail
+        const pr = await PRManager.createOrGetTaskPR(task);
+        if (pr) {
+          viaPR = `#${pr.number}`;
+          await PRManager.postReviewComment(
+            pr.number,
+            `✅ **Orchestrator review: APPROVED**\n\n${reviewResult.notes || "Requirements met."}\n\nMerging now.`
+          );
+          merged = await PRManager.mergeTaskPR(pr.number);
+          if (!merged) {
+            console.warn(`⚠️ PR #${pr.number} not directly mergable; falling back to local merge + AI conflict resolver...`);
+            await PRManager.postReviewComment(
+              pr.number,
+              `⚠️ **Auto-merge failed** (likely conflicts). Falling back to local merge with AI conflict resolution.`
+            );
+          }
+        }
+        // Fallback path: local merge (conflict resolver inside)
+        if (!merged) {
+          merged = await GitManager.mergeTaskBranch(
+            task.branch,
+            CONFIG.INTEGRATION_BRANCH,
+            `chore(merge): integrate approved task ${task.id} (${task.title})`
+          );
+          if (merged && pr) {
+            await PRManager.postReviewComment(pr.number, `✅ **Integrated** via local merge (conflicts auto-resolved, tests green).`);
+          }
+        }
+
+        if (merged) {
+          task.status = "COMPLETED";
+          task.reviewNotes = (reviewResult.notes || "Approved and integrated.") + (viaPR ? ` (PR ${viaPR})` : "");
+          task.updatedAt = new Date().toISOString();
+          if (roadmap.projectNumber) {
+            await ProjectManager.updateItemStatus(roadmap.projectNumber, task, "Done");
+            await ProjectManager.postTaskProgressComment(task, `✅ **Approved & Integrated${viaPR ? ` via PR ${viaPR}` : ""}:** ${task.reviewNotes}`);
+          }
+          hasChanges = true;
+        } else {
+          await rejectTask(
+            `Approved but integration failed${viaPR ? ` (PR ${viaPR} unmergable, local merge also failed)` : ""}. Manual inspection needed.`,
+            ["Resolve merge conflicts on the task branch and re-queue with /retry"]
+          );
+        }
+      } else {
+        await rejectTask(
+          reviewResult.notes || "Rejected by reviewer.",
+          reviewResult.suggestedFixes || []
+        );
+        // Traceability: mirror the rejection onto the open PR, if one exists.
+        try {
+          const { PRManager: PRM } = await import("./pr_manager.ts");
+          const openPR = await PRM.getOpenPR(task.branch);
+          if (openPR) {
+            await PRM.postReviewComment(
+              openPR.number,
+              `⚠️ **Orchestrator review: CHANGES REQUESTED**\n\n${task.reviewNotes}`
+            );
+          }
+        } catch { /* non-fatal */ }
+      }
+    }
+
+    if (hasChanges) {
+      await StateManager.saveRoadmap(roadmap);
+    }
+    return hasChanges;
+  }
+
+  /**
+   * Persist roadmap with merge-on-conflict: concurrent ticks editing
+   * roadmap.json must not silently drop each other's decisions (e.g. a
+   * COMPLETED flag). On rebase conflict the remote copy is field-merged
+   * with ours (terminal states win) instead of aborting and losing updates.
+   */
+  private static async persistRoadmap(roadmap: Roadmap, message: string): Promise<void> {
+    const files = [CONFIG.ROADMAP_FILE, CONFIG.PROGRESS_MD_FILE, CONFIG.COMPILED_SPEC_FILE];
+    // Freshness first: a long tick (slow LLM reviews) may hold a stale copy.
+    // Merge remote truth in BEFORE saving so we never wipe fields like
+    // projectNumber that another run persisted meanwhile.
+    try {
+      await GitManager.run(["git", "fetch", "origin"]);
+      const show = await GitManager.run(["git", "show", "origin/main:" + CONFIG.ROADMAP_FILE]);
+      const remote = JSON.parse(show.stdout) as Roadmap;
+      Object.assign(roadmap, StateManager.mergeRoadmaps(roadmap, remote));
+    } catch {
+      // No remote state (first run) — persist local copy as-is.
+    }
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await StateManager.saveRoadmap(roadmap);
+      for (const f of files) await GitManager.run(["git", "add", f]);
+      await GitManager.run(["git", "commit", "-m", message]);
+      const push = await GitManager.run(["git", "push"]);
+      if (push.exitCode === 0) return;
+      console.warn(`⚠️ Push rejected (attempt ${attempt}/3). Rebasing...`);
+      await GitManager.run(["git", "fetch", "origin"]);
+      const rebase = await GitManager.run(["git", "pull", "--rebase"]);
+      if (rebase.exitCode === 0) continue;
+      console.warn("⚠️ Rebase conflict on state files — field-merging roadmaps.");
+      await GitManager.run(["git", "rebase", "--abort"]);
+      try {
+        const show = await GitManager.run(["git", "show", "origin/main:" + CONFIG.ROADMAP_FILE]);
+        const remote = JSON.parse(show.stdout) as Roadmap;
+        const merged = StateManager.mergeRoadmaps(roadmap, remote);
+        Object.assign(roadmap, merged);
+      } catch {
+        console.warn("⚠️ Could not load remote roadmap; retrying with local copy.");
+      }
+    }
+    console.error("❌ persistRoadmap: push failed after 3 attempts; changes remain local.");
+  }
+
+  /**
+   * Dispatch pending tasks whose dependencies are resolved up to concurrency limit
+   */
+  public static async dispatchReadyTasks(roadmap: Roadmap): Promise<void> {
+    if (roadmap.globalStatus === "PAUSED") {
+      console.log("⏸️ Orchestrator is currently PAUSED. Skipping new task dispatches.");
+      return;
+    }
+
+    const readyTasks = StateManager.getReadyTasks(roadmap, CONFIG.MAX_CONCURRENT_SUBAGENTS);
+    if (readyTasks.length === 0) {
+      console.log("ℹ️ No ready tasks to dispatch at this time.");
+      return;
+    }
+
+    console.log(`🚀 Dispatching ${readyTasks.length} parallel subagents (Concurrency limit: ${CONFIG.MAX_CONCURRENT_SUBAGENTS})...`);
+
+    for (const task of readyTasks) {
+      const dispatched = await GitManager.dispatchSubagentWorkflow(task.id, task.role, task.branch);
+      if (dispatched) {
+        task.status = "IN_PROGRESS";
+        task.updatedAt = new Date().toISOString();
+        task.dispatchedAt = new Date().toISOString();
+        // Best-effort runId capture for watchdog correlation (dispatch is fire-and-forget)
+        try {
+          const runId = await GitManager.findRunForBranch(task.branch);
+          if (runId) task.runId = runId;
+        } catch { /* non-fatal */ }
+        if (roadmap.projectNumber) {
+          await ProjectManager.updateItemStatus(roadmap.projectNumber, task, "In Progress");
+          await ProjectManager.postTaskProgressComment(task, `⚡ **Subagent Dispatched:** Executing on branch \`${task.branch}\` with role \`${task.role}\`.`);
+        }
+      }
+    }
+
+    await StateManager.saveRoadmap(roadmap);
+  }
+
+  /**
+   * Action: Tick (Check status, review completed work, dispatch next jobs)
+   */
+  public static async tick(): Promise<void> {
+    console.log("⏰ Orchestrator Tick started...");
+    await GitManager.setupGitAuthor();
+    await GitManager.run(["git", "fetch", "--all"]);
+
+    // NOTE: state/roadmap.json on main is the source of truth (every tick
+    // commits it there). There is no separate state branch by design.
+
+    let roadmap = await StateManager.loadRoadmap();
+    if (!roadmap) {
+      console.log("⚠️ No active roadmap found. Initiating planning phase...");
+      await this.plan();
+      return;
+    }
+
+    // Ensure GitHub Milestones and Issues exist for all tasks
+    if (roadmap.milestones && roadmap.milestones.length > 0) {
+      await ProjectManager.ensureMilestones(roadmap.milestones);
+    }
+    const hasUnsyncedIssues = roadmap.tasks.some((t) => !t.issueNumber);
+    if (hasUnsyncedIssues) {
+      console.log("📌 Ensuring GitHub Issues exist for all tasks and are attached to Milestones...");
+      const projectNum = await ProjectManager.ensureProject(roadmap);
+      for (const task of roadmap.tasks) {
+        if (!task.issueNumber) {
+          await ProjectManager.ensureTaskIssue(task, task.milestone);
+        }
+      }
+      if (projectNum) {
+        await ProjectManager.syncBoardState(roadmap, projectNum);
+      }
+      await StateManager.saveRoadmap(roadmap);
+    }
+
+    // Self-healing board linkage: if the roadmap lost its projectNumber
+    // (e.g. stale overwrite), rebuild it — otherwise cards/issues drift.
+    if (!roadmap.projectNumber) {
+      console.log("🔧 Roadmap missing project linkage; rebuilding...");
+      const projectNum = await ProjectManager.ensureProject(roadmap);
+      if (projectNum) {
+        await StateManager.saveRoadmap(roadmap);
+      }
+    }
+
+    // Step 0: Process ChatOps commands (/pause, /resume, /directive, /retry, /status)
+    const chatOpsChanged = await IssueManager.processChatOps(roadmap);
+    if (chatOpsChanged) {
+      await StateManager.saveRoadmap(roadmap);
+    }
+
+    // Step 0.5: Observe active subagent runs & watchdog monitoring
+    // Stale runs (older than STALE_RUN_TIMEOUT_MINUTES) are cancelled and re-queued.
+    const activeRuns = await GitManager.getActiveSubagentRuns();
+    if (activeRuns.length > 0) {
+      console.log(`👀 Observing ${activeRuns.length} active subagent runs in GitHub Actions:`);
+      for (const run of activeRuns) {
+        console.log(`   - Run #${run.databaseId}: ${run.name} [${run.status}] on ${run.headBranch}`);
+      }
+      const now = Date.now();
+      const staleMs = CONFIG.STALE_RUN_TIMEOUT_MINUTES * 60 * 1000;
+      for (const run of activeRuns) {
+        const started = run.createdAt ? Date.parse(run.createdAt) : NaN;
+        if (Number.isNaN(started) || now - started < staleMs) continue;
+        const staleTask = roadmap.tasks.find(
+          (t) => t.branch === run.headBranch && (t.status === "IN_PROGRESS" || t.status === "IN_REVIEW")
+        );
+        // Cross-check with task-level dispatchedAt to avoid killing a freshly re-dispatched run
+        // that reuses the same branch name.
+        if (staleTask?.dispatchedAt) {
+          const ageMs = now - Date.parse(staleTask.dispatchedAt);
+          if (ageMs < staleMs) continue;
+        }
+        console.warn(`⏰ Watchdog: run #${run.databaseId} on ${run.headBranch} is stale (> ${CONFIG.STALE_RUN_TIMEOUT_MINUTES}m). Cancelling...`);
+        const cancelled = await GitManager.cancelWorkflowRun(run.databaseId);
+        if (cancelled && staleTask) {
+          staleTask.status = "PENDING";
+          staleTask.reviewNotes = `Watchdog: stale run #${run.databaseId} cancelled after ${CONFIG.STALE_RUN_TIMEOUT_MINUTES}m without completion. Re-queued.`;
+          staleTask.updatedAt = new Date().toISOString();
+          await StateManager.saveRoadmap(roadmap);
+          if (roadmap.projectNumber) {
+            await ProjectManager.updateItemStatus(roadmap.projectNumber, staleTask, "Todo");
+            await ProjectManager.postTaskProgressComment(staleTask, `⏰ **Watchdog:** Stale run cancelled, task re-queued.`);
+          }
+        }
+      }
+    }
+
+    // Step 1: Review any completed subagent tasks
+    await this.reviewTasks(roadmap);
+
+    // Step 1.5: Check and close completed intermediate Milestones
+    if (roadmap.milestones) {
+      for (let i = 0; i < roadmap.milestones.length; i++) {
+        const m = roadmap.milestones[i];
+        const milestoneTasks = roadmap.tasks.filter(t => t.milestone === m.title);
+        if (milestoneTasks.length > 0 && milestoneTasks.every(t => t.status === "COMPLETED")) {
+          const closed = await IssueManager.closeMilestoneIfCompleted(m.title);
+          if (closed) {
+            const tag = `v0.${i + 1}.0`;
+            console.log(`🎉 Milestone "${m.title}" completed! Publishing release ${tag}...`);
+            await IssueManager.createMilestoneRelease(
+              tag,
+              `Milestone Completed: ${m.title}`,
+              `## 🏆 Milestone Achieved: ${m.title}\n\nAll tasks in this milestone were verified and integrated:\n${milestoneTasks.map(t => `- [x] **[${t.id}]** ${t.title}`).join("\n")}`
+            );
+          }
+        }
+      }
+    }
+
+    // Step 2: Check for finished roadmap
+    const allCompleted = roadmap.tasks.length > 0 && roadmap.tasks.every((t) => t.status === "COMPLETED");
+    if (allCompleted) {
+      console.log("🎉 ALL TASKS COMPLETED! Target project is fully built and verified.");
+      roadmap.globalStatus = "COMPLETED";
+      await this.persistRoadmap(roadmap, "chore(orchestrator): all tasks completed");
+
+      // Sync Dashboard Issue & Publish Release Tag
+      const issueNum = await IssueManager.syncDashboardIssue(roadmap);
+      if (issueNum) {
+        await IssueManager.postMilestoneUpdate(
+          issueNum,
+          "🎉 **All tasks have been successfully completed and verified!** Creating Final Release `v1.0.0`..."
+        );
+      }
+      await IssueManager.createMilestoneRelease(
+        "v1.0.0",
+        `Release v1.0.0 - ${roadmap.projectName}`,
+        `## 🚀 Project Completed: ${roadmap.projectName}\n\nAll tasks implemented, reviewed, audited, and tested.\n\n### Deliverables:\n- Core workspace built in \`workspace/\`\n- 0 test failures on \`bun test\`\n- Security audit clean`
+      );
+      return;
+    }
+
+    // Step 3: Dispatch any tasks unblocked by approvals (unless paused)
+    await this.dispatchReadyTasks(roadmap);
+
+    // Board drift heal: cheap steady-state sync (~3 calls) so cards/issues
+    // always mirror the roadmap even if an event-driven update was skipped.
+    if (roadmap.projectNumber) {
+      await ProjectManager.syncBoardState(roadmap, roadmap.projectNumber);
+    }
+
+    // Save, sync dashboard issue, and commit progress (merge-safe persist)
+    await this.persistRoadmap(roadmap, "chore(orchestrator): update progress roadmap");
+    await IssueManager.syncDashboardIssue(roadmap);
+
+    console.log("💤 Orchestrator run completed. Exiting to conserve runner minutes.");
+  }
+}
+
+// CLI Execution Entrypoint
+async function main() {
+  const { values } = parseArgs({
+    args: Bun.argv,
+    options: {
+      action: { type: "string", default: "tick" },
+    },
+    strict: true,
+    allowPositionals: true,
+  });
+
+  const action = values.action || "tick";
+
+  switch (action) {
+    case "plan":
+      await OrchestratorEngine.plan();
+      break;
+    case "review": {
+      const roadmap = await StateManager.loadRoadmap();
+      if (roadmap) await OrchestratorEngine.reviewTasks(roadmap);
+      break;
+    }
+    case "project": {
+      // Repair action: (re)build Projects v2 board + milestone/issue links
+      // without touching task statuses. Safe to run any time.
+      await GitManager.setupGitAuthor();
+      await GitManager.run(["git", "fetch", "--all"]);
+      const roadmap = await StateManager.loadRoadmap();
+      if (!roadmap) {
+        console.error("❌ No roadmap found; run plan first.");
+        process.exit(1);
+      }
+      if (roadmap.milestones && roadmap.milestones.length > 0) {
+        await ProjectManager.ensureMilestones(roadmap.milestones);
+      }
+      const projectNum = await ProjectManager.ensureProject(roadmap);
+      for (const task of roadmap.tasks) {
+        await ProjectManager.ensureTaskIssue(task, task.milestone);
+      }
+      if (projectNum) {
+        await ProjectManager.syncBoardState(roadmap, projectNum);
+      }
+      await StateManager.saveRoadmap(roadmap);
+      await GitManager.commitAndPush("chore(orchestrator): repair project board links", [CONFIG.ROADMAP_FILE, CONFIG.PROGRESS_MD_FILE]);
+      console.log(projectNum ? `✅ Project board ready: #${projectNum}` : "⚠️ Project board still unavailable — see scope hint above.");
+      break;
+    }
+    case "tick":
+    default:
+      await OrchestratorEngine.tick();
+      break;
+  }
+}
+
+main().catch((err) => {
+  console.error("Fatal error in orchestrator engine:", err);
+  process.exit(1);
+});

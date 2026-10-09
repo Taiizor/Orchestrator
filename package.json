@@ -1,0 +1,25 @@
+{
+  "name": "opencode-actions-orchestrator",
+  "version": "1.0.0",
+  "description": "Multi-agent autonomous software development framework powered by OpenCode and GitHub Actions",
+  "main": "orchestrator/engine.ts",
+  "type": "module",
+  "scripts": {
+    "orchestrator:tick": "bun run orchestrator/engine.ts --action=tick",
+    "orchestrator:plan": "bun run orchestrator/engine.ts --action=plan",
+    "orchestrator:review": "bun run orchestrator/engine.ts --action=review",
+    "subagent:run": "bun run subagents/runner.ts"
+  },
+  "keywords": [
+    "opencode",
+    "github-actions",
+    "multi-agent",
+    "orchestrator",
+    "autonomous-agents"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

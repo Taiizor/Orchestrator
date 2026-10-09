@@ -1,0 +1,13 @@
+node_modules/
+bun.lock
+bun.lockb
+.env
+.env.local
+dist/
+*.log
+.DS_Store
+Thumbs.db
+state/*.tmp.md
+workspace/data/*.db
+workspace/data/*.db-wal
+workspace/data/*.db-shm

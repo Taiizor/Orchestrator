@@ -1,0 +1,106 @@
+name: 🤖 Orchestrator Engine
+
+on:
+  schedule:
+    # Heartbeat check every 15 minutes to monitor subagents and advance roadmap
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to execute (tick, plan, review, project)'
+        required: false
+        default: 'tick'
+        type: choice
+        options:
+          - tick
+          - plan
+          - review
+          - project
+  repository_dispatch:
+    types: [subagent-completed, wake-orchestrator]
+  issue_comment:
+    types: [created]
+
+concurrency:
+  group: orchestrator-singleton
+  cancel-in-progress: false
+
+jobs:
+  orchestrate:
+    name: Run Orchestration Cycle
+    # Skip plain chatter: issue comments only matter when they carry a ChatOps
+    # command (/pause, /directive, ...). All other triggers always run.
+    if: github.event_name != 'issue_comment' || startsWith(github.event.comment.body, '/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      actions: write
+      pull-requests: write
+      issues: write
+      discussions: write
+      # NOTE: GitHub Projects v2 needs a PAT with read/write:project scope
+      # (GH_PROJECT_TOKEN secret); GITHUB_TOKEN cannot access Projects v2.
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🥟 Setup Bun Runtime
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: ⚡ Cache Bun Modules & OpenCode Binary
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            ~/.bun/bin/opencode
+          key: ${{ runner.os }}-bun-cache-${{ hashFiles('package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-cache-
+
+      - name: ⚙️ Install OpenCode CLI
+        run: |
+          if ! command -v opencode &> /dev/null; then
+            echo "Installing OpenCode CLI..."
+            bun install -g --trust @opencode/cli
+          fi
+          echo "$HOME/.bun/bin" >> $GITHUB_PATH
+          export PATH="$HOME/.bun/bin:$PATH"
+          mkdir -p "$HOME/.config/opencode"
+          printf '{\n  "permission": {\n    "*": "allow"\n  }\n}\n' > "$HOME/.config/opencode/opencode.json"
+          opencode --version || echo "OpenCode installed"
+
+      - name: 📦 Install Project Dependencies
+        run: bun install
+
+      - name: 🌿 Ensure State and Integration Branches Exist
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Ensure develop / integration branch exists
+          if ! git rev-parse --verify origin/develop >/dev/null 2>&1; then
+            echo "Creating integration branch 'develop'..."
+            git checkout -b develop
+            git push origin develop
+            git checkout main
+          fi
+
+      - name: 🚀 Run Orchestrator Engine
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_PROJECT_TOKEN: ${{ secrets.GH_PROJECT_TOKEN }}
+          OPENCODE_MODEL: ${{ secrets.OPENCODE_MODEL }}
+          OPENCODE_VARIANT: ${{ secrets.OPENCODE_VARIANT }}
+          MAX_CONCURRENT_SUBAGENTS: 5
+          INTEGRATION_BRANCH: develop
+        run: |
+          ACTION="${{ github.event.inputs.action || 'tick' }}"
+          bun run orchestrator/engine.ts --action=$ACTION
