@@ -333,23 +333,31 @@ export class GitManager {
    * Returns null when the branches cannot be diffed at all (e.g. no
    * common ancestor AND tip diff unavailable) — UNKNOWN, never [].
    * An empty array means a successful diff with zero files.
+   * With excludeDeleted, pure removals are hidden: scope/secret/size rules
+   * judge what the task ADDED or changed, not repair-era files missing
+   * from its tree but alive on develop.
    */
-  public static async getBranchFileList(taskBranch: string, baseBranch: string): Promise<string[] | null> {
+  public static async getBranchFileList(
+    taskBranch: string,
+    baseBranch: string,
+    opts?: { excludeDeleted?: boolean }
+  ): Promise<string[] | null> {
     await this.fetchAll();
     const base = baseBranch || CONFIG.INTEGRATION_BRANCH;
     const remote = this.contentRemote();
+    const filt = opts?.excludeDeleted ? ["--diff-filter=ACMR"] : [];
     const res = await this.run([
-      "git", "diff", "--name-only", `${remote}/${base}...${remote}/${taskBranch}`,
+      "git", "diff", "--name-only", ...filt, `${remote}/${base}...${remote}/${taskBranch}`,
     ]);
     if (res.exitCode === 0) {
       return res.stdout.split("\n").map((f) => f.trim()).filter(Boolean);
     }
-    const localRes = await this.run(["git", "diff", "--name-only", `${base}...${taskBranch}`]);
+    const localRes = await this.run(["git", "diff", "--name-only", ...filt, `${base}...${taskBranch}`]);
     if (localRes.exitCode === 0) {
       return localRes.stdout.split("\n").map((f) => f.trim()).filter(Boolean);
     }
     // Last resort: tip-vs-tip needs no merge base.
-    const twoDot = await this.run(["git", "diff", "--name-only", `${remote}/${base}..${remote}/${taskBranch}`]);
+    const twoDot = await this.run(["git", "diff", "--name-only", ...filt, `${remote}/${base}..${remote}/${taskBranch}`]);
     if (twoDot.exitCode === 0) {
       return twoDot.stdout.split("\n").map((f) => f.trim()).filter(Boolean);
     }

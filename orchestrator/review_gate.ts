@@ -164,7 +164,7 @@ export async function runReviewGate(
 ): Promise<GateResult> {
   const failures: string[] = [];
   const warnings: string[] = [];
-  const fileList = (await GitManager.getBranchFileList(task.branch, CONFIG.INTEGRATION_BRANCH)) ?? [];
+  const fileList = (await GitManager.getBranchFileList(task.branch, CONFIG.INTEGRATION_BRANCH, { excludeDeleted: true })) ?? [];
   const remote = GitManager.contentRemote();
   // Legacy fork check: branches that share no history with develop produce
   // tip-vs-tip file lists (whole trees). File-level rules can't attribute

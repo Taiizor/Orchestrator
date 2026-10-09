@@ -431,7 +431,7 @@ export class OrchestratorEngine {
           task.status = "PENDING";
         }
         if (roadmap.projectNumber) {
-          await ProjectManager.updateItemStatus(roadmap.projectNumber, task, "Todo");
+          await ProjectManager.updateItemStatus(roadmap.projectNumber, task, task.status === "FAILED" ? "Failed" : "Todo");
           await ProjectManager.postTaskProgressComment(
             task,
             `⚠️ **Review Feedback:** ${task.reviewNotes}\nRe-queuing for correction (${task.attempts}/${task.maxAttempts}).`
@@ -842,7 +842,7 @@ export class OrchestratorEngine {
       }
       task.updatedAt = new Date().toISOString();
       if (roadmap.projectNumber) {
-        await ProjectManager.updateItemStatus(roadmap.projectNumber, task, "Todo");
+        await ProjectManager.updateItemStatus(roadmap.projectNumber, task, task.status === "FAILED" ? "Failed" : "Todo");
         await ProjectManager.postTaskProgressComment(task, `⏰ **Watchdog:** No worker activity detected; task re-queued (${task.attempts}/${task.maxAttempts}).`);
       }
     }

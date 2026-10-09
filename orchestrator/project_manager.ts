@@ -55,6 +55,62 @@ export class ProjectManager {
   }
 
   /**
+   * Ensure the board Status field offers every lifecycle option the engine
+   * writes (Todo, In Progress, In Review, Done, Failed). Fresh boards ship
+   * with a smaller set, which used to degrade updates into warnings.
+   * Best-effort: warns, never throws.
+   */
+  public static async ensureStatusOptions(projectNumber: number, owner: string): Promise<void> {
+    const want = ["Todo", "In Progress", "In Review", "Done", "Failed"];
+    const colors: Record<string, string> = { "In Progress": "YELLOW", "In Review": "BLUE", "Done": "GREEN", "Failed": "RED" };
+    try {
+      const view = await this.projectGh(["gh", "project", "view", String(projectNumber), "--owner", owner, "--format", "json"]);
+      if (view.exitCode !== 0) { this.hintProjectScope(view.stderr); return; }
+      let projectId = "";
+      try { projectId = JSON.parse(view.stdout).id || ""; } catch { /* fallback below */ }
+      if (!projectId) {
+        // `project view` JSON omits the node id — resolve via owner+number
+        // (number interpolated: integers need no escaping).
+        for (const kind of ["organization", "user"]) {
+          const q = await this.projectGh(["gh", "api", "graphql",
+            "-F", `login=${owner}`,
+            "-f", `query=query($login:String!){${kind}(login:$login){projectV2(number:${projectNumber}){id}}}`,
+          ]);
+          try { projectId = q.exitCode === 0 ? (JSON.parse(q.stdout)?.data?.[kind]?.projectV2?.id || "") : ""; } catch { projectId = ""; }
+          if (projectId) break;
+        }
+      }
+      if (!projectId) { console.warn("⚠️ Could not resolve board node id; skipping option sync."); return; }
+      const fq = await this.projectGh(["gh", "api", "graphql",
+        "-F", `nodeId=${projectId}`,
+        "-f", "query=query($nodeId:ID!){node(id:$nodeId){... on ProjectV2{fields(first:30){nodes{... on ProjectV2SingleSelectField{id name options{id name}}}}}}}",
+      ]);
+      if (fq.exitCode !== 0) { this.hintProjectScope(fq.stderr); return; }
+      const nodes: any[] = JSON.parse(fq.stdout)?.data?.node?.fields?.nodes || [];
+      const status = nodes.find((f: any) => f.id && f.name === "Status");
+      if (!status) { console.warn("⚠️ Board has no Status field; skipping option sync."); return; }
+      const have: { id: string; name: string }[] = status.options || [];
+      const missing = want.filter((w) => !have.some((h) => h.name === w));
+      if (missing.length === 0) return;
+      // Inline the option literals (names are JSON-escaped, ids are opaque
+      // base64) — avoids gh variable plumbing for input-object lists.
+      const optsLit = [
+        ...have.map((h) => `{id:"${h.id}",name:${JSON.stringify(h.name)}}`),
+        ...missing.map((m) => `{name:${JSON.stringify(m)},color:${colors[m] || "GRAY"}}`),
+      ].join(",");
+      const mq = `mutation{updateProjectV2Field(input:{fieldId:"${status.id}",singleSelectOptions:[${optsLit}]}){projectV2Field{... on ProjectV2SingleSelectField{options{name}}}}}`;
+      const mres = await this.projectGh(["gh", "api", "graphql", "-f", `query=${mq}`]);
+      if (mres.exitCode === 0) {
+        console.log(`🎛️ Board Status options ensured (added: ${missing.join(", ")}).`);
+      } else {
+        console.warn("⚠️ Could not add board Status options:", mres.stderr.slice(0, 200));
+      }
+    } catch (err: any) {
+      console.warn("⚠️ Status option sync failed:", String(err?.message || err).slice(0, 200));
+    }
+  }
+
+  /**
    * Ensure a GitHub Project (v2) exists and is linked to the repository.
    * The board is created under the REPO owner (org for org repos), otherwise
    * GitHub refuses both the repo link and cross-owner issue membership.
@@ -83,6 +139,7 @@ export class ProjectManager {
         } else {
           console.log(`🔗 Project #${roadmap.projectNumber} linked to repository.`);
         }
+        await this.ensureStatusOptions(roadmap.projectNumber, owner);
         return roadmap.projectNumber;
       }
     }
@@ -104,6 +161,7 @@ export class ProjectManager {
           console.log(`📌 Found existing GitHub Project: #${existing.number} (${existing.title})`);
           roadmap.projectNumber = existing.number;
           roadmap.projectUrl = existing.url;
+          await this.ensureStatusOptions(existing.number, owner);
           return existing.number;
         }
       } catch (err) {
@@ -140,7 +198,7 @@ export class ProjectManager {
           console.log(`🔗 Project #${projectNum} linked to repository.`);
         }
         await this.ensureLabels();
-        
+        await this.ensureStatusOptions(projectNum, owner);
         roadmap.projectNumber = projectNum;
         roadmap.projectUrl = created.url;
         return projectNum;
@@ -364,11 +422,12 @@ export class ProjectManager {
     await this.ensureTaskIssue(task, milestoneTitle);
   }
 
-  private static desiredBoardStatus(task: TaskItem): "Todo" | "In Progress" | "In Review" | "Done" {
+  private static desiredBoardStatus(task: TaskItem): "Todo" | "In Progress" | "In Review" | "Done" | "Failed" {
     switch (task.status) {
       case "IN_PROGRESS": return "In Progress";
       case "IN_REVIEW": return "In Review";
       case "COMPLETED": return "Done";
+      case "FAILED": return "Failed";
       default: return "Todo";
     }
   }
@@ -470,14 +529,14 @@ export class ProjectManager {
   }
 
   /**
-   * Update Project item Status column (Todo, In Progress, In Review, Done).
-   * Warns (does not throw) when the project or the Status option is missing —
-   * e.g. fresh Projects v2 boards have no "In Review" option until added.
+   * Update Project item Status column (Todo, In Progress, In Review, Done, Failed).
+   * Missing options are healed by ensureStatusOptions; a residual miss still
+   * warns instead of throwing.
    */
   public static async updateItemStatus(
     projectNumber: number,
     task: TaskItem,
-    status: "Todo" | "In Progress" | "In Review" | "Done"
+    status: "Todo" | "In Progress" | "In Review" | "Done" | "Failed"
   ): Promise<void> {
     if (!task.issueUrl) return;
 
