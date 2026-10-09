@@ -95,6 +95,7 @@ Human operators can steer, pause, or direct the autonomous team via GitHub Issue
 - `/ask <question>`: Answers from live roadmap state (one LLM call, cited task IDs).
 - `/add <role> "title" -- "description" [deps:A,B] [milestone:M]`: Queues a DAG-validated PENDING task (issue/board sync next tick; no targetFiles scoping — planner normally assigns it).
 - `/log <TASK-ID>`: Tails recent subagent run logs for that task.
+- `/revise <TASK-ID> "change"`: Reworks a finished task — reopens it plus transitive dependents (cascade rebuild), resets attempts, reopens issues.
 
 Subagents encountering an `[OPERATOR DIRECTIVE]` in their prompt MUST prioritize it above all default assumptions.
 

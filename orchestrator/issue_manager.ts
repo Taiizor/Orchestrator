@@ -72,7 +72,8 @@ export class IssueManager {
       `- \`/setup [public|data|all]\`: Audit & repair repo features (issues/wiki/projects/discussions)\n` +
       `- \`/ask <question>\`: Answer from live roadmap state\n` +
       `- \`/add <role> "title" -- "description" [deps:A,B] [milestone:M]\`: Queue a validated PENDING task\n` +
-      `- \`/log <TASK-ID>\`: Tail of recent subagent run logs\n`;
+      `- \`/log <TASK-ID>\`: Tail of recent subagent run logs\n` +
+      `- \`/revise <TASK-ID> "change"\`: Rework a finished task + cascade-rebuild dependents\n`;
 
     if (issueNumber) {
       // Update existing issue body
@@ -150,7 +151,7 @@ export class IssueManager {
 
       // Typo tolerance: /staus, /pausse, /statuss... (edit distance ≤ 2).
       // Unknown commands get the help text instead of silence.
-      const KNOWN = ["pause", "resume", "retry", "directive", "status", "discuss", "setup", "ask", "add", "log"];
+      const KNOWN = ["pause", "resume", "retry", "directive", "revise", "status", "discuss", "setup", "ask", "add", "log"];
       const wordMatch = body.match(/^\/([A-Za-z]+)/);
       if (wordMatch) {
         const word = wordMatch[1].toLowerCase();
@@ -221,6 +222,65 @@ export class IssueManager {
             await this.acknowledgeComment(dashboardNumber, commentId, `🎯 **Directive Applied to [${taskId}]:**\n> "${directive}"\n\nTask re-steered and queued for execution.`);
           } else {
             await this.acknowledgeComment(dashboardNumber, commentId, `⚠️ **Task Not Found:** No task with ID \`${taskId}\`.`);
+          }
+        }
+      } else if (body.startsWith("/revise")) {
+        // /revise <TASK-ID> "instruction" — rework for FINISHED tasks.
+        // Unlike /directive (active/pending only), this reopens the target
+        // plus all transitive dependents (they were built on the old output),
+        // resets attempts, reopens the issue, and cancels active runs.
+        // Closed milestones with unfinished tasks reopen on next tick.
+        const match = body.match(/\/revise\s+([A-Za-z0-9_-]+)\s+([\s\S]+)/);
+        if (!match) {
+          await this.acknowledgeComment(dashboardNumber, commentId, `⚠️ Usage: \`/revise <TASK-ID> "what to change"\`.`);
+        } else {
+          const taskId = match[1];
+          const instruction = match[2].trim().replace(/^["']|["']$/g, "");
+          const task = roadmap.tasks.find(t => t.id === taskId);
+          if (!task) {
+            await this.acknowledgeComment(dashboardNumber, commentId, `⚠️ **Task Not Found:** No task with ID \`${taskId}\`.`);
+          } else {
+            console.log(`🔁 ChatOps command received: /revise for ${taskId}: ${instruction}`);
+            // Transitive dependents (BFS over reverse edges; DAG => terminates)
+            const affected = new Map<string, string>();
+            affected.set(task.id, `[REVISION DIRECTIVE]: ${instruction}`);
+            const queue = [task.id];
+            while (queue.length > 0) {
+              const cur = queue.shift()!;
+              for (const t of roadmap.tasks) {
+                if (t.dependencies.includes(cur) && !affected.has(t.id)) {
+                  affected.set(t.id, `[REVISION CASCADE]: upstream [${cur}] is being reworked; rebuild against its new output. ` + (t.reviewNotes || ""));
+                  queue.push(t.id);
+                }
+              }
+            }
+            const activeRuns = await GitManager.getActiveSubagentRuns();
+            const reopened: string[] = [];
+            for (const t of roadmap.tasks) {
+              if (!affected.has(t.id)) continue;
+              const run = activeRuns.find(r => r.headBranch === t.branch);
+              if (run) {
+                console.log(`🛑 Cancelling active run #${run.databaseId} for revision...`);
+                await GitManager.cancelWorkflowRun(run.databaseId);
+              }
+              t.reviewNotes = affected.get(t.id);
+              t.status = "PENDING";
+              t.attempts = 0;
+              t.updatedAt = new Date().toISOString();
+              reopened.push(t.id);
+              if (t.issueNumber) {
+                await GitManager.run(["gh", "issue", "reopen", String(t.issueNumber)]);
+              }
+              if (roadmap.projectNumber) {
+                const { ProjectManager } = await import("./project_manager.ts");
+                await ProjectManager.updateItemStatus(roadmap.projectNumber, t, "Todo");
+              }
+            }
+            hasChanges = true;
+            await this.acknowledgeComment(
+              dashboardNumber, commentId,
+              `🔁 **Revision queued for [${taskId}]:**\n> "${instruction}"\n\nReopened (${reopened.length}): ${reopened.map((id) => `\`${id}\``).join(", ")} — attempts reset, dependents cascade-rebuilt.`
+            );
           }
         }
       } else if (body.startsWith("/status")) {
