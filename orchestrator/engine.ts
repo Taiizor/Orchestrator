@@ -952,8 +952,8 @@ async function main() {
       const { ProjectManager } = await import("./project_manager.ts");
       const me = await ProjectManager.getOwner();
       const here = (CONFIG.GITHUB_REPOSITORY || "").split("/");
-      const publicFeatures = RepoSetup.parseFeatures(CONFIG.PUBLIC_FEATURES, "issues,discussions,projects");
-      const dataFeatures = RepoSetup.parseFeatures(CONFIG.DATA_FEATURES, "discussions");
+      const publicFeatures = RepoSetup.parseFeatures(CONFIG.PUBLIC_FEATURES, RepoSetup.defaultFeatures("public"));
+      const dataFeatures = RepoSetup.parseFeatures(CONFIG.DATA_FEATURES, RepoSetup.defaultFeatures("data"));
       const reports = [];
       if (here.length === 2) {
         reports.push(await RepoSetup.ensureRepoSettings(here[0], here[1], CONFIG.PROJECT_TOKEN, publicFeatures));

@@ -335,8 +335,8 @@ export class IssueManager {
         const { RepoSetup } = await import("./repo_setup.ts");
         const { ProjectManager } = await import("./project_manager.ts");
         const { CONFIG } = await import("./config.ts");
-        const publicFeatures = RepoSetup.parseFeatures(CONFIG.PUBLIC_FEATURES, "issues,discussions,projects");
-        const dataFeatures = RepoSetup.parseFeatures(CONFIG.DATA_FEATURES, "discussions");
+        const publicFeatures = RepoSetup.parseFeatures(CONFIG.PUBLIC_FEATURES, RepoSetup.defaultFeatures("public"));
+        const dataFeatures = RepoSetup.parseFeatures(CONFIG.DATA_FEATURES, RepoSetup.defaultFeatures("data"));
         const out: string[] = [];
         const wantPublic = scope === "public" || scope === "all";
         const wantData = scope === "data" || scope === "all";

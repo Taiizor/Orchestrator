@@ -34,6 +34,18 @@ export class RepoSetup {
     );
   }
 
+  /**
+   * Topology-aware feature defaults (used when PUBLIC_/DATA_FEATURES env is
+   * empty = auto). Dual-repo: public keeps issues (dashboard/task
+   * issues/ChatOps) + projects (board); agent threads live in the data
+   * repo's discussions, so public discussions stay OFF without setup
+   * fighting the owner. Single-repo: public needs everything.
+   */
+  public static defaultFeatures(which: "public" | "data"): string {
+    if (which === "data") return "discussions";
+    return GitManager.isDataMode() ? "issues,projects" : "issues,discussions,projects";
+  }
+
   private static async runAs(
     cmd: string[],
     pat: string
