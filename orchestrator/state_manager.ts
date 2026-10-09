@@ -146,7 +146,9 @@ export class StateManager {
       }
       const terminal = (s: string) => s === "COMPLETED" || s === "FAILED";
       if (terminal(rt.status) || terminal(lt.status)) {
-        const newer = Date.parse(lt.updatedAt || 0) >= Date.parse(rt.updatedAt || 0) ? lt : rt;
+        const ltTime = Date.parse(lt.updatedAt || "") || 0;
+        const rtTime = Date.parse(rt.updatedAt || "") || 0;
+        const newer = ltTime >= rtTime ? lt : rt;
         // Resurrection wins: a NEWER non-terminal state (/retry, watchdog or
         // auto-resurrect) overrides an older terminal one. Stale copies still
         // lose — an OLDER non-terminal never beats a newer terminal.
@@ -164,7 +166,9 @@ export class StateManager {
         });
         continue;
       }
-      const newerFirst = Date.parse(lt.updatedAt || 0) >= Date.parse(rt.updatedAt || 0);
+      const ltTime2 = Date.parse(lt.updatedAt || "") || 0;
+      const rtTime2 = Date.parse(rt.updatedAt || "") || 0;
+      const newerFirst = ltTime2 >= rtTime2;
       merged.set(lt.id, { ...(newerFirst ? lt : rt) });
     }
     const ordered = [
