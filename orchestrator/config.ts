@@ -29,6 +29,9 @@ export const CONFIG = {
   // Pull requests have no off switch.
   PUBLIC_FEATURES: process.env.PUBLIC_FEATURES || "",
   DATA_FEATURES: process.env.DATA_FEATURES || "",
+  // Extra logins always honored by ChatOps (besides repo collaborators
+  // with push access). Comma-separated GitHub usernames.
+  CHATOPS_ADMINS: (process.env.CHATOPS_ADMINS || "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean),
 
   // Paths
   STATE_DIR: "state",

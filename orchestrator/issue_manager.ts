@@ -6,6 +6,50 @@ import type { Roadmap } from "./types.ts";
 export class IssueManager {
   private static readonly DASHBOARD_TITLE = "🚀 Project Dashboard & Agent Progress Board";
 
+  /** Per-run collaborator verdicts (login -> authorized). Reset each scan. */
+  private static authCache = new Map<string, boolean>();
+
+  /**
+   * ChatOps authorization: the dashboard lives on a PUBLIC repo, so anyone
+   * can comment. Honor commands only from repo collaborators with push
+   * access (admin/write) or CHATOPS_ADMINS logins. Read-only outsiders are
+   * ignored (silently marked processed). API outage (non-404) fails OPEN
+   * with a warning — an attacker cannot selectively force those errors.
+   */
+  private static async isCommandAuthorized(login: string): Promise<boolean> {
+    const who = (login || "").toLowerCase();
+    if (!who) return false;
+    if (CONFIG.CHATOPS_ADMINS.includes(who)) return true;
+    const hit = this.authCache.get(who);
+    if (hit !== undefined) return hit;
+    const res = await GitManager.run(["gh", "api", `repos/:owner/:repo/collaborators/${who}/permission`, "--jq", ".permission"]);
+    if (res.exitCode === 0) {
+      const ok = /^(admin|write)$/.test(res.stdout.trim());
+      this.authCache.set(who, ok);
+      return ok;
+    }
+    if (/404|not found/i.test(res.stderr)) {
+      console.warn(`🔒 Ignoring ChatOps command from non-collaborator @${who}.`);
+      this.authCache.set(who, false);
+      return false;
+    }
+    console.warn(`⚠️ Collaborator check failed for @${who} (${res.stderr.slice(0, 120)}); honoring command (fail-open on infra error).`);
+    return true;
+  }
+
+  /** Mark a comment processed (ROCKET) without posting a reply. */
+  private static async markProcessed(commentId: string | number): Promise<void> {
+    if (commentId && typeof commentId === "string" && commentId.startsWith("IC_")) {
+      await GitManager.run([
+        "gh", "api", "graphql",
+        "-F", `subjectId=${commentId}`,
+        "-F", "content=ROCKET",
+        "-f",
+        "query=mutation($subjectId:ID!,$content:ReactionContent!){addReaction(input:{subjectId:$subjectId,content:$content}){reaction{content}}}",
+      ]);
+    }
+  }
+
   /** Levenshtein distance for ChatOps typo tolerance. */
   private static editDistance(a: string, b: string): number {
     const m = a.length, n = b.length;
@@ -88,7 +132,8 @@ export class IssueManager {
       `- \`/ask <question>\`: Answer from live roadmap state\n` +
       `- \`/add <role> "title" -- "description" [deps:A,B] [milestone:M]\`: Queue a validated PENDING task\n` +
       `- \`/log <TASK-ID>\`: Tail of recent subagent run logs\n` +
-      `- \`/revise <TASK-ID> "change"\`: Rework a finished task + cascade-rebuild dependents\n`;
+      `- \`/revise <TASK-ID> "change"\`: Rework a finished task + cascade-rebuild dependents\n` +
+      `\n> 🔒 Operator commands are honored only from repo collaborators (push access). Other comments are ignored.\n`;
 
     if (issueNumber) {
       // Update existing issue body
@@ -160,6 +205,12 @@ export class IssueManager {
 
       // Skip comments by bot itself (login varies: github-actions[bot] vs github-actions)
       if (/github-actions/i.test(comment.author?.login || "")) continue;
+      // Authorization gate (public dashboard!): outsiders' slash commands
+      // are silently marked processed, never executed.
+      if (!(await this.isCommandAuthorized(comment.author?.login || ""))) {
+        await this.markProcessed(commentId);
+        continue;
+      }
       // Skip if already processed (marked with rocket or thumbs up)
       if (comment.reactionGroups?.some((r: any) => (r.content === "ROCKET" || r.content === "THUMBS_UP") && r.users?.totalCount > 0)) {
         continue;
@@ -505,15 +556,7 @@ export class IssueManager {
    * used to leave commands unmarked, reprocessing them on every tick.
    */
   private static async acknowledgeComment(issueNumber: number, commentId: string | number, replyText: string): Promise<void> {
-    if (commentId && typeof commentId === "string" && commentId.startsWith("IC_")) {
-      await GitManager.run([
-        "gh", "api", "graphql",
-        "-F", `subjectId=${commentId}`,
-        "-F", "content=ROCKET",
-        "-f",
-        "query=mutation($subjectId:ID!,$content:ReactionContent!){addReaction(input:{subjectId:$subjectId,content:$content}){reaction{content}}}",
-      ]);
-    }
+    await this.markProcessed(commentId);
     await GitManager.run([
       "gh", "issue", "comment", String(issueNumber),
       "--body", replyText
