@@ -106,9 +106,10 @@ async function main() {
     architect: ["sqlite-hardening", "api-contracts", "sql-review"],
     backend: ["api-contracts", "error-handling", "backend-structure", "security-scan"],
     frontend: ["ui-conventions", "design-system", "i18n"],
+    mobile: ["ui-conventions", "mobile-essentials", "i18n"],
     qa: ["test-evidence", "test-driven-development", "code-review"],
     security: ["security-scan", "auth-review"],
-    reviewer: ["code-review", "api-design"],
+    reviewer: ["code-review", "api-design", "documentation-discipline"],
     tracker: ["code-review", "test-evidence"],
     fullstack: ["api-contracts", "ui-conventions", "systematic-debugging", "code-review"],
   };

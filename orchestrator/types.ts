@@ -9,6 +9,7 @@ export type AgentRole =
   | "architect" 
   | "backend" 
   | "frontend" 
+  | "mobile"
   | "qa" 
   | "reviewer" 
   | "security"

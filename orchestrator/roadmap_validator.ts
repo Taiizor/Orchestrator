@@ -9,6 +9,7 @@ const VALID_ROLES = new Set([
   "architect",
   "backend",
   "frontend",
+  "mobile",
   "qa",
   "reviewer",
   "security",

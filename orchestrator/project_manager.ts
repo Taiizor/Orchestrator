@@ -205,6 +205,7 @@ export class ProjectManager {
       { name: "role:architect", color: "5319E7", description: "Architectural and schema task" },
       { name: "role:backend", color: "0E8A16", description: "Backend, API, and service task" },
       { name: "role:frontend", color: "BFD4F2", description: "Frontend and UI component task" },
+      { name: "role:mobile", color: "BFD4F2", description: "Mobile app task" },
       { name: "role:qa", color: "FBCA04", description: "Testing and QA task" },
       { name: "role:security", color: "D93F0B", description: "Security audit and hardening task" },
       { name: "role:tracker", color: "006B75", description: "Progress audit task" },
