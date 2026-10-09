@@ -321,29 +321,34 @@ export class OrchestratorEngine {
             const realChanges = files.filter((f) => f !== `workspace/${CONFIG.TASK_PROGRESS_FILE}`);
             if (realChanges.length === 0) {
               // Smart hold (not blind 45m): judge immediately when provably
-              // idle — no active runs anywhere AND a stale branch tip. Hold
-              // only while a run may still be working (recent dispatch with
-              // global activity, or a freshly pushed tip).
+              // idle. Liveness = fresh UNIQUE branch commits (inherited
+              // history doesn't count — a no-op publish pointing at a recent
+              // develop commit must not look alive) or any active run.
               const STALE_MS = 45 * 60 * 1000;
+              // Computed once, reused by the routing below.
+              const uniqueEarly = await GitManager.branchUniqueCommits(task.branch, CONFIG.INTEGRATION_BRANCH);
               let hold = false;
               if (task.status === "IN_PROGRESS" && task.dispatchedAt) {
                 const dispAge = Date.now() - Date.parse(task.dispatchedAt);
                 if (!Number.isNaN(dispAge) && dispAge < STALE_MS) {
-                  const tip = await GitManager.branchTipTime(task.branch);
-                  const tipFresh = tip > 0 && Date.now() - tip < STALE_MS;
-                  hold = anyActiveRuns || tipFresh;
+                  const uniqueTip = uniqueEarly > 0
+                    ? await GitManager.branchUniqueTipTime(task.branch, CONFIG.INTEGRATION_BRANCH)
+                    : -1;
+                  const uniqueFresh = uniqueTip > 0 && Date.now() - uniqueTip < STALE_MS;
+                  hold = anyActiveRuns || uniqueFresh;
                   if (hold) {
-                    console.log(`ℹ️ [${task.id}] empty diff but possibly active (dispatched ${Math.round(dispAge / 60000)}m ago${tipFresh ? ", fresh tip" : ""}${anyActiveRuns ? ", runs active" : ""}); leaving IN_PROGRESS.`);
+                    console.log(`ℹ️ [${task.id}] empty diff but possibly active (dispatched ${Math.round(dispAge / 60000)}m ago${uniqueFresh ? ", fresh unique commits" : ""}${anyActiveRuns ? ", runs active" : ""}); leaving IN_PROGRESS.`);
                     continue;
                   }
-                  console.log(`ℹ️ [${task.id}] empty diff, dispatched ${Math.round(dispAge / 60000)}m ago but provably idle (no active runs, stale tip); judging now.`);
+                  console.log(`ℹ️ [${task.id}] empty diff, dispatched ${Math.round(dispAge / 60000)}m ago but provably idle (no active runs, no fresh unique commits); judging now.`);
                 }
               }
               // Empty diff routing (all require structured progress, checked above):
               // - placeholder report and/or zero unique commits = agent produced
               //   nothing → IN_REVIEW so the gate rejects with feedback + requeues.
               // - real report + unique commits = already integrated → COMPLETED.
-              const unique = await GitManager.branchUniqueCommits(task.branch, CONFIG.INTEGRATION_BRANCH);
+              // (uniqueEarly computed above for the hold check — reused here.)
+              const unique = uniqueEarly;
               if (!isDefaultProgress(progressContent) && unique > 0) {
                 if (task.status !== "COMPLETED") {
                   console.log(`✅ [${task.id}] branch already integrated (empty diff, ${unique} unique commits). Marking COMPLETED.`);

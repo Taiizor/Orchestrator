@@ -71,6 +71,21 @@ export class GitManager {
   }
 
   /**
+   * Newest commit timestamp (ms) among branch-unique commits, or -1 when the
+   * branch adds nothing over base. Unlike tip time, this ignores inherited
+   * history — a no-op publish pointing at a recent develop commit reads stale.
+   */
+  public static async branchUniqueTipTime(branchName: string, baseBranch: string): Promise<number> {
+    const remote = this.contentRemote();
+    const base = baseBranch || CONFIG.INTEGRATION_BRANCH;
+    const res = await this.run(["git", "log", "-1", "--format=%ct", `${remote}/${base}..${remote}/${branchName}`]);
+    if (res.exitCode === 0 && /^\d+$/.test(res.stdout.trim())) {
+      return parseInt(res.stdout.trim(), 10) * 1000;
+    }
+    return -1;
+  }
+
+  /**
    * Last-commit timestamp (ms) of a content branch tip, or -1 when the
    * branch/ref is unknown. Used by the watchdog to tell live workers
    * (fresh pushes) from dead ones.
