@@ -49,15 +49,10 @@ async function main() {
     console.error("❌ Roadmap not found in state directory.");
     process.exit(1);
   }
-  // Regenerate the service compose file (pure render, no side effects)
-  {
-    const { renderComposeYaml, renderEnvFile, normalizeServices } = await import("../orchestrator/service_manager.ts");
-    const picked = normalizeServices(roadmap.services || []);
-    if (picked.length > 0) {
-      await Bun.write(`${CONFIG.WORKSPACE_DIR}/docker-compose.services.yml`, renderComposeYaml(picked));
-      await Bun.write(`${CONFIG.WORKSPACE_DIR}/.services.env`, renderEnvFile(picked));
-    }
-  }
+  // NOTE: service compose files are rendered AFTER the branch checkout
+  // below. Rendering them here used to plant untracked files that the
+  // checkout refused to overwrite ("would be overwritten"), failing the
+  // checkout silently and stranding agents on main lineage.
 
   const task = roadmap.tasks.find((t) => t.id === taskId);
   if (!task) {
@@ -85,11 +80,20 @@ async function main() {
   await GitManager.remoteGit(remote, ["fetch", remote, branch]);
   const branchExists = await GitManager.branchExists(branch);
   if (branchExists) {
-    await GitManager.run(["git", "checkout", "-B", branch, `${remote}/${branch}`]);
-    await GitManager.run(["git", "pull", remote, branch]);
+    // -B resets exactly to the remote tip; no pull (pull risks merge
+    // commits and masks checkout failures — both broke lineage before).
+    const co = await GitManager.run(["git", "checkout", "-B", branch, `${remote}/${branch}`]);
+    if (co.exitCode !== 0) {
+      console.error(`❌ [${taskId}] checkout of ${remote}/${branch} failed:`, (co.stdout + co.stderr).slice(0, 500));
+      process.exit(1);
+    }
   } else {
     // Checkout from integration branch
-    await GitManager.run(["git", "checkout", "-B", branch, `${remote}/${CONFIG.INTEGRATION_BRANCH}`]);
+    const co = await GitManager.run(["git", "checkout", "-B", branch, `${remote}/${CONFIG.INTEGRATION_BRANCH}`]);
+    if (co.exitCode !== 0) {
+      console.error(`❌ [${taskId}] checkout of ${remote}/${CONFIG.INTEGRATION_BRANCH} failed:`, (co.stdout + co.stderr).slice(0, 500));
+      process.exit(1);
+    }
   }
   // Lineage guard (fail-closed): the workdir MUST descend from the content
   // integration branch. Never work on a broken fork — exit loudly so the
@@ -97,12 +101,24 @@ async function main() {
   // branches.
   const lineage = await GitManager.run(["git", "merge-base", "--is-ancestor", `${remote}/${CONFIG.INTEGRATION_BRANCH}`, "HEAD"]);
   if (lineage.exitCode !== 0) {
-    console.error(`❌ [${taskId}] branch ${branch} does not descend from ${remote}/${CONFIG.INTEGRATION_BRANCH}; refusing to work on broken lineage.`);
+    const diag = await GitManager.run(["git", "rev-parse", `${remote}/${CONFIG.INTEGRATION_BRANCH}`, "HEAD", "--abbrev-ref", "HEAD"]);
+    console.error(`❌ [${taskId}] branch ${branch} does not descend from ${remote}/${CONFIG.INTEGRATION_BRANCH}; refusing to work on broken lineage. Refs: ${diag.stdout.trim().replace(/\n/g, " ")}`);
     process.exit(1);
   }
 
   // Materialize data content for this branch (dual-repo only; no-op otherwise)
   await GitManager.syncDataIn(branch);
+
+  // Render service compose AFTER checkout+sync (see note above: writing
+  // these before checkout breaks it via untracked-overwrite protection).
+  {
+    const { renderComposeYaml, renderEnvFile, normalizeServices } = await import("../orchestrator/service_manager.ts");
+    const picked = normalizeServices(roadmap.services || []);
+    if (picked.length > 0) {
+      await Bun.write(`${CONFIG.WORKSPACE_DIR}/docker-compose.services.yml`, renderComposeYaml(picked));
+      await Bun.write(`${CONFIG.WORKSPACE_DIR}/.services.env`, renderEnvFile(picked));
+    }
+  }
 
   // Ensure state directory remains present on task branch for prompt context
   if (!existsSync(CONFIG.ROADMAP_FILE)) {
