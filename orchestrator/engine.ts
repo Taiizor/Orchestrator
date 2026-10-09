@@ -247,18 +247,28 @@ export class OrchestratorEngine {
       const remote = CONFIG.DATA_REMOTE;
       const seedNeeded = !(await GitManager.remoteHasBranch(remote, CONFIG.INTEGRATION_BRANCH));
       if (seedNeeded) {
-        // Seed a CLEAN product tree (workspace skeleton only) via plumbing —
-        // never the checkout HEAD (engine code). e69de29 is the well-known
-        // empty-blob SHA, so no workdir objects are needed and the tick
-        // checkout is untouched.
+        // Seed a CLEAN product tree (workspace skeleton only) without
+        // touching the checkout: build the tree in a throwaway index
+        // (mktree rejects slashed paths, so update-index + write-tree).
+        // Never the checkout HEAD (engine code).
         console.log(`🌱 Seeding ${remote}/${CONFIG.INTEGRATION_BRANCH} with a clean workspace baseline...`);
-        const mk = await GitManager.run(
-          ["git", "mktree"],
+        const { tmpdir } = await import("node:os");
+        const { join } = await import("node:path");
+        const idxFile = join(tmpdir(), `seed-index-${Date.now()}.idx`);
+        const idxEnv = { GIT_INDEX_FILE: idxFile };
+        let tree = "";
+        const ui = await GitManager.run(
+          ["git", "update-index", "--add", "--cacheinfo", "100644,e69de29bb2d1d6434b8b29ae775ad8c2e48c5391,workspace/.gitkeep"],
           ".",
-          "100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391\tworkspace/.gitkeep\n"
+          undefined,
+          idxEnv
         );
-        const tree = mk.stdout.trim();
-        if (mk.exitCode !== 0 || !/^[0-9a-f]{40}$/.test(tree)) {
+        if (ui.exitCode === 0) {
+          const wt = await GitManager.run(["git", "write-tree"], ".", undefined, idxEnv);
+          if (wt.exitCode === 0 && /^[0-9a-f]{40}$/.test(wt.stdout.trim())) tree = wt.stdout.trim();
+        }
+        try { await Bun.file(idxFile).exists() && (await import("node:fs")).unlinkSync(idxFile); } catch { /* best-effort */ }
+        if (!/^[0-9a-f]{40}$/.test(tree)) {
           console.warn("⚠️ Seed tree creation failed; skipping develop seed (task forks will fail loudly instead).");
         } else {
           const ct = await GitManager.run([
