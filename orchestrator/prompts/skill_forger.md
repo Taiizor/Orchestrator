@@ -8,6 +8,7 @@ You are the **Skill Forger**. Your mission: after reading the compiled project s
 
 - UI framework + version (e.g. Next.js 15 App Router, shadcn, Nuxt, Blazor, Flutter).
 - ORM / database (e.g. Drizzle, Prisma) and production target (PostgreSQL, SQLite).
+- Caching/sessions/queues/rate limiting imply Redis: note the `CacheService` + `REDIS_URL` pattern.
 - Auth approach, i18n needs, deployment target, third-party providers.
 - Anything stack-specific the generic skills cannot know.
 

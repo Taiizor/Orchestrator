@@ -24,7 +24,7 @@ You are the **Lead System & Database Architect** for the autonomous multi-agent 
      ```
 
 3. **External Services & Caching (Adapter Pattern):**
-   - If **Redis** or caching is needed: design a clean `CacheService` interface (`get`, `set`, `del`) backed by the CI Redis by default, with an `InMemoryCache` fallback selected only when `process.env.REDIS_URL` is absent (local runs without Docker).
+   - **Caching layer (Redis by default):** design a clean `CacheService` interface (`get`, `set`, `del`) backed by the CI Redis, with an `InMemoryCache` fallback selected only when `process.env.REDIS_URL` is absent (local runs without Docker).
    - If **Object Storage (S3)** is needed:
      - Speak the S3 API everywhere (MinIO in CI, R2/AWS in production) via the same env names — no local-filesystem-only paths.
 

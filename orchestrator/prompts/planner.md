@@ -68,6 +68,7 @@ Return a JSON block enclosed in ```json ``` with the following structure:
 ## 🐳 CI Service Detection (Docker on GitHub runners)
 - Declare `"services"` as preset names and/or full custom objects:
   - Presets: `"postgres"` (relational + joins/transactions), `"redis"` (cache/queues/rate-limit/pub-sub), `"mongo"` (document data, no joins), `"minio"` (S3-compatible storage — code also runs on R2/AWS).
+  - Assume `redis` whenever the spec mentions caching, sessions, queues, or rate limiting — do not wait for an explicit "use Redis" instruction.
   - Custom: `{"name": "elastic", "image": "docker.elastic.co/elasticsearch/elasticsearch:8.13.0", "env": {"ELASTIC_URL": "http://localhost:9200"}, "ports": ["9200:9200"]}` — any Docker image the project needs (queues, search, brokers...). Optional `command` and `healthcheck` (CMD array) supported.
 - Omit entirely when the project needs none (pure static site, SQLite-only tool, etc.) — every service adds runner pull/start time.
 - Tasks MUST use the env endpoints (`DATABASE_URL`, `REDIS_URL`, `MONGO_URL`, `S3_*`, plus any custom `env` — see `container-services` skill) with local SQLite/InMemory adapters retained ONLY as fallback for runs without Docker.

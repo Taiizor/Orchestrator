@@ -15,7 +15,7 @@ Use when writing unit/integration/E2E tests or before pushing any task branch.
 
 ## Rules
 
-1. **Runner:** `bun test` inside `workspace/`; suites must be hermetic (SQLite/InMemory fallbacks, no live daemons).
+1. **Runner:** `bun test` inside `workspace/`; suites run against declared CI services, hermetic (SQLite/InMemory) only where no service exists.
 2. **Fixtures:** fictional data only, labeled Sandbox/Demo — never real PII, keys, or production data.
 3. **Concurrency matrix:** double-submit, timeout-after-accept, duplicate/out-of-order webhooks, concurrent bounded operations — each with a failing-first test where the invariant matters.
 4. **Proof format** in `workspace/TASK_PROGRESS.md` under `### 4. 🧪 Verification & Test Proof`: the command plus its real terminal output showing 0 failures. No claims without pasted output.
