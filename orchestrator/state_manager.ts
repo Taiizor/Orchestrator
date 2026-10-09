@@ -164,6 +164,7 @@ export class StateManager {
       ...remote,
       projectNumber: remote.projectNumber ?? local.projectNumber,
       projectUrl: remote.projectUrl ?? local.projectUrl,
+      services: remote.services ?? local.services,
       tasks: ordered,
       updatedAt: new Date().toISOString(),
     };

@@ -150,6 +150,7 @@ export class OrchestratorEngine {
           summary: raw.summary || "",
           globalStatus: "IN_PROGRESS",
           milestones: raw.milestones || [],
+          services: Array.isArray(raw.services) ? raw.services.filter((s: any) => typeof s === "string") : [],
           updatedAt: new Date().toISOString(),
           tasks: (raw.tasks || []).map((t: any, idx: number) => ({
             id: t.id || `TASK-${String(idx + 1).padStart(3, "0")}`,
@@ -188,6 +189,7 @@ export class OrchestratorEngine {
         milestone: t.milestone,
       })),
       milestones: roadmapData.milestones,
+      services: roadmapData.services,
     });
     if (validation.warnings.length > 0) {
       console.warn("⚠️ Roadmap validation warnings:\n" + formatValidation({ errors: [], warnings: validation.warnings }));
@@ -198,6 +200,7 @@ export class OrchestratorEngine {
       process.exit(1);
     }
     console.log("✅ Roadmap DAG validation passed.");
+    await this.ensureServiceFiles(roadmapData);
 
     await StateManager.saveRoadmap(roadmapData);
     console.log(`✅ Roadmap created with ${roadmapData.tasks.length} tasks.`);
@@ -619,6 +622,23 @@ export class OrchestratorEngine {
   }
 
   /**
+   * Write workspace/docker-compose.services.yml deterministically from
+   * roadmap.services (pure render — same output every run). The workflow's
+   * service step starts it; empty service list = no file, legacy behavior.
+   */
+  public static async ensureServiceFiles(roadmap: Roadmap): Promise<void> {
+    const { renderComposeYaml, KNOWN_SERVICES } = await import("./service_manager.ts");
+    const picked = (roadmap.services || []).filter((s) => KNOWN_SERVICES.includes(s));
+    const outPath = `${CONFIG.WORKSPACE_DIR}/docker-compose.services.yml`;
+    if (picked.length === 0) {
+      console.log("ℹ️ No CI services required by roadmap; skipping compose file.");
+      return;
+    }
+    await Bun.write(outPath, renderComposeYaml(picked));
+    console.log(`🐳 Service compose written (${picked.join(", ")}) → ${outPath}`);
+  }
+
+  /**
    * Dispatch pending tasks whose dependencies are resolved up to concurrency limit
    */
   public static async dispatchReadyTasks(roadmap: Roadmap): Promise<void> {
@@ -684,6 +704,7 @@ export class OrchestratorEngine {
       await this.plan();
       return;
     }
+    await this.ensureServiceFiles(roadmap);
 
     // Ensure GitHub Milestones and Issues exist for all tasks
     if (roadmap.milestones && roadmap.milestones.length > 0) {
@@ -903,6 +924,25 @@ async function main() {
       }
       for (const r of reports) {
         console.log(`\n### ${r.repo}\n${r.lines.join("\n")}`);
+      }
+      break;
+    }
+    case "services": {
+      // Lightweight prep for the workflow service step: regenerate the
+      // compose file from the roadmap (no LLM, no dispatch). The compose
+      // file itself is ephemeral and never committed.
+      await GitManager.setupGitAuthor();
+      if (GitManager.isDataMode()) {
+        await GitManager.ensureDataRemote();
+        await GitManager.syncStateIn();
+      }
+      {
+        const roadmap = await StateManager.loadRoadmap();
+        if (!roadmap) {
+          console.log("ℹ️ No roadmap yet; skipping service files.");
+          break;
+        }
+        await this.ensureServiceFiles(roadmap);
       }
       break;
     }

@@ -45,6 +45,7 @@ export interface Roadmap {
   projectNumber?: number;          // Linked GitHub Project v2 number
   projectUrl?: string;             // Linked GitHub Project v2 URL
   milestones?: { title: string; description?: string }[];
+  services?: string[];               // Docker CI services: subset of postgres|redis|mongo|minio
   globalStatus: "PLANNING" | "IN_PROGRESS" | "COMPLETED" | "PAUSED" | "FAILED";
   tasks: TaskItem[];
   updatedAt: string;

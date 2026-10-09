@@ -49,6 +49,14 @@ async function main() {
     console.error("❌ Roadmap not found in state directory.");
     process.exit(1);
   }
+  // Regenerate the service compose file (pure render, no side effects)
+  {
+    const { renderComposeYaml, KNOWN_SERVICES } = await import("../orchestrator/service_manager.ts");
+    const picked = (roadmap.services || []).filter((s: string) => KNOWN_SERVICES.includes(s));
+    if (picked.length > 0) {
+      await Bun.write(`${CONFIG.WORKSPACE_DIR}/docker-compose.services.yml`, renderComposeYaml(picked));
+    }
+  }
 
   const task = roadmap.tasks.find((t) => t.id === taskId);
   if (!task) {
@@ -104,7 +112,7 @@ async function main() {
   // .opencode/skills/<name>/SKILL.md — reload them on demand by name).
   const ROLE_SKILLS: Record<string, string[]> = {
     architect: ["sqlite-hardening", "api-contracts", "sql-review"],
-    backend: ["api-contracts", "error-handling", "backend-structure", "security-scan"],
+    backend: ["api-contracts", "error-handling", "backend-structure", "security-scan", "container-services"],
     frontend: ["ui-conventions", "design-system", "i18n", "frontend-stack"],
     mobile: ["ui-conventions", "mobile-essentials", "i18n", "frontend-stack"],
     qa: ["test-evidence", "test-driven-development", "code-review"],

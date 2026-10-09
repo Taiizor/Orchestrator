@@ -26,16 +26,11 @@ Every subagent MUST adhere to these environmental rules:
 1. **Runtime & Package Manager:** **Bun is the sole runtime and package manager.**
    - NEVER invoke `node`, `npm`, `npx`, `pnpm`, or `yarn`.
    - Always run commands via `bun run`, `bun test`, `bun add`, or `bunx`.
-2. **Zero-Infrastructure CI Execution & Production-Ready Migration Strategy:**
-   - **No Live External Daemons in CI:** GitHub Actions runners cannot connect to external live production databases (PostgreSQL, MySQL, Redis, MongoDB). Code executed in CI must run with **zero external infrastructure dependencies**.
-   - **Database Architecture (Universal ORMs & Migration Parity):** If the target project requires PostgreSQL or MySQL, architects and developers MUST use a multi-dialect ORM (e.g. **Drizzle ORM**, **Prisma**, or **Kysely**):
-     - **In CI / Development:** Configured to run on local SQLite (`bun:sqlite` or SQLite driver) with WAL mode enabled (`PRAGMA journal_mode = WAL;`). All unit/integration tests and database operations execute cleanly out-of-the-box in GitHub Actions.
-     - **In Production:** Provide modular migration scripts and environment variables (e.g. `DATABASE_URL=postgres://...`). The schema models and business queries must be written using ORM abstraction so deploying to production PostgreSQL is seamless and requires zero code refactoring.
-   - **Cache & Message Brokers (Adapter Fallback Pattern):**
-     - If Redis or message queues are required by the project specifications, design them using the **Adapter Pattern** (`CacheService`).
-     - In CI runners (where `process.env.REDIS_URL` is unset), the service MUST transparently fall back to an `InMemoryCache` / local Map without crashing or hanging.
-     - In production, setting `REDIS_URL` activates the real Redis client.
-   - **Object Storage:** Use local directory storage (`workspace/data/uploads`) during CI; support S3/R2 via environment variables in production.
+2. **Services-First CI Execution (Docker-backed) with Adapter Fallback:**
+   - **Real Services in CI:** GitHub runners provide Docker. When the roadmap declares `services` (`postgres`/`redis`/`mongo`/`minio`), the workflow starts them from the generated `workspace/docker-compose.services.yml` before any agent runs. Connect via the fixed CI endpoints (`DATABASE_URL`, `REDIS_URL`, `MONGO_URL`, `S3_*` — see `container-services` skill).
+   - **Data Is Ephemeral:** containers reset every run. Seed fixtures inside tasks/tests; never assume pre-existing rows, buckets, or keys.
+   - **Adapter Fallback Retained:** keep SQLite/InMemory fallback paths for runs without Docker (local dev). CI targets real services first.
+   - **Production:** same env names, secret-managed values; MinIO speaks S3, so code also runs on R2/AWS unchanged.
 3. **Timeouts & Execution:** Every subagent workflow has a strict **35-minute timeout**.
    - Tasks must be atomic, focused, and completed well within this window.
 4. **Non-Interactive Execution:** You are running in a headless CI/CD runner.

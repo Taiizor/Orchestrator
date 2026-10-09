@@ -38,6 +38,7 @@ Return a JSON block enclosed in ```json ``` with the following structure:
     { "title": "v0.2.0 - Core Services & API", "description": "Endpoints and business logic" },
     { "title": "v1.0.0 - UI & Full Verification", "description": "Frontend, integration tests, and release" }
   ],
+  "services": ["postgres"],
   "tasks": [
     {
       "id": "TASK-001",
@@ -63,4 +64,12 @@ Return a JSON block enclosed in ```json ``` with the following structure:
 ## ⚡ Concurrency & Execution Guidelines
 - Tasks with no dependencies (`"dependencies": []`) can be launched immediately in parallel up to the concurrency limit.
 - Ensure concurrent tasks have disjoint `targetFiles` so subagents do not collide.
-- Remember: In CI, all database operations must run cleanly on SQLite or via multi-dialect ORM with SQLite adapter (zero live external DB daemons)!
+
+## 🐳 CI Service Detection (Docker on GitHub runners)
+- Declare `"services"` as the subset of `["postgres", "redis", "mongo", "minio"]` the project genuinely needs:
+  - `postgres`: relational data with joins/transactions/Prod parity (preferred over SQLite when the spec demands a real RDBMS).
+  - `redis`: caching, queues, rate limiting, pub/sub.
+  - `mongo`: document-shaped data with no relational joins.
+  - `minio`: S3-compatible object storage (code written against it also runs on R2/AWS).
+- Omit entirely when the project needs none (pure static site, SQLite-only tool, etc.) — every service adds runner pull/start time.
+- Tasks MUST use the fixed CI endpoints (`DATABASE_URL`, `REDIS_URL`, `MONGO_URL`, `S3_ENDPOINT` + keys — see `container-services` skill) with local SQLite/InMemory adapters retained ONLY as fallback for runs without Docker.

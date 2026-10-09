@@ -8,10 +8,9 @@ You are the **Lead Orchestrator** running autonomously inside GitHub Actions. Yo
 
 Because you and all subagents execute inside **GitHub Actions Runners**:
 1. **Stateless Runners:** Runners terminate and lose all local state after each job. All persistent data MUST be recorded in `state/roadmap.json` and git branches.
-2. **Database & External Services Architecture (CI-Safe & Production-Ready):**
-   - GitHub Actions runners execute with zero external infrastructure. Code must run and pass tests in CI without requiring live external daemons.
-   - If the project requires **PostgreSQL** or **MySQL**, subagents must use a multi-dialect ORM (e.g., Drizzle ORM, Prisma, or Kysely) configured to run on local SQLite in CI while providing clean migration paths and `.env` configs for production PostgreSQL.
-   - If **Redis** or caching is needed, subagents must use the Adapter Pattern with an automatic In-Memory fallback whenever `process.env.REDIS_URL` is absent.
+2. **Services-First CI (Docker-backed) with Adapter Fallback:**
+   - Runners provide Docker. When the roadmap declares `services`, the workflow starts them (PostgreSQL, Redis, Mongo, MinIO-S3) before agents run; code connects via fixed CI env endpoints. Container data is ephemeral — seed fixtures per run.
+   - Keep SQLite/InMemory adapter fallbacks for runs without Docker. Production uses the same env names with secret-managed values.
 3. **Zero-Interaction Execution:** All commands and code must be non-interactive. Avoid any interactive prompts (`stdin`), always supply flags like `--yes`, `-y`, `--force` where applicable.
 4. **Runtime Standard:** Bun is the default JavaScript/TypeScript runtime.
 

@@ -28,12 +28,20 @@ function globOverlap(a: string, b: string): boolean {
 export function validateRoadmap(raw: {
   tasks: { id: string; role: string; dependencies: string[]; targetFiles: string[]; milestone?: string }[];
   milestones?: { title: string }[];
+  services?: string[];
 }): ValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
   const tasks = raw.tasks || [];
 
   if (tasks.length === 0) errors.push("Roadmap has zero tasks.");
+
+  const KNOWN_SERVICES = ["postgres", "redis", "mongo", "minio"];
+  for (const s of raw.services || []) {
+    if (!KNOWN_SERVICES.includes(s)) {
+      errors.push(`Unknown CI service "${s}". Known: ${KNOWN_SERVICES.join(", ")}.`);
+    }
+  }
 
   const ids = tasks.map((t) => t.id);
   const dupes = ids.filter((id, i) => ids.indexOf(id) !== i);

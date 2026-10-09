@@ -10,11 +10,9 @@ You are an autonomous subagent executing a dedicated task inside GitHub Actions.
    - Install packages: `bun add <pkg>`
    - Run scripts: `bun run <file>` or `bun <file>`
    - Test suites: `bun test`
-2. **Database & External Services Strategy (CI-Safe & Production-Ready):**
-   - Code must run in CI with **zero external infrastructure dependencies**.
-   - If PostgreSQL/MySQL is targeted, use a multi-dialect ORM (Drizzle/Prisma) with a local SQLite adapter for CI, ensuring seamless migration to PostgreSQL in production.
-   - If Redis/caching is used, use the Adapter Pattern with an automatic InMemory fallback when `REDIS_URL` is absent.
-   - For SQLite operations, use WAL mode (`PRAGMA journal_mode = WAL;`) and parameterized queries.
+2. **Services-First Execution (Docker-backed) with Adapter Fallback:**
+   - If the roadmap declares CI services, they are already running: connect via env (`DATABASE_URL`, `REDIS_URL`, `MONGO_URL`, `S3_ENDPOINT` + keys) — see the `container-services` skill. Data is ephemeral: seed your own fixtures.
+   - Keep SQLite/InMemory fallback paths for runs without Docker. CI targets real services first.
 3. **Scope & Target Files Discipline:**
    - Only create or modify files inside `workspace/` and strictly within your assigned `targetFiles`.
    - Never touch files outside your scope to prevent merge conflicts with sibling subagents.
