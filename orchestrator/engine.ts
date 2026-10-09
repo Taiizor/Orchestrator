@@ -6,7 +6,7 @@ import { GitManager } from "./git_manager.ts";
 import { OpenCodeClient } from "./opencode_client.ts";
 import { IssueManager } from "./issue_manager.ts";
 import { ProjectManager } from "./project_manager.ts";
-import { hasStructuredProgress, runReviewGate } from "./review_gate.ts";
+import { hasStructuredProgress, isDefaultProgress, runReviewGate } from "./review_gate.ts";
 import { validateRoadmap, formatValidation } from "./roadmap_validator.ts";
 import type { Roadmap, TaskItem, ReviewResult } from "./types.ts";
 
@@ -311,7 +311,7 @@ export class OrchestratorEngine {
             const files = await GitManager.getBranchFileList(task.branch, CONFIG.INTEGRATION_BRANCH);
             const realChanges = files.filter((f) => f !== `workspace/${CONFIG.TASK_PROGRESS_FILE}`);
             if (realChanges.length === 0) {
-              // Don't complete a task that may still have an active runner:
+              // Don't touch a task that may still have an active runner:
               // IN_PROGRESS + recently dispatched = subagent possibly working.
               if (task.status === "IN_PROGRESS" && task.dispatchedAt) {
                 const ageMs = Date.now() - Date.parse(task.dispatchedAt);
@@ -320,14 +320,28 @@ export class OrchestratorEngine {
                   continue;
                 }
               }
-              if (task.status !== "COMPLETED") {
-                console.log(`✅ [${task.id}] branch already integrated (empty diff). Marking COMPLETED.`);
-                task.status = "COMPLETED";
-                task.reviewNotes = "Branch diff vs develop is empty; deliverables already integrated.";
-                task.updatedAt = new Date().toISOString();
-                if (roadmap.projectNumber) {
-                  await ProjectManager.updateItemStatus(roadmap.projectNumber, task, "Done");
+              // Empty diff routing (all require structured progress, checked above):
+              // - placeholder report and/or zero unique commits = agent produced
+              //   nothing → IN_REVIEW so the gate rejects with feedback + requeues.
+              // - real report + unique commits = already integrated → COMPLETED.
+              const unique = await GitManager.branchUniqueCommits(task.branch, CONFIG.INTEGRATION_BRANCH);
+              if (!isDefaultProgress(progressContent) && unique > 0) {
+                if (task.status !== "COMPLETED") {
+                  console.log(`✅ [${task.id}] branch already integrated (empty diff, ${unique} unique commits). Marking COMPLETED.`);
+                  task.status = "COMPLETED";
+                  task.reviewNotes = "Branch diff vs develop is empty; deliverables already integrated.";
+                  task.updatedAt = new Date().toISOString();
+                  if (roadmap.projectNumber) {
+                    await ProjectManager.updateItemStatus(roadmap.projectNumber, task, "Done");
+                  }
+                  hasChanges = true;
                 }
+                continue;
+              }
+              console.log(`🔎 [${task.id}] empty diff with no evidence of work (placeholder report or 0 unique commits). Routing to IN_REVIEW for gate feedback.`);
+              if (task.status === "IN_PROGRESS" || task.status === "PENDING") {
+                task.status = "IN_REVIEW";
+                task.updatedAt = new Date().toISOString();
                 hasChanges = true;
               }
               continue;

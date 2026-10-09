@@ -56,6 +56,21 @@ export class GitManager {
   }
 
   /**
+   * Commits on the branch unreachable from the base (i.e. real new work).
+   * Zero + empty diff means the agent produced nothing (merged branches keep
+   * their unique commits, so they never hit zero).
+   */
+  public static async branchUniqueCommits(branchName: string, baseBranch: string): Promise<number> {
+    const remote = this.contentRemote();
+    const base = baseBranch || CONFIG.INTEGRATION_BRANCH;
+    const res = await this.run(["git", "rev-list", "--count", `${remote}/${base}..${remote}/${branchName}`]);
+    if (res.exitCode === 0 && /^\d+$/.test(res.stdout.trim())) {
+      return parseInt(res.stdout.trim(), 10);
+    }
+    return -1;
+  }
+
+  /**
    * Last-commit timestamp (ms) of a content branch tip, or -1 when the
    * branch/ref is unknown. Used by the watchdog to tell live workers
    * (fresh pushes) from dead ones.

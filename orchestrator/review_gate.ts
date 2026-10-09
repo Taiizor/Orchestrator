@@ -28,6 +28,21 @@ export function missingSections(content: string): string[] {
   return REQUIRED_SECTIONS.filter((s) => !lower.includes(s));
 }
 
+/**
+ * Runner-written placeholder progress (emitted when the agent left no
+ * report). Structurally valid but content-free — must never count as
+ * evidence of work.
+ */
+const DEFAULT_PROGRESS_MARKERS = [
+  "Executed task deliverables in workspace",
+  "Submitting for orchestrator review",
+  "Awaiting review and integration",
+];
+
+export function isDefaultProgress(content: string): boolean {
+  return DEFAULT_PROGRESS_MARKERS.some((m) => content.includes(m));
+}
+
 /** Minimal glob matcher supporting *, ** suffixes used in targetFiles. */
 export function globMatches(pattern: string, file: string): boolean {
   // Normalize: strip trailing /** or /* or /
@@ -130,6 +145,9 @@ export async function runReviewGate(
     const missing = missingSections(progressContent);
     if (missing.length > 0) {
       failures.push(`TASK_PROGRESS.md missing sections: ${missing.join(", ")}.`);
+    }
+    if (isDefaultProgress(progressContent)) {
+      failures.push("TASK_PROGRESS.md is the runner placeholder, not an agent report: no evidence of work. Produce real Done/Verification content.");
     }
     if (!/bun test|bun run|test proof|passing|passed/i.test(progressContent)) {
       warnings.push("Verification section has no recognizable test evidence (bun test output).");
