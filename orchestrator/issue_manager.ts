@@ -1,4 +1,5 @@
 import { GitManager } from "./git_manager.ts";
+import { CONFIG } from "./config.ts";
 import { StateManager } from "./state_manager.ts";
 import type { Roadmap } from "./types.ts";
 
@@ -532,10 +533,53 @@ export class IssueManager {
   }
 
   /**
-   * Create a Git Tag and GitHub Release upon project milestone or completion
+   * Create a Git Tag and GitHub Release upon project milestone or completion.
+   * Dual-repo mode: the product (workspace/) lives in the private data repo,
+   * so the tag and release go there (data develop tip), never to the public
+   * skeleton. Single-repo fallback keeps the old origin behavior.
    */
   public static async createMilestoneRelease(tag: string, title: string, notes: string): Promise<boolean> {
     console.log(`🏷️ Creating Git Tag ${tag} and GitHub Release...`);
+    if (GitManager.isDataMode()) {
+      const remote = GitManager.contentRemote();
+      const slug = GitManager.dataRepoSlug();
+      if (!slug) {
+        console.warn(`⚠️ DATA_REPO unparseable; skipping release ${tag}.`);
+        return false;
+      }
+      // Tag the data integration-branch tip (NOT this checkout's HEAD,
+      // which is engine code). Refresh the ref first; the tick may hold a
+      // stale fetch.
+      const branch = CONFIG.INTEGRATION_BRANCH;
+      await GitManager.remoteGit(remote, ["fetch", remote, branch]);
+      const tip = await GitManager.run(["git", "rev-parse", `${remote}/${branch}`]);
+      const sha = tip.stdout.trim();
+      if (tip.exitCode !== 0 || !/^[0-9a-f]{40}$/.test(sha)) {
+        console.warn(`⚠️ Cannot resolve ${remote}/${branch} tip; skipping release ${tag}.`);
+        return false;
+      }
+      await GitManager.run(["git", "tag", "-a", tag, sha, "-m", title]);
+      const push = await GitManager.remoteGit(remote, ["push", remote, tag]);
+      if (push.exitCode !== 0) {
+        console.warn(`⚠️ Tag push failed for ${tag}:`, push.stderr.slice(0, 200));
+        return false;
+      }
+      // Ambient GITHUB_TOKEN cannot see the private data repo; run gh
+      // under the data PAT (same pattern as RepoSetup.runAs).
+      const pat = GitManager.dataPat();
+      const res = await GitManager.run(
+        ["gh", "release", "create", tag, "--repo", slug, "--title", title, "--notes", notes],
+        ".",
+        undefined,
+        pat ? { GH_TOKEN: pat, GITHUB_TOKEN: pat } : undefined
+      );
+      if (res.exitCode === 0) {
+        console.log(`📦 GitHub Release ${tag} successfully published to ${slug}!`);
+        return true;
+      }
+      console.warn(`⚠️ Release create failed for ${tag}:`, res.stderr.slice(0, 200));
+      return false;
+    }
     await GitManager.run(["git", "tag", "-a", tag, "-m", title]);
     await GitManager.run(["git", "push", "origin", tag]);
 
