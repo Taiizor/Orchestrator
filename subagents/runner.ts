@@ -202,6 +202,15 @@ async function main() {
   console.log("OpenCode Output Summary:", res.stdout ? res.stdout.slice(-1000) : "No stdout");
   if (res.exitCode !== 0) {
     console.error("OpenCode process exited with error:", res.stderr);
+    // Present partial work for review if the agent left any; otherwise fail
+    // loudly WITHOUT pushing an empty result — an empty "completion" would
+    // otherwise loop through review as did-nothing work.
+    const dirty = await GitManager.run(["git", "status", "--porcelain", "--", CONFIG.WORKSPACE_DIR, CONFIG.INPUTS_DIR]);
+    if (!dirty.stdout.trim()) {
+      console.error(`❌ [${task.id}] model run failed with zero workdir changes; leaving task for watchdog retry.`);
+      process.exit(1);
+    }
+    console.warn(`⚠️ [${task.id}] model run failed, but uncommitted work exists — publishing partial progress for review.`);
   }
 
   // 1. Run automated test proof if tests exist
