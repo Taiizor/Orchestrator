@@ -23,6 +23,16 @@ export class ProjectManager {
   }
 
   private static hintProjectScope(stderr: string): void {
+    // Quota exhaustion masquerades as other errors ("unknown owner type",
+    // 403s) — never blame token scopes for it; board sync simply retries
+    // next tick after the hourly reset.
+    if (/rate limit|quota/i.test(stderr)) {
+      if (!this.projectScopeWarned) {
+        this.projectScopeWarned = true;
+        console.warn("⚠️ GitHub GraphQL quota exhausted — board ops deferred to a later tick (hourly reset). No token change needed.");
+      }
+      return;
+    }
     if (/scope|forbidden|resource not accessible|requires authentication|unknown owner type/i.test(stderr)) {
       if (!this.projectScopeWarned) {
         this.projectScopeWarned = true;
@@ -83,21 +93,21 @@ export class ProjectManager {
       if (!projectId) { console.warn("⚠️ Could not resolve board node id; skipping option sync."); return; }
       const fq = await this.projectGh(["gh", "api", "graphql",
         "-F", `nodeId=${projectId}`,
-        "-f", "query=query($nodeId:ID!){node(id:$nodeId){... on ProjectV2{fields(first:30){nodes{... on ProjectV2SingleSelectField{id name options{id name color}}}}}}}",
+        "-f", "query=query($nodeId:ID!){node(id:$nodeId){... on ProjectV2{fields(first:30){nodes{... on ProjectV2SingleSelectField{id name options{id name color description}}}}}}}",
       ]);
       if (fq.exitCode !== 0) { this.hintProjectScope(fq.stderr); return; }
       const nodes: any[] = JSON.parse(fq.stdout)?.data?.node?.fields?.nodes || [];
       const status = nodes.find((f: any) => f.id && f.name === "Status");
       if (!status) { console.warn("⚠️ Board has no Status field; skipping option sync."); return; }
-      const have: { id: string; name: string; color?: string }[] = status.options || [];
+      const have: { id: string; name: string; color?: string; description?: string }[] = status.options || [];
       const missing = want.filter((w) => !have.some((h) => h.name === w));
       if (missing.length === 0) return;
-      // The API requires `color` on EVERY option in the list (existing ones
-      // included), so colors are queried and passed through, not just set
-      // on the new entries.
+      // The API requires `color` AND `description` on EVERY option in the
+      // list (existing ones included) — both are queried and passed through.
+      const desc = (n: string) => `${n} status`;
       const optsLit = [
-        ...have.map((h) => `{id:"${h.id}",name:${JSON.stringify(h.name)},color:${h.color || "GRAY"}}`),
-        ...missing.map((m) => `{name:${JSON.stringify(m)},color:${colors[m] || "GRAY"}}`),
+        ...have.map((h) => `{id:"${h.id}",name:${JSON.stringify(h.name)},color:${h.color || "GRAY"},description:${JSON.stringify(h.description ?? desc(h.name))}}`),
+        ...missing.map((m) => `{name:${JSON.stringify(m)},color:${colors[m] || "GRAY"},description:${JSON.stringify(desc(m))}}`),
       ].join(",");
       const mq = `mutation{updateProjectV2Field(input:{fieldId:"${status.id}",singleSelectOptions:[${optsLit}]}){projectV2Field{... on ProjectV2SingleSelectField{options{name}}}}}`;
       const mres = await this.projectGh(["gh", "api", "graphql", "-f", `query=${mq}`]);
@@ -441,7 +451,7 @@ export class ProjectManager {
   public static async getBoardSnapshot(
     projectNumber: number,
     owner: string
-  ): Promise<{ byUrl: Map<string, string>; byTask: Map<string, string> }> {
+  ): Promise<{ byUrl: Map<string, string>; byTask: Map<string, string>; ok: boolean }> {
     const byUrl = new Map<string, string>();
     const byTask = new Map<string, string>();
     const res = await this.projectGh([
@@ -453,7 +463,7 @@ export class ProjectManager {
     if (res.exitCode !== 0) {
       this.hintProjectScope(res.stderr);
       console.warn("⚠️ Board snapshot failed:", res.stderr.slice(0, 300));
-      return { byUrl, byTask };
+      return { byUrl, byTask, ok: false };
     }
     try {
       const items = JSON.parse(res.stdout);
@@ -469,8 +479,9 @@ export class ProjectManager {
       console.log(`📸 Board snapshot: ${byUrl.size} items found.`);
     } catch {
       console.warn("⚠️ Board snapshot parse failed; response head:", res.stdout.slice(0, 300));
+      return { byUrl, byTask, ok: false };
     }
-    return { byUrl, byTask };
+    return { byUrl, byTask, ok: true };
   }
 
   /**
@@ -486,6 +497,12 @@ export class ProjectManager {
     const owner = repoOwner || me;
 
     const snap = await this.getBoardSnapshot(projectNumber, owner);
+    // Fail-closed: a dead snapshot (quota, auth) must NOT look like an
+    // empty board — that path re-adds every item and fabricates stats.
+    if (!snap.ok) {
+      console.warn("⚠️ Board sync skipped: snapshot unavailable; retry next tick.");
+      return stats;
+    }
     for (const task of roadmap.tasks) {
       if (!task.issueUrl) {
         stats.skipped++;
