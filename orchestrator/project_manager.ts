@@ -29,7 +29,9 @@ export class ProjectManager {
     if (/rate limit|quota/i.test(stderr)) {
       if (!this.projectScopeWarned) {
         this.projectScopeWarned = true;
-        console.warn("⚠️ GitHub GraphQL quota exhausted — board ops deferred to a later tick (hourly reset). No token change needed.");
+        console.warn(
+          "⚠️ GitHub GraphQL quota exhausted — board ops deferred to a later tick (hourly reset). No token change needed."
+        );
       }
       return;
     }
@@ -38,9 +40,9 @@ export class ProjectManager {
         this.projectScopeWarned = true;
         console.warn(
           "⚠️ GitHub Projects API unavailable: token lacks `read:project`/`write:project` scope" +
-          ( /unknown owner type/i.test(stderr) ? " (classic PAT also needs `read:org` so gh can resolve the org)" : "" ) +
-          ". Create a classic PAT with `repo` + `project` (+ `read:org` for org repos), " +
-          "save it as the `GH_PROJECT_TOKEN` repo secret, and re-run. Kanban sync is skipped until then."
+            (/unknown owner type/i.test(stderr) ? " (classic PAT also needs `read:org` so gh can resolve the org)" : "") +
+            ". Create a classic PAT with `repo` + `project` (+ `read:org` for org repos), " +
+            "save it as the `GH_PROJECT_TOKEN` repo secret, and re-run. Kanban sync is skipped until then."
         );
       }
     }
@@ -72,33 +74,63 @@ export class ProjectManager {
    */
   public static async ensureStatusOptions(projectNumber: number, owner: string): Promise<void> {
     const want = ["Todo", "In Progress", "In Review", "Done", "Failed"];
-    const colors: Record<string, string> = { "In Progress": "YELLOW", "In Review": "BLUE", "Done": "GREEN", "Failed": "RED" };
+    const colors: Record<string, string> = { "In Progress": "YELLOW", "In Review": "BLUE", Done: "GREEN", Failed: "RED" };
     try {
       const view = await this.projectGh(["gh", "project", "view", String(projectNumber), "--owner", owner, "--format", "json"]);
-      if (view.exitCode !== 0) { this.hintProjectScope(view.stderr); return; }
+      if (view.exitCode !== 0) {
+        this.hintProjectScope(view.stderr);
+        return;
+      }
       let projectId = "";
-      try { projectId = JSON.parse(view.stdout).id || ""; } catch { /* fallback below */ }
+      try {
+        projectId = JSON.parse(view.stdout).id || "";
+      } catch {
+        /* fallback below */
+      }
       if (!projectId) {
         // `project view` JSON omits the node id — resolve via owner+number
         // (number interpolated: integers need no escaping).
         for (const kind of ["organization", "user"]) {
-          const q = await this.projectGh(["gh", "api", "graphql",
-            "-F", `login=${owner}`,
-            "-f", `query=query($login:String!){${kind}(login:$login){projectV2(number:${projectNumber}){id}}}`,
+          const q = await this.projectGh([
+            "gh",
+            "api",
+            "graphql",
+            "-F",
+            `login=${owner}`,
+            "-f",
+            `query=query($login:String!){${kind}(login:$login){projectV2(number:${projectNumber}){id}}}`,
           ]);
-          try { projectId = q.exitCode === 0 ? (JSON.parse(q.stdout)?.data?.[kind]?.projectV2?.id || "") : ""; } catch { projectId = ""; }
+          try {
+            projectId = q.exitCode === 0 ? JSON.parse(q.stdout)?.data?.[kind]?.projectV2?.id || "" : "";
+          } catch {
+            projectId = "";
+          }
           if (projectId) break;
         }
       }
-      if (!projectId) { console.warn("⚠️ Could not resolve board node id; skipping option sync."); return; }
-      const fq = await this.projectGh(["gh", "api", "graphql",
-        "-F", `nodeId=${projectId}`,
-        "-f", "query=query($nodeId:ID!){node(id:$nodeId){... on ProjectV2{fields(first:30){nodes{... on ProjectV2SingleSelectField{id name options{id name color description}}}}}}}",
+      if (!projectId) {
+        console.warn("⚠️ Could not resolve board node id; skipping option sync.");
+        return;
+      }
+      const fq = await this.projectGh([
+        "gh",
+        "api",
+        "graphql",
+        "-F",
+        `nodeId=${projectId}`,
+        "-f",
+        "query=query($nodeId:ID!){node(id:$nodeId){... on ProjectV2{fields(first:30){nodes{... on ProjectV2SingleSelectField{id name options{id name color description}}}}}}}",
       ]);
-      if (fq.exitCode !== 0) { this.hintProjectScope(fq.stderr); return; }
+      if (fq.exitCode !== 0) {
+        this.hintProjectScope(fq.stderr);
+        return;
+      }
       const nodes: any[] = JSON.parse(fq.stdout)?.data?.node?.fields?.nodes || [];
       const status = nodes.find((f: any) => f.id && f.name === "Status");
-      if (!status) { console.warn("⚠️ Board has no Status field; skipping option sync."); return; }
+      if (!status) {
+        console.warn("⚠️ Board has no Status field; skipping option sync.");
+        return;
+      }
       const have: { id: string; name: string; color?: string; description?: string }[] = status.options || [];
       const missing = want.filter((w) => !have.some((h) => h.name === w));
       if (missing.length === 0) return;
@@ -106,7 +138,10 @@ export class ProjectManager {
       // list (existing ones included) — both are queried and passed through.
       const desc = (n: string) => `${n} status`;
       const optsLit = [
-        ...have.map((h) => `{id:"${h.id}",name:${JSON.stringify(h.name)},color:${h.color || "GRAY"},description:${JSON.stringify(h.description ?? desc(h.name))}}`),
+        ...have.map(
+          (h) =>
+            `{id:"${h.id}",name:${JSON.stringify(h.name)},color:${h.color || "GRAY"},description:${JSON.stringify(h.description ?? desc(h.name))}}`
+        ),
         ...missing.map((m) => `{name:${JSON.stringify(m)},color:${colors[m] || "GRAY"},description:${JSON.stringify(desc(m))}}`),
       ].join(",");
       const mq = `mutation{updateProjectV2Field(input:{fieldId:"${status.id}",singleSelectOptions:[${optsLit}]}){projectV2Field{... on ProjectV2SingleSelectField{options{name}}}}}`;
@@ -137,10 +172,7 @@ export class ProjectManager {
 
     // 1. If roadmap already has project number, verify it (and re-link)
     if (roadmap.projectNumber) {
-      const verifyRes = await this.projectGh([
-        "gh", "project", "view", String(roadmap.projectNumber),
-        "--owner", owner
-      ]);
+      const verifyRes = await this.projectGh(["gh", "project", "view", String(roadmap.projectNumber), "--owner", owner]);
       if (verifyRes.exitCode === 0) {
         const relinkArgs = ["gh", "project", "link", String(roadmap.projectNumber), "--owner", owner];
         if (CONFIG.GITHUB_REPOSITORY) relinkArgs.push("--repo", CONFIG.GITHUB_REPOSITORY);
@@ -157,11 +189,7 @@ export class ProjectManager {
 
     // 2. Check if a project with matching title already exists
     console.log(`🔍 Checking existing GitHub Projects for owner '${owner}'...`);
-    const listRes = await this.projectGh([
-      "gh", "project", "list",
-      "--owner", owner,
-      "--format", "json"
-    ]);
+    const listRes = await this.projectGh(["gh", "project", "list", "--owner", owner, "--format", "json"]);
 
     if (listRes.exitCode === 0 && listRes.stdout) {
       try {
@@ -185,10 +213,15 @@ export class ProjectManager {
     // 3. Create new GitHub Project (v2)
     console.log(`✨ Creating new GitHub Project: "${projectTitle}"...`);
     const createRes = await this.projectGh([
-      "gh", "project", "create",
-      "--owner", owner,
-      "--title", projectTitle,
-      "--format", "json"
+      "gh",
+      "project",
+      "create",
+      "--owner",
+      owner,
+      "--title",
+      projectTitle,
+      "--format",
+      "json",
     ]);
 
     if (createRes.exitCode === 0 && createRes.stdout) {
@@ -204,7 +237,10 @@ export class ProjectManager {
         if (CONFIG.GITHUB_REPOSITORY) linkArgs.push("--repo", CONFIG.GITHUB_REPOSITORY);
         const linkRes = await this.projectGh(linkArgs);
         if (linkRes.exitCode !== 0) {
-          console.warn(`⚠️ Project #${projectNum} created but repo link failed (board won't show under repo Projects tab):`, linkRes.stderr);
+          console.warn(
+            `⚠️ Project #${projectNum} created but repo link failed (board won't show under repo Projects tab):`,
+            linkRes.stderr
+          );
         } else {
           console.log(`🔗 Project #${projectNum} linked to repository.`);
         }
@@ -261,11 +297,7 @@ export class ProjectManager {
         await GitManager.run(args);
       } else if (hit.state === "closed" && !(isComplete?.(m.title) ?? false)) {
         console.log(`🔓 Reopening closed Milestone: "${m.title}" (#${hit.number}) — unfinished tasks remain...`);
-        await GitManager.run([
-          "gh", "api", `repos/:owner/:repo/milestones/${hit.number}`,
-          "-X", "PATCH",
-          "-f", "state=open",
-        ]);
+        await GitManager.run(["gh", "api", `repos/:owner/:repo/milestones/${hit.number}`, "-X", "PATCH", "-f", "state=open"]);
       }
     }
   }
@@ -292,10 +324,15 @@ export class ProjectManager {
 
     for (const lbl of requiredLabels) {
       await GitManager.run([
-        "gh", "label", "create", lbl.name,
-        "--color", lbl.color,
-        "--description", lbl.description,
-        "--force"
+        "gh",
+        "label",
+        "create",
+        lbl.name,
+        "--color",
+        lbl.color,
+        "--description",
+        lbl.description,
+        "--force",
       ]);
     }
   }
@@ -308,11 +345,17 @@ export class ProjectManager {
    */
   public static async findTaskIssue(taskId: string): Promise<{ number: number; url: string; state: string } | null> {
     const res = await GitManager.run([
-      "gh", "issue", "list",
-      "--search", `[${taskId}]`,
-      "--state", "all",
-      "--limit", "50",
-      "--json", "number,url,title,state",
+      "gh",
+      "issue",
+      "list",
+      "--search",
+      `[${taskId}]`,
+      "--state",
+      "all",
+      "--limit",
+      "50",
+      "--json",
+      "number,url,title,state",
     ]);
     if (res.exitCode !== 0 || !res.stdout.trim()) return null;
     try {
@@ -350,10 +393,7 @@ export class ProjectManager {
       }
     } else {
       // Verify the recorded issue still exists (cross-repo state or deleted issue)
-      const viewRes = await GitManager.run([
-        "gh", "issue", "view", String(task.issueNumber),
-        "--json", "number,url,state",
-      ]);
+      const viewRes = await GitManager.run(["gh", "issue", "view", String(task.issueNumber), "--json", "number,url,state"]);
       if (viewRes.exitCode !== 0) {
         console.warn(`⚠️ Recorded issue #${task.issueNumber} for [${task.id}] is gone; searching canonical...`);
         task.issueNumber = undefined;
@@ -368,20 +408,16 @@ export class ProjectManager {
 
     // 1b. Enforce milestone on adopted issues (adoption path skips --milestone)
     if (task.issueNumber && milestoneTitle) {
-      const viewRes = await GitManager.run([
-        "gh", "issue", "view", String(task.issueNumber),
-        "--json", "milestone",
-      ]);
+      const viewRes = await GitManager.run(["gh", "issue", "view", String(task.issueNumber), "--json", "milestone"]);
       if (viewRes.exitCode === 0) {
         try {
           const current = JSON.parse(viewRes.stdout).milestone?.title;
           if (current !== milestoneTitle) {
-            await GitManager.run([
-              "gh", "issue", "edit", String(task.issueNumber),
-              "--milestone", milestoneTitle,
-            ]);
+            await GitManager.run(["gh", "issue", "edit", String(task.issueNumber), "--milestone", milestoneTitle]);
           }
-        } catch { /* non-fatal */ }
+        } catch {
+          /* non-fatal */
+        }
       }
     }
 
@@ -394,20 +430,26 @@ export class ProjectManager {
         ? `**Assigned Role:** \`${task.role}\`\n` +
           `**Branch:** \`${task.branch}\`\n` +
           `**Target Files:** \`${task.targetFiles.join(", ")}\`\n` +
-          `**Dependencies:** ${task.dependencies.length > 0 ? task.dependencies.map(d => `\`${d}\``).join(", ") : "None"}\n` +
+          `**Dependencies:** ${task.dependencies.length > 0 ? task.dependencies.map((d) => `\`${d}\``).join(", ") : "None"}\n` +
           `\n*Details are tracked privately; this issue carries status only.*\n`
         : `### Task Description\n${task.description}\n\n` +
           `**Assigned Role:** \`${task.role}\`\n` +
           `**Branch:** \`${task.branch}\`\n` +
           `**Target Files:** \`${task.targetFiles.join(", ")}\`\n` +
-          `**Dependencies:** ${task.dependencies.length > 0 ? task.dependencies.map(d => `\`${d}\``).join(", ") : "None"}\n`;
+          `**Dependencies:** ${task.dependencies.length > 0 ? task.dependencies.map((d) => `\`${d}\``).join(", ") : "None"}\n`;
 
       const createArgs = [
-        "gh", "issue", "create",
-        "--title", `[${task.id}] ${task.title}`,
-        "--body", body,
-        "--label", "subagent",
-        "--label", `role:${task.role}`
+        "gh",
+        "issue",
+        "create",
+        "--title",
+        `[${task.id}] ${task.title}`,
+        "--body",
+        body,
+        "--label",
+        "subagent",
+        "--label",
+        `role:${task.role}`,
       ];
 
       if (milestoneTitle) {
@@ -435,11 +477,16 @@ export class ProjectManager {
 
   private static desiredBoardStatus(task: TaskItem): "Todo" | "In Progress" | "In Review" | "Done" | "Failed" {
     switch (task.status) {
-      case "IN_PROGRESS": return "In Progress";
-      case "IN_REVIEW": return "In Review";
-      case "COMPLETED": return "Done";
-      case "FAILED": return "Failed";
-      default: return "Todo";
+      case "IN_PROGRESS":
+        return "In Progress";
+      case "IN_REVIEW":
+        return "In Review";
+      case "COMPLETED":
+        return "Done";
+      case "FAILED":
+        return "Failed";
+      default:
+        return "Todo";
     }
   }
 
@@ -455,10 +502,16 @@ export class ProjectManager {
     const byUrl = new Map<string, string>();
     const byTask = new Map<string, string>();
     const res = await this.projectGh([
-      "gh", "project", "item-list", String(projectNumber),
-      "--owner", owner,
-      "--format", "json",
-      "-L", "100",
+      "gh",
+      "project",
+      "item-list",
+      String(projectNumber),
+      "--owner",
+      owner,
+      "--format",
+      "json",
+      "-L",
+      "100",
     ]);
     if (res.exitCode !== 0) {
       this.hintProjectScope(res.stderr);
@@ -490,7 +543,10 @@ export class ProjectManager {
    * Fresh adds skip the Status edit when the desired value is the board
    * default ("Todo").
    */
-  public static async syncBoardState(roadmap: Roadmap, projectNumber: number): Promise<{ added: number; updated: number; skipped: number }> {
+  public static async syncBoardState(
+    roadmap: Roadmap,
+    projectNumber: number
+  ): Promise<{ added: number; updated: number; skipped: number }> {
     const stats = { added: 0, updated: 0, skipped: 0 };
     const me = await this.getOwner();
     const repoOwner = await this.getRepoOwner();
@@ -512,9 +568,14 @@ export class ProjectManager {
       const current = snap.byUrl.get(task.issueUrl) ?? snap.byTask.get(`[${task.id}]`) ?? null;
       if (current === null) {
         const addRes = await this.projectGh([
-          "gh", "project", "item-add", String(projectNumber),
-          "--owner", owner,
-          "--url", task.issueUrl,
+          "gh",
+          "project",
+          "item-add",
+          String(projectNumber),
+          "--owner",
+          owner,
+          "--url",
+          task.issueUrl,
         ]);
         if (addRes.exitCode !== 0) {
           this.hintProjectScope(addRes.stderr);
@@ -562,17 +623,24 @@ export class ProjectManager {
     console.log(`📊 Moving [${task.id}] to '${status}' in Project #${projectNumber}...`);
 
     const editRes = await this.projectGh([
-      "gh", "project", "item-edit", String(projectNumber),
-      "--owner", owner,
-      "--url", task.issueUrl,
-      "--field", "Status",
-      "--value", status
+      "gh",
+      "project",
+      "item-edit",
+      String(projectNumber),
+      "--owner",
+      owner,
+      "--url",
+      task.issueUrl,
+      "--field",
+      "Status",
+      "--value",
+      status,
     ]);
     if (editRes.exitCode !== 0) {
       this.hintProjectScope(editRes.stderr);
       console.warn(
         `⚠️ Could not set Status='${status}' for [${task.id}] ` +
-        `(board may lack this option — add it via Project Settings > Status field):`,
+          `(board may lack this option — add it via Project Settings > Status field):`,
         editRes.stderr
       );
     }
@@ -580,8 +648,12 @@ export class ProjectManager {
     // If task is completed and verified, close the GitHub Issue
     if (status === "Done" && task.issueNumber) {
       await GitManager.run([
-        "gh", "issue", "close", String(task.issueNumber),
-        "--comment", `✅ **Task Completed & Verified:** Merged into integration branch with 0 test failures.`
+        "gh",
+        "issue",
+        "close",
+        String(task.issueNumber),
+        "--comment",
+        `✅ **Task Completed & Verified:** Merged into integration branch with 0 test failures.`,
       ]);
     }
   }
@@ -594,9 +666,6 @@ export class ProjectManager {
   public static async postTaskProgressComment(task: TaskItem, comment: string): Promise<void> {
     if (!task.issueNumber) return;
     const body = GitManager.isDataMode() ? comment.split("\n")[0] : comment;
-    await GitManager.run([
-      "gh", "issue", "comment", String(task.issueNumber),
-      "--body", body
-    ]);
+    await GitManager.run(["gh", "issue", "comment", String(task.issueNumber), "--body", body]);
   }
 }

@@ -33,7 +33,9 @@ export class IssueManager {
       this.authCache.set(who, false);
       return false;
     }
-    console.warn(`⚠️ Collaborator check failed for @${who} (${res.stderr.slice(0, 120)}); honoring command (fail-open on infra error).`);
+    console.warn(
+      `⚠️ Collaborator check failed for @${who} (${res.stderr.slice(0, 120)}); honoring command (fail-open on infra error).`
+    );
     return true;
   }
 
@@ -41,9 +43,13 @@ export class IssueManager {
   private static async markProcessed(commentId: string | number): Promise<void> {
     if (commentId && typeof commentId === "string" && commentId.startsWith("IC_")) {
       await GitManager.run([
-        "gh", "api", "graphql",
-        "-F", `subjectId=${commentId}`,
-        "-F", "content=ROCKET",
+        "gh",
+        "api",
+        "graphql",
+        "-F",
+        `subjectId=${commentId}`,
+        "-F",
+        "content=ROCKET",
         "-f",
         "query=mutation($subjectId:ID!,$content:ReactionContent!){addReaction(input:{subjectId:$subjectId,content:$content}){reaction{content}}}",
       ]);
@@ -52,7 +58,8 @@ export class IssueManager {
 
   /** Levenshtein distance for ChatOps typo tolerance. */
   private static editDistance(a: string, b: string): number {
-    const m = a.length, n = b.length;
+    const m = a.length,
+      n = b.length;
     const dp: number[][] = Array.from({ length: m + 1 }, (_, i) => [i, ...Array(n).fill(0)]);
     for (let j = 0; j <= n; j++) dp[0][j] = j;
     for (let i = 1; i <= m; i++) {
@@ -74,12 +81,7 @@ export class IssueManager {
    * which previously caused duplicate dashboards.)
    */
   private static async findDashboardIssue(): Promise<number | null> {
-    const listRes = await GitManager.run([
-      "gh", "issue", "list",
-      "--state", "open",
-      "--limit", "100",
-      "--json", "number,title",
-    ]);
+    const listRes = await GitManager.run(["gh", "issue", "list", "--state", "open", "--limit", "100", "--json", "number,title"]);
     if (listRes.exitCode !== 0 || !listRes.stdout.trim()) return null;
     try {
       const issues = JSON.parse(listRes.stdout);
@@ -88,8 +90,12 @@ export class IssueManager {
         console.warn(`⚠️ Found ${hits.length} dashboard issues; canonical is #${hits[0].number}. Duplicates will be closed.`);
         for (const dupe of hits.slice(1)) {
           await GitManager.run([
-            "gh", "issue", "close", String(dupe.number),
-            "--comment", `Duplicate of canonical dashboard #${hits[0].number}.`,
+            "gh",
+            "issue",
+            "close",
+            String(dupe.number),
+            "--comment",
+            `Duplicate of canonical dashboard #${hits[0].number}.`,
           ]);
         }
       }
@@ -118,7 +124,8 @@ export class IssueManager {
   public static async syncDashboardIssue(roadmap: Roadmap): Promise<number | null> {
     let issueNumber: number | null = await this.findDashboardIssue();
 
-    const bodyContent = StateManager.renderProgressMarkdown(roadmap, { redact: this.isRedacted() }) +
+    const bodyContent =
+      StateManager.renderProgressMarkdown(roadmap, { redact: this.isRedacted() }) +
       `\n\n### 💬 ChatOps Controls\n` +
       `You can leave comments on this issue to guide the agents:\n` +
       `- \`/pause\`: Pause active execution\n` +
@@ -137,10 +144,7 @@ export class IssueManager {
 
     if (issueNumber) {
       // Update existing issue body
-      await GitManager.run([
-        "gh", "issue", "edit", String(issueNumber),
-        "--body", bodyContent
-      ]);
+      await GitManager.run(["gh", "issue", "edit", String(issueNumber), "--body", bodyContent]);
       console.log(`📋 Updated Dashboard Issue #${issueNumber}`);
       await this.pinDashboardIssue(issueNumber);
       return issueNumber;
@@ -149,11 +153,17 @@ export class IssueManager {
       const { ProjectManager } = await import("./project_manager.ts");
       await ProjectManager.ensureLabels();
       const createRes = await GitManager.run([
-        "gh", "issue", "create",
-        "--title", this.DASHBOARD_TITLE,
-        "--body", bodyContent,
-        "--label", "dashboard",
-        "--label", "agents",
+        "gh",
+        "issue",
+        "create",
+        "--title",
+        this.DASHBOARD_TITLE,
+        "--body",
+        bodyContent,
+        "--label",
+        "dashboard",
+        "--label",
+        "agents",
       ]);
 
       if (createRes.exitCode === 0) {
@@ -178,10 +188,7 @@ export class IssueManager {
     if (!dashboardNumber) return false;
 
     // Fetch recent comments on dashboard issue
-    const commentsRes = await GitManager.run([
-      "gh", "issue", "view", String(dashboardNumber),
-      "--json", "comments"
-    ]);
+    const commentsRes = await GitManager.run(["gh", "issue", "view", String(dashboardNumber), "--json", "comments"]);
 
     if (commentsRes.exitCode !== 0 || !commentsRes.stdout) return false;
 
@@ -212,14 +219,29 @@ export class IssueManager {
         continue;
       }
       // Skip if already processed (marked with rocket or thumbs up)
-      if (comment.reactionGroups?.some((r: any) => (r.content === "ROCKET" || r.content === "THUMBS_UP") && r.users?.totalCount > 0)) {
+      if (
+        comment.reactionGroups?.some((r: any) => (r.content === "ROCKET" || r.content === "THUMBS_UP") && r.users?.totalCount > 0)
+      ) {
         continue;
       }
       if (!body.startsWith("/")) continue;
 
       // Typo tolerance: /staus, /pausse, /statuss... (edit distance ≤ 2).
       // Unknown commands get the help text instead of silence.
-      const KNOWN = ["pause", "resume", "tick", "retry", "directive", "revise", "status", "discuss", "setup", "ask", "add", "log"];
+      const KNOWN = [
+        "pause",
+        "resume",
+        "tick",
+        "retry",
+        "directive",
+        "revise",
+        "status",
+        "discuss",
+        "setup",
+        "ask",
+        "add",
+        "log",
+      ];
       const wordMatch = body.match(/^\/([A-Za-z]+)/);
       if (wordMatch) {
         const word = wordMatch[1].toLowerCase();
@@ -230,10 +252,15 @@ export class IssueManager {
           if (close) {
             console.log(`🔤 Interpreting /${word} as /${close.k} (typo tolerance).`);
             body = `/${close.k}` + body.slice(wordMatch[0].length);
-            await this.acknowledgeComment(dashboardNumber, commentId, `🔤 Understood \`/${word}\` as \`/${close.k}\` — processing.`);
+            await this.acknowledgeComment(
+              dashboardNumber,
+              commentId,
+              `🔤 Understood \`/${word}\` as \`/${close.k}\` — processing.`
+            );
           } else {
             await this.acknowledgeComment(
-              dashboardNumber, commentId,
+              dashboardNumber,
+              commentId,
               `❓ Unknown command \`/${word}\`.\n\nAvailable: ${KNOWN.map((k) => `\`/${k}\``).join(", ")}`
             );
             continue;
@@ -246,27 +273,59 @@ export class IssueManager {
         console.log("⏸️ ChatOps command received: /pause");
         roadmap.globalStatus = "PAUSED";
         hasChanges = true;
-        await this.acknowledgeComment(dashboardNumber, commentId, "⏸️ **Orchestrator Paused:** Active subagents will finish current runs, but no new tasks will be dispatched until `/resume` is received.");
+        await this.acknowledgeComment(
+          dashboardNumber,
+          commentId,
+          "⏸️ **Orchestrator Paused:** Active subagents will finish current runs, but no new tasks will be dispatched until `/resume` is received."
+        );
       } else if (body.startsWith("/resume")) {
         console.log("▶️ ChatOps command received: /resume");
         roadmap.globalStatus = "IN_PROGRESS";
         hasChanges = true;
-        await this.acknowledgeComment(dashboardNumber, commentId, "▶️ **Orchestrator Resumed:** Task scheduling and dispatching resumed.");
+        await this.acknowledgeComment(
+          dashboardNumber,
+          commentId,
+          "▶️ **Orchestrator Resumed:** Task scheduling and dispatching resumed."
+        );
       } else if (body.startsWith("/tick")) {
         // /tick — request an immediate orchestration cycle via
         // workflow_dispatch (default action=tick). Dedupe like the
         // subagent wake: skip when a run is already queued/active.
         console.log("🔔 ChatOps command received: /tick");
-        const pending = await GitManager.run(["gh", "run", "list", "--workflow", "orchestrator.yml", "--limit", "5", "--json", "status", "--jq", '[.[] | select(.status == "queued" or .status == "in_progress" or .status == "waiting" or .status == "requested")] | length']);
+        const pending = await GitManager.run([
+          "gh",
+          "run",
+          "list",
+          "--workflow",
+          "orchestrator.yml",
+          "--limit",
+          "5",
+          "--json",
+          "status",
+          "--jq",
+          '[.[] | select(.status == "queued" or .status == "in_progress" or .status == "waiting" or .status == "requested")] | length',
+        ]);
         const count = parseInt(pending.stdout.trim(), 10);
         if (!Number.isNaN(count) && count > 0) {
-          await this.acknowledgeComment(dashboardNumber, commentId, `🔔 **Tick already queued/running** (${count}) — skipping duplicate wake.`);
+          await this.acknowledgeComment(
+            dashboardNumber,
+            commentId,
+            `🔔 **Tick already queued/running** (${count}) — skipping duplicate wake.`
+          );
         } else {
           const trig = await GitManager.run(["gh", "workflow", "run", "orchestrator.yml"]);
           if (trig.exitCode === 0) {
-            await this.acknowledgeComment(dashboardNumber, commentId, "🔔 **Tick requested:** orchestration cycle dispatched, results land on this board.");
+            await this.acknowledgeComment(
+              dashboardNumber,
+              commentId,
+              "🔔 **Tick requested:** orchestration cycle dispatched, results land on this board."
+            );
           } else {
-            await this.acknowledgeComment(dashboardNumber, commentId, `⚠️ **Tick dispatch failed:** ${trig.stderr.slice(0, 200)}`);
+            await this.acknowledgeComment(
+              dashboardNumber,
+              commentId,
+              `⚠️ **Tick dispatch failed:** ${trig.stderr.slice(0, 200)}`
+            );
           }
         }
       } else if (body.startsWith("/retry")) {
@@ -274,11 +333,15 @@ export class IssueManager {
         // Results are batched into a SINGLE reply to avoid comment spam.
         const targets = [...body.matchAll(/\/retry\s+([A-Za-z0-9_-]+)/g)].map((m) => m[1]);
         if (targets.length === 0) {
-          await this.acknowledgeComment(dashboardNumber, commentId, `⚠️ Usage: \`/retry <TASK-ID>\` (one per line, several allowed).`);
+          await this.acknowledgeComment(
+            dashboardNumber,
+            commentId,
+            `⚠️ Usage: \`/retry <TASK-ID>\` (one per line, several allowed).`
+          );
         } else {
           const lines: string[] = [];
           for (const taskId of targets) {
-            const task = roadmap.tasks.find(t => t.id === taskId);
+            const task = roadmap.tasks.find((t) => t.id === taskId);
             if (task) {
               console.log(`🔄 ChatOps command received: /retry ${taskId}`);
               task.status = "PENDING";
@@ -297,14 +360,14 @@ export class IssueManager {
         if (match) {
           const taskId = match[1];
           const directive = match[2].trim().replace(/^["']|["']$/g, "");
-          const task = roadmap.tasks.find(t => t.id === taskId);
+          const task = roadmap.tasks.find((t) => t.id === taskId);
           if (task) {
             console.log(`🎯 ChatOps command received: /directive for ${taskId}: ${directive}`);
             task.reviewNotes = `[OPERATOR DIRECTIVE]: ${directive}`;
-            
+
             // If task is currently active in a workflow, cancel the run and reset to PENDING
             const activeRuns = await GitManager.getActiveSubagentRuns();
-            const taskRun = activeRuns.find(r => r.headBranch === task.branch);
+            const taskRun = activeRuns.find((r) => r.headBranch === task.branch);
             if (taskRun) {
               console.log(`🛑 Cancelling active run #${taskRun.databaseId} to apply new directive...`);
               await GitManager.cancelWorkflowRun(taskRun.databaseId);
@@ -312,7 +375,11 @@ export class IssueManager {
 
             task.status = "PENDING";
             hasChanges = true;
-            await this.acknowledgeComment(dashboardNumber, commentId, `🎯 **Directive Applied to [${taskId}]:**\n> "${directive}"\n\nTask re-steered and queued for execution.`);
+            await this.acknowledgeComment(
+              dashboardNumber,
+              commentId,
+              `🎯 **Directive Applied to [${taskId}]:**\n> "${directive}"\n\nTask re-steered and queued for execution.`
+            );
           } else {
             await this.acknowledgeComment(dashboardNumber, commentId, `⚠️ **Task Not Found:** No task with ID \`${taskId}\`.`);
           }
@@ -330,7 +397,7 @@ export class IssueManager {
         } else {
           const taskId = match[1];
           const instruction = match[2].trim().replace(/^["']|["']$/g, "");
-          const task = roadmap.tasks.find(t => t.id === taskId);
+          const task = roadmap.tasks.find((t) => t.id === taskId);
           if (!task) {
             await this.acknowledgeComment(dashboardNumber, commentId, `⚠️ **Task Not Found:** No task with ID \`${taskId}\`.`);
           } else {
@@ -341,11 +408,24 @@ export class IssueManager {
             const nextId = `TASK-${String(Math.max(0, ...nums) + 1).padStart(3, "0")}`;
             const downstream = roadmap.tasks.filter((t) => t.dependencies.includes(taskId)).map((t) => t.id);
             const check = validateRoadmap({
-              tasks: [...roadmap.tasks.map((t) => ({ id: t.id, role: t.role, dependencies: t.dependencies, targetFiles: t.targetFiles, milestone: t.milestone })), { id: nextId, role: task.role, dependencies: [taskId], targetFiles: [], milestone: task.milestone }],
+              tasks: [
+                ...roadmap.tasks.map((t) => ({
+                  id: t.id,
+                  role: t.role,
+                  dependencies: t.dependencies,
+                  targetFiles: t.targetFiles,
+                  milestone: t.milestone,
+                })),
+                { id: nextId, role: task.role, dependencies: [taskId], targetFiles: [], milestone: task.milestone },
+              ],
               milestones: roadmap.milestones,
             });
             if (check.errors.length > 0) {
-              await this.acknowledgeComment(dashboardNumber, commentId, `⚠️ **Revision rejected by DAG validation:**\n${formatValidation(check)}`);
+              await this.acknowledgeComment(
+                dashboardNumber,
+                commentId,
+                `⚠️ **Revision rejected by DAG validation:**\n${formatValidation(check)}`
+              );
             } else {
               const now = new Date().toISOString();
               roadmap.tasks.push({
@@ -371,11 +451,13 @@ export class IssueManager {
                 updatedAt: now,
               });
               hasChanges = true;
-              const fyi = downstream.length > 0
-                ? `\n\nDownstream FYI (verify, revise only if broken): ${downstream.map((d) => `\`${d}\``).join(", ")}.`
-                : "";
+              const fyi =
+                downstream.length > 0
+                  ? `\n\nDownstream FYI (verify, revise only if broken): ${downstream.map((d) => `\`${d}\``).join(", ")}.`
+                  : "";
               await this.acknowledgeComment(
-                dashboardNumber, commentId,
+                dashboardNumber,
+                commentId,
                 `🔁 **Revision [${nextId}] queued** (depends on \`${taskId}\`, role \`${task.role}\`). Issue + board sync on next tick.${fyi}`
               );
             }
@@ -390,15 +472,23 @@ export class IssueManager {
         if (match) {
           const taskId = match[1];
           const message = match[2].trim().replace(/^["']|["']$/g, "");
-          const task = roadmap.tasks.find(t => t.id === taskId);
+          const task = roadmap.tasks.find((t) => t.id === taskId);
           if (task) {
             const { DiscussionManager } = await import("./discussion_manager.ts");
             const thread = await DiscussionManager.findOrCreateTaskDiscussion(task);
             if (thread) {
               await DiscussionManager.postComment(thread.id, `**🧑‍💼 Operator:**\n${message}`);
-              await this.acknowledgeComment(dashboardNumber, commentId, `💬 **Relayed to [${taskId}] discussion #${thread.number}.** The agent will see it on its next retry.`);
+              await this.acknowledgeComment(
+                dashboardNumber,
+                commentId,
+                `💬 **Relayed to [${taskId}] discussion #${thread.number}.** The agent will see it on its next retry.`
+              );
             } else {
-              await this.acknowledgeComment(dashboardNumber, commentId, `⚠️ **Discussions unavailable** — could not relay to [${taskId}].`);
+              await this.acknowledgeComment(
+                dashboardNumber,
+                commentId,
+                `⚠️ **Discussions unavailable** — could not relay to [${taskId}].`
+              );
             }
           } else {
             await this.acknowledgeComment(dashboardNumber, commentId, `⚠️ **Task Not Found:** No task with ID \`${taskId}\`.`);
@@ -418,7 +508,15 @@ export class IssueManager {
         const wantPublic = scope === "public" || scope === "all";
         const wantData = scope === "data" || scope === "all";
         if (wantPublic) {
-          const repo = await GitManager.run(["gh", "repo", "view", "--json", "owner,name", "--jq", "[.owner.login, .name] | join(\"/\")"]);
+          const repo = await GitManager.run([
+            "gh",
+            "repo",
+            "view",
+            "--json",
+            "owner,name",
+            "--jq",
+            '[.owner.login, .name] | join("/")',
+          ]);
           if (repo.exitCode === 0 && repo.stdout.includes("/")) {
             const [o, n] = repo.stdout.trim().split("/");
             const r = await RepoSetup.ensureRepoSettings(o, n, CONFIG.PROJECT_TOKEN, publicFeatures);
@@ -448,10 +546,13 @@ export class IssueManager {
         } else {
           console.log("❓ ChatOps command received: /ask");
           const { OpenCodeClient } = await import("./opencode_client.ts");
-          const digest = roadmap.tasks.map((t) =>
-            `- [${t.id}] ${t.title} | ${t.role} | ${t.status} | deps:[${t.dependencies.join(",") || "-"}] | attempts:${t.attempts}/${t.maxAttempts}` +
-            (t.reviewNotes ? ` | notes: ${t.reviewNotes.slice(0, 200)}` : "")
-          ).join("\n");
+          const digest = roadmap.tasks
+            .map(
+              (t) =>
+                `- [${t.id}] ${t.title} | ${t.role} | ${t.status} | deps:[${t.dependencies.join(",") || "-"}] | attempts:${t.attempts}/${t.maxAttempts}` +
+                (t.reviewNotes ? ` | notes: ${t.reviewNotes.slice(0, 200)}` : "")
+            )
+            .join("\n");
           const answer = await OpenCodeClient.runWithFallback(
             `You are the orchestrator of an autonomous coding team. Answer the operator's question using ONLY the live roadmap below. Be concise, cite task IDs.\n\nRoadmap (${roadmap.projectName}, ${roadmap.globalStatus}):\n${digest}\n\nOperator question: ${question}`,
             { timeoutMs: 4 * 60 * 1000 }
@@ -463,39 +564,80 @@ export class IssueManager {
         // /add <role> "title" -- "description" [deps:A,B] [milestone:M]
         // Appends a PENDING task after DAG validation. Issues/board sync on next tick.
         console.log("➕ ChatOps command received: /add");
-        const parsed = body.match(/^\/add\s+([A-Za-z]+)\s+"([^"]+)"\s+--\s+"([^"]+)"(?:\s+deps:([A-Za-z0-9_,-]+))?(?:\s+milestone:(.+))?/);
+        const parsed = body.match(
+          /^\/add\s+([A-Za-z]+)\s+"([^"]+)"\s+--\s+"([^"]+)"(?:\s+deps:([A-Za-z0-9_,-]+))?(?:\s+milestone:(.+))?/
+        );
         if (!parsed) {
-          await this.acknowledgeComment(dashboardNumber, commentId, `⚠️ Usage: \`/add <role> "title" -- "description" [deps:TASK-001,TASK-002] [milestone:v1.0.0]\`\nRoles: architect|backend|frontend|qa|security|tracker|reviewer|fullstack.`);
+          await this.acknowledgeComment(
+            dashboardNumber,
+            commentId,
+            `⚠️ Usage: \`/add <role> "title" -- "description" [deps:TASK-001,TASK-002] [milestone:v1.0.0]\`\nRoles: architect|backend|frontend|qa|security|tracker|reviewer|fullstack.`
+          );
         } else {
           const [, role, title, description, depStr, milestone] = parsed;
           const { validateRoadmap, formatValidation } = await import("./roadmap_validator.ts");
           const { CONFIG } = await import("./config.ts");
           const nums = roadmap.tasks.map((t) => parseInt((t.id.match(/(\d+)/) || ["0", "0"])[1], 10) || 0);
           const nextId = `TASK-${String(Math.max(0, ...nums) + 1).padStart(3, "0")}`;
-          const deps = depStr ? depStr.split(",").map((d) => d.trim()).filter(Boolean) : [];
+          const deps = depStr
+            ? depStr
+                .split(",")
+                .map((d) => d.trim())
+                .filter(Boolean)
+            : [];
           const candidate = {
-            id: nextId, role, dependencies: deps, targetFiles: [] as string[],
+            id: nextId,
+            role,
+            dependencies: deps,
+            targetFiles: [] as string[],
             milestone: (milestone || "").trim() || undefined,
           };
           const check = validateRoadmap({
-            tasks: [...roadmap.tasks.map((t) => ({ id: t.id, role: t.role, dependencies: t.dependencies, targetFiles: t.targetFiles, milestone: t.milestone })), candidate],
+            tasks: [
+              ...roadmap.tasks.map((t) => ({
+                id: t.id,
+                role: t.role,
+                dependencies: t.dependencies,
+                targetFiles: t.targetFiles,
+                milestone: t.milestone,
+              })),
+              candidate,
+            ],
             milestones: roadmap.milestones,
           });
           if (check.errors.length > 0) {
-            await this.acknowledgeComment(dashboardNumber, commentId, `⚠️ **Task rejected by DAG validation:**\n${formatValidation(check)}`);
+            await this.acknowledgeComment(
+              dashboardNumber,
+              commentId,
+              `⚠️ **Task rejected by DAG validation:**\n${formatValidation(check)}`
+            );
           } else {
             const now = new Date().toISOString();
             roadmap.tasks.push({
-              id: nextId, title, description, role: role as any, dependencies: deps,
-              targetFiles: [], status: "PENDING", branch: `task/${nextId}`,
+              id: nextId,
+              title,
+              description,
+              role: role as any,
+              dependencies: deps,
+              targetFiles: [],
+              status: "PENDING",
+              branch: `task/${nextId}`,
               milestone: candidate.milestone || roadmap.milestones?.[0]?.title,
-              attempts: 0, maxAttempts: CONFIG.MAX_TASK_ATTEMPTS,
-              reviewNotes: "[OPERATOR ADDED] via /add. NOTE: no targetFiles scoping — planner normally assigns disjoint paths; watch for conflicts.",
-              createdAt: now, updatedAt: now,
+              attempts: 0,
+              maxAttempts: CONFIG.MAX_TASK_ATTEMPTS,
+              reviewNotes:
+                "[OPERATOR ADDED] via /add. NOTE: no targetFiles scoping — planner normally assigns disjoint paths; watch for conflicts.",
+              createdAt: now,
+              updatedAt: now,
             });
             hasChanges = true;
-            const warn = check.warnings.length > 0 ? `\n\nWarnings:\n${formatValidation({ errors: [], warnings: check.warnings })}` : "";
-            await this.acknowledgeComment(dashboardNumber, commentId, `➕ **Task [${nextId}] queued as PENDING.** Issue + board sync on next tick.${warn}`);
+            const warn =
+              check.warnings.length > 0 ? `\n\nWarnings:\n${formatValidation({ errors: [], warnings: check.warnings })}` : "";
+            await this.acknowledgeComment(
+              dashboardNumber,
+              commentId,
+              `➕ **Task [${nextId}] queued as PENDING.** Issue + board sync on next tick.${warn}`
+            );
           }
         }
       } else if (body.startsWith("/log")) {
@@ -505,7 +647,7 @@ export class IssueManager {
           await this.acknowledgeComment(dashboardNumber, commentId, `⚠️ Usage: \`/log <TASK-ID>\`.`);
         } else {
           const taskId = match[1];
-          const task = roadmap.tasks.find(t => t.id === taskId);
+          const task = roadmap.tasks.find((t) => t.id === taskId);
           if (!task) {
             await this.acknowledgeComment(dashboardNumber, commentId, `⚠️ **Task Not Found:** No task with ID \`${taskId}\`.`);
           } else {
@@ -516,8 +658,15 @@ export class IssueManager {
             // Subagent runs execute on main, so per-task correlation isn't
             // available — use the stored runId, else the newest runs.
             const probe = await GitManager.run([
-              "gh", "run", "list", "--workflow", "subagent.yml",
-              "--limit", "20", "--json", "databaseId,headBranch,createdAt",
+              "gh",
+              "run",
+              "list",
+              "--workflow",
+              "subagent.yml",
+              "--limit",
+              "20",
+              "--json",
+              "databaseId,headBranch,createdAt",
             ]);
             if (probe.exitCode === 0) {
               try {
@@ -528,7 +677,9 @@ export class IssueManager {
                     if (runIds.length >= 3) break;
                   }
                 }
-              } catch { /* ignore */ }
+              } catch {
+                /* ignore */
+              }
             }
             for (const id of runIds.slice(0, 2)) {
               const chunk = await GitManager.getRunLogs(id);
@@ -540,7 +691,11 @@ export class IssueManager {
             if (!tail) {
               tail = `No retrievable logs (no stored runId, no recent subagent runs).`;
             }
-            await this.acknowledgeComment(dashboardNumber, commentId, `📜 **Run log tail for [${taskId}]:**\n\`\`\`\n${tail.slice(-2500) || "(empty)"}\n\`\`\``);
+            await this.acknowledgeComment(
+              dashboardNumber,
+              commentId,
+              `📜 **Run log tail for [${taskId}]:**\n\`\`\`\n${tail.slice(-2500) || "(empty)"}\n\`\`\``
+            );
           }
         }
       }
@@ -557,10 +712,7 @@ export class IssueManager {
    */
   private static async acknowledgeComment(issueNumber: number, commentId: string | number, replyText: string): Promise<void> {
     await this.markProcessed(commentId);
-    await GitManager.run([
-      "gh", "issue", "comment", String(issueNumber),
-      "--body", replyText
-    ]);
+    await GitManager.run(["gh", "issue", "comment", String(issueNumber), "--body", replyText]);
   }
 
   /**
@@ -568,9 +720,7 @@ export class IssueManager {
    */
   public static async closeMilestoneIfCompleted(milestoneTitle: string): Promise<boolean> {
     // Match the title in code: --jq interpolation breaks on quotes/& in titles.
-    const listRes = await GitManager.run([
-      "gh", "api", "repos/:owner/:repo/milestones?state=open&per_page=100",
-    ]);
+    const listRes = await GitManager.run(["gh", "api", "repos/:owner/:repo/milestones?state=open&per_page=100"]);
 
     if (listRes.exitCode === 0 && listRes.stdout.trim()) {
       try {
@@ -579,11 +729,7 @@ export class IssueManager {
         const m = list.find((x: any) => x.title === milestoneTitle);
         if (m) {
           console.log(`🏷️ Closing completed Milestone: "${milestoneTitle}" (#${m.number})...`);
-          await GitManager.run([
-            "gh", "api", `repos/:owner/:repo/milestones/${m.number}`,
-            "-X", "PATCH",
-            "-f", "state=closed"
-          ]);
+          await GitManager.run(["gh", "api", `repos/:owner/:repo/milestones/${m.number}`, "-X", "PATCH", "-f", "state=closed"]);
           return true;
         }
       } catch {}
@@ -595,10 +741,7 @@ export class IssueManager {
    * Post a milestone comment on the dashboard
    */
   public static async postMilestoneUpdate(issueNumber: number, comment: string): Promise<void> {
-    await GitManager.run([
-      "gh", "issue", "comment", String(issueNumber),
-      "--body", comment
-    ]);
+    await GitManager.run(["gh", "issue", "comment", String(issueNumber), "--body", comment]);
   }
 
   /**
@@ -670,11 +813,7 @@ export class IssueManager {
     await GitManager.run(["git", "tag", "-a", tag, "-m", title]);
     await GitManager.run(["git", "push", "origin", tag]);
 
-    const res = await GitManager.run([
-      "gh", "release", "create", tag,
-      "--title", title,
-      "--notes", notes
-    ]);
+    const res = await GitManager.run(["gh", "release", "create", tag, "--title", title, "--notes", notes]);
 
     if (res.exitCode === 0) {
       console.log(`📦 GitHub Release ${tag} successfully published!`);

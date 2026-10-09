@@ -91,7 +91,10 @@ async function main() {
     // Checkout from integration branch
     const co = await GitManager.run(["git", "checkout", "-B", branch, `${remote}/${CONFIG.INTEGRATION_BRANCH}`]);
     if (co.exitCode !== 0) {
-      console.error(`❌ [${taskId}] checkout of ${remote}/${CONFIG.INTEGRATION_BRANCH} failed:`, (co.stdout + co.stderr).slice(0, 500));
+      console.error(
+        `❌ [${taskId}] checkout of ${remote}/${CONFIG.INTEGRATION_BRANCH} failed:`,
+        (co.stdout + co.stderr).slice(0, 500)
+      );
       process.exit(1);
     }
   }
@@ -101,8 +104,17 @@ async function main() {
   // branches.
   const lineage = await GitManager.run(["git", "merge-base", "--is-ancestor", `${remote}/${CONFIG.INTEGRATION_BRANCH}`, "HEAD"]);
   if (lineage.exitCode !== 0) {
-    const diag = await GitManager.run(["git", "rev-parse", `${remote}/${CONFIG.INTEGRATION_BRANCH}`, "HEAD", "--abbrev-ref", "HEAD"]);
-    console.error(`❌ [${taskId}] branch ${branch} does not descend from ${remote}/${CONFIG.INTEGRATION_BRANCH}; refusing to work on broken lineage. Refs: ${diag.stdout.trim().replace(/\n/g, " ")}`);
+    const diag = await GitManager.run([
+      "git",
+      "rev-parse",
+      `${remote}/${CONFIG.INTEGRATION_BRANCH}`,
+      "HEAD",
+      "--abbrev-ref",
+      "HEAD",
+    ]);
+    console.error(
+      `❌ [${taskId}] branch ${branch} does not descend from ${remote}/${CONFIG.INTEGRATION_BRANCH}; refusing to work on broken lineage. Refs: ${diag.stdout.trim().replace(/\n/g, " ")}`
+    );
     process.exit(1);
   }
 
@@ -172,7 +184,9 @@ async function main() {
       const base = rel.split(/[/\\]/).pop() || "";
       if (base.startsWith(`${role}-`)) projectSkillDirs.push(rel);
     }
-  } catch { /* no project skills */ }
+  } catch {
+    /* no project skills */
+  }
   for (const dir of projectSkillDirs.sort()) {
     const norm = dir.replace(/\\/g, "/");
     const p = `${norm}/SKILL.md`;
@@ -217,12 +231,16 @@ async function main() {
     if (thread) {
       const replies = await DiscussionManager.getRecentReplies(thread.id, 5);
       if (replies.length > 0) {
-        prompt += `### 💬 Peer Discussion Context (discussion #${thread.number}, most recent last):\n` +
-          replies.map((r) => `> ${r.replace(/\n/g, "\n> ")}`).join("\n\n") + `\n\n`;
+        prompt +=
+          `### 💬 Peer Discussion Context (discussion #${thread.number}, most recent last):\n` +
+          replies.map((r) => `> ${r.replace(/\n/g, "\n> ")}`).join("\n\n") +
+          `\n\n`;
         console.log(`💬 Injected ${replies.length} discussion replies into prompt.`);
       }
     }
-  } catch { /* discussions are best-effort */ }
+  } catch {
+    /* discussions are best-effort */
+  }
 
   prompt += `\nPlease execute this task now. Create/edit code inside the workspace/ directory, test your code, and make sure to update workspace/TASK_PROGRESS.md with your Done, Doing, Todo, and Verification sections.`;
 
@@ -269,7 +287,8 @@ async function main() {
   // Ensure workspace/TASK_PROGRESS.md exists and has real test proof
   const progressPath = `workspace/${CONFIG.TASK_PROGRESS_FILE}`;
   if (!existsSync(progressPath)) {
-    const defaultProgress = `# 📝 Task Progress: ${task.id} - ${task.title}\n\n` +
+    const defaultProgress =
+      `# 📝 Task Progress: ${task.id} - ${task.title}\n\n` +
       `**Role:** ${task.role}\n**Status:** IN_REVIEW\n\n` +
       `### 1. ✅ Done\n- Executed task deliverables in workspace\n\n` +
       `### 2. ⚡ Doing\n- Submitting for orchestrator review\n\n` +

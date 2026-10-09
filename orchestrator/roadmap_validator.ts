@@ -5,17 +5,7 @@ export interface ValidationResult {
   warnings: string[];
 }
 
-const VALID_ROLES = new Set([
-  "architect",
-  "backend",
-  "frontend",
-  "mobile",
-  "qa",
-  "reviewer",
-  "security",
-  "tracker",
-  "fullstack",
-]);
+const VALID_ROLES = new Set(["architect", "backend", "frontend", "mobile", "qa", "reviewer", "security", "tracker", "fullstack"]);
 
 function globOverlap(a: string, b: string): boolean {
   // Conservative overlap: same prefix or one is prefix of the other
@@ -40,7 +30,9 @@ export function validateRoadmap(raw: {
   for (const s of raw.services || []) {
     if (typeof s === "string") {
       if (!KNOWN_SERVICES.includes(s)) {
-        errors.push(`Unknown CI service "${s}". Known presets: ${KNOWN_SERVICES.join(", ")} — or use a full {name, image} object.`);
+        errors.push(
+          `Unknown CI service "${s}". Known presets: ${KNOWN_SERVICES.join(", ")} — or use a full {name, image} object.`
+        );
       }
     } else if (!s || typeof s.name !== "string" || typeof s.image !== "string" || !s.name.trim() || !s.image.trim()) {
       errors.push(`Invalid custom service definition (need {name, image, env?, ports?}): ${JSON.stringify(s).slice(0, 120)}.`);
@@ -67,7 +59,11 @@ export function validateRoadmap(raw: {
 
   // Cycle detection (DFS)
   const adj = new Map<string, string[]>();
-  for (const t of tasks) adj.set(t.id, (t.dependencies || []).filter((d) => idSet.has(d)));
+  for (const t of tasks)
+    adj.set(
+      t.id,
+      (t.dependencies || []).filter((d) => idSet.has(d))
+    );
   const color = new Map<string, number>(); // 0=unvisited 1=in-stack 2=done
   const stack: string[] = [];
   const visit = (id: string): boolean => {
@@ -103,13 +99,9 @@ export function validateRoadmap(raw: {
   const roots = tasks.filter((t) => (t.dependencies || []).length === 0);
   for (let i = 0; i < roots.length; i++) {
     for (let j = i + 1; j < roots.length; j++) {
-      const overlap = (roots[i].targetFiles || []).some((a) =>
-        (roots[j].targetFiles || []).some((b) => globOverlap(a, b))
-      );
+      const overlap = (roots[i].targetFiles || []).some((a) => (roots[j].targetFiles || []).some((b) => globOverlap(a, b)));
       if (overlap) {
-        warnings.push(
-          `Parallel tasks ${roots[i].id} and ${roots[j].id} have overlapping targetFiles (merge-conflict risk).`
-        );
+        warnings.push(`Parallel tasks ${roots[i].id} and ${roots[j].id} have overlapping targetFiles (merge-conflict risk).`);
       }
     }
   }

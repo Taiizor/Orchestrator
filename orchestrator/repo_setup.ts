@@ -30,7 +30,10 @@ export class RepoSetup {
     const src = (raw || "").trim() ? raw! : fallback;
     const known = Object.keys(this.FEATURE_KEYS);
     return new Set(
-      src.split(",").map((s) => s.trim().toLowerCase()).filter((s) => known.includes(s))
+      src
+        .split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter((s) => known.includes(s))
     );
   }
 
@@ -46,10 +49,7 @@ export class RepoSetup {
     return GitManager.isDataMode() ? "issues,projects" : "issues,discussions,projects";
   }
 
-  private static async runAs(
-    cmd: string[],
-    pat: string
-  ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  private static async runAs(cmd: string[], pat: string): Promise<{ stdout: string; stderr: string; exitCode: number }> {
     if (pat) {
       return GitManager.run(cmd, ".", undefined, { GH_TOKEN: pat, GITHUB_TOKEN: pat });
     }

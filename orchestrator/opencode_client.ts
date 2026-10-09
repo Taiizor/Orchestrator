@@ -72,25 +72,17 @@ export class OpenCodeClient {
    * Parse "provider/model#variant" into { model, variant }.
    * Returns the model as-is when no "#" suffix is present.
    */
-  private static parseModelSpec(
-    input: string,
-    fallbackVariant?: string
-  ): { model: string; variant?: string } {
+  private static parseModelSpec(input: string, fallbackVariant?: string): { model: string; variant?: string } {
     const hashIdx = input.lastIndexOf("#");
     if (hashIdx > 0) {
       const model = input.slice(0, hashIdx).trim();
       const variant = input.slice(hashIdx + 1).trim();
       return variant ? { model, variant } : { model };
     }
-    return fallbackVariant
-      ? { model: input.trim(), variant: fallbackVariant }
-      : { model: input.trim() };
+    return fallbackVariant ? { model: input.trim(), variant: fallbackVariant } : { model: input.trim() };
   }
 
-  private static sameSpec(
-    a: { model: string; variant?: string },
-    b: { model: string; variant?: string }
-  ): boolean {
+  private static sameSpec(a: { model: string; variant?: string }, b: { model: string; variant?: string }): boolean {
     return a.model === b.model && (a.variant || "") === (b.variant || "");
   }
 
@@ -159,12 +151,12 @@ export class OpenCodeClient {
       const hasContent = parsedStdout.length > 0;
 
       // Rate limit or server quota errors only apply if the command failed or stderr indicates an API error
-      const isApiError = res.exitCode !== 0 && (
-        res.stderr.includes("rate limit") || 
-        res.stderr.includes("429") || 
-        res.stderr.includes("exceeded") ||
-        res.stderr.includes("quota")
-      );
+      const isApiError =
+        res.exitCode !== 0 &&
+        (res.stderr.includes("rate limit") ||
+          res.stderr.includes("429") ||
+          res.stderr.includes("exceeded") ||
+          res.stderr.includes("quota"));
 
       if (res.exitCode === 0 && hasContent) {
         console.log(`✨ [OpenCode] Success with model: ${label} (${parsedStdout.length} chars generated)`);
@@ -198,7 +190,9 @@ export class OpenCodeClient {
             modelUsed: spec.model,
           };
         }
-        console.warn(`⚠️ [OpenCode] Model ${label} encountered an issue (Exit: ${res.exitCode}, ApiError: ${isApiError}, ContentLength: ${parsedStdout.length}). Falling back to next model...`);
+        console.warn(
+          `⚠️ [OpenCode] Model ${label} encountered an issue (Exit: ${res.exitCode}, ApiError: ${isApiError}, ContentLength: ${parsedStdout.length}). Falling back to next model...`
+        );
         lastResult = {
           stdout: retryParsed,
           stderr: retryRes.stderr || res.stderr,
@@ -208,7 +202,9 @@ export class OpenCodeClient {
         continue;
       }
 
-      console.warn(`⚠️ [OpenCode] Model ${label} encountered an issue (Exit: ${res.exitCode}, ApiError: ${isApiError}, ContentLength: ${parsedStdout.length}). Falling back to next model...`);
+      console.warn(
+        `⚠️ [OpenCode] Model ${label} encountered an issue (Exit: ${res.exitCode}, ApiError: ${isApiError}, ContentLength: ${parsedStdout.length}). Falling back to next model...`
+      );
       lastResult = {
         stdout: parsedStdout,
         stderr: res.stderr,

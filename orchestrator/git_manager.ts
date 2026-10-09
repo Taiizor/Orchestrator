@@ -361,20 +361,27 @@ export class GitManager {
     const base = baseBranch || CONFIG.INTEGRATION_BRANCH;
     const remote = this.contentRemote();
     const filt = opts?.excludeDeleted ? ["--diff-filter=ACMR"] : [];
-    const res = await this.run([
-      "git", "diff", "--name-only", ...filt, `${remote}/${base}...${remote}/${taskBranch}`,
-    ]);
+    const res = await this.run(["git", "diff", "--name-only", ...filt, `${remote}/${base}...${remote}/${taskBranch}`]);
     if (res.exitCode === 0) {
-      return res.stdout.split("\n").map((f) => f.trim()).filter(Boolean);
+      return res.stdout
+        .split("\n")
+        .map((f) => f.trim())
+        .filter(Boolean);
     }
     const localRes = await this.run(["git", "diff", "--name-only", ...filt, `${base}...${taskBranch}`]);
     if (localRes.exitCode === 0) {
-      return localRes.stdout.split("\n").map((f) => f.trim()).filter(Boolean);
+      return localRes.stdout
+        .split("\n")
+        .map((f) => f.trim())
+        .filter(Boolean);
     }
     // Last resort: tip-vs-tip needs no merge base.
     const twoDot = await this.run(["git", "diff", "--name-only", ...filt, `${remote}/${base}..${remote}/${taskBranch}`]);
     if (twoDot.exitCode === 0) {
-      return twoDot.stdout.split("\n").map((f) => f.trim()).filter(Boolean);
+      return twoDot.stdout
+        .split("\n")
+        .map((f) => f.trim())
+        .filter(Boolean);
     }
     return null;
   }
@@ -393,8 +400,10 @@ export class GitManager {
 
     const mergeRes = await this.run(["git", "merge", "--no-ff", `${remote}/${taskBranch}`, "-m", commitMsg]);
     if (mergeRes.exitCode !== 0) {
-      console.warn(`⚠️ Merge conflict detected when merging ${taskBranch} into ${targetBranch}. Invoking AI Conflict Resolver...`);
-      
+      console.warn(
+        `⚠️ Merge conflict detected when merging ${taskBranch} into ${targetBranch}. Invoking AI Conflict Resolver...`
+      );
+
       const { ConflictResolver } = await import("./conflict_resolver.ts");
       const resolved = await ConflictResolver.resolveConflicts();
 
@@ -455,7 +464,11 @@ export class GitManager {
       await this.run(["git", "add", file]);
     }
     const commitRes = await this.run(["git", "commit", "-m", message]);
-    if (commitRes.exitCode !== 0 && !commitRes.stdout.includes("nothing to commit") && !commitRes.stderr.includes("nothing to commit")) {
+    if (
+      commitRes.exitCode !== 0 &&
+      !commitRes.stdout.includes("nothing to commit") &&
+      !commitRes.stderr.includes("nothing to commit")
+    ) {
       console.warn("Git commit output:", commitRes.stdout || commitRes.stderr);
     }
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -481,10 +494,16 @@ export class GitManager {
 
     // Using gh CLI (pre-installed in GitHub Actions runners)
     const res = await this.run([
-      "gh", "workflow", "run", CONFIG.SUBAGENT_WORKFLOW,
-      "-f", `taskId=${taskId}`,
-      "-f", `role=${role}`,
-      "-f", `branch=${branch}`
+      "gh",
+      "workflow",
+      "run",
+      CONFIG.SUBAGENT_WORKFLOW,
+      "-f",
+      `taskId=${taskId}`,
+      "-f",
+      `role=${role}`,
+      "-f",
+      `branch=${branch}`,
     ]);
 
     if (res.exitCode !== 0) {
@@ -501,9 +520,13 @@ export class GitManager {
    */
   public static async getRecentWorkflowRuns(workflowName: string): Promise<any[]> {
     const res = await this.run([
-      "gh", "run", "list",
-      "--workflow", workflowName,
-      "--json", "databaseId,status,conclusion,name,headBranch,createdAt"
+      "gh",
+      "run",
+      "list",
+      "--workflow",
+      workflowName,
+      "--json",
+      "databaseId,status,conclusion,name,headBranch,createdAt",
     ]);
 
     if (res.exitCode !== 0) {
@@ -523,18 +546,21 @@ export class GitManager {
    */
   public static async getActiveSubagentRuns(): Promise<any[]> {
     const res = await this.run([
-      "gh", "run", "list",
-      "--workflow", CONFIG.SUBAGENT_WORKFLOW,
-      "--limit", "50",
-      "--json", "databaseId,status,conclusion,name,headBranch,createdAt,updatedAt"
+      "gh",
+      "run",
+      "list",
+      "--workflow",
+      CONFIG.SUBAGENT_WORKFLOW,
+      "--limit",
+      "50",
+      "--json",
+      "databaseId,status,conclusion,name,headBranch,createdAt,updatedAt",
     ]);
 
     if (res.exitCode !== 0) return [];
     try {
       const runs = JSON.parse(res.stdout);
-      return runs.filter((r: any) =>
-        ["in_progress", "queued", "waiting", "requested", "pending"].includes(r.status)
-      );
+      return runs.filter((r: any) => ["in_progress", "queued", "waiting", "requested", "pending"].includes(r.status));
     } catch {
       return [];
     }
@@ -549,10 +575,15 @@ export class GitManager {
     // getRecentWorkflowRuns payload has no headBranch; fall back to full query
     if (match?.databaseId) return match.databaseId;
     const res = await this.run([
-      "gh", "run", "list",
-      "--workflow", CONFIG.SUBAGENT_WORKFLOW,
-      "--limit", "50",
-      "--json", "databaseId,headBranch,createdAt"
+      "gh",
+      "run",
+      "list",
+      "--workflow",
+      CONFIG.SUBAGENT_WORKFLOW,
+      "--limit",
+      "50",
+      "--json",
+      "databaseId,headBranch,createdAt",
     ]);
     if (res.exitCode !== 0) return null;
     try {

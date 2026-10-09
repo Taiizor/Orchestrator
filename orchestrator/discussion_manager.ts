@@ -44,7 +44,7 @@ export class DiscussionManager {
         this.scopeWarned = true;
         console.warn(
           "⚠️ Discussions unavailable (disabled repo feature or token lacks scope). " +
-          "Enable Discussions in repo settings and ensure the token has `discussions: write`."
+            "Enable Discussions in repo settings and ensure the token has `discussions: write`."
         );
       }
       return true;
@@ -56,9 +56,13 @@ export class DiscussionManager {
     if (this.repoIdCache !== undefined) return this.repoIdCache;
     const [ownerVar, nameVar] = this.repoVars();
     const res = await GitManager.run([
-      "gh", "api", "graphql",
-      "-F", ownerVar,
-      "-F", nameVar,
+      "gh",
+      "api",
+      "graphql",
+      "-F",
+      ownerVar,
+      "-F",
+      nameVar,
       "-f",
       "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){id}}",
     ]);
@@ -80,9 +84,13 @@ export class DiscussionManager {
     if (this.catIdCache !== undefined) return this.catIdCache;
     const [ownerVar, nameVar] = this.repoVars();
     const res = await GitManager.run([
-      "gh", "api", "graphql",
-      "-F", ownerVar,
-      "-F", nameVar,
+      "gh",
+      "api",
+      "graphql",
+      "-F",
+      ownerVar,
+      "-F",
+      nameVar,
       "-f",
       "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){discussionCategories(first:20){nodes{id,name}}}}",
     ]);
@@ -93,8 +101,9 @@ export class DiscussionManager {
     }
     try {
       const nodes = JSON.parse(res.stdout).data.repository.discussionCategories.nodes;
-      const hit = nodes.find((c: any) => c.name.toLowerCase() === this.CATEGORY_NAME.toLowerCase())
-        || nodes.find((c: any) => c.name.toLowerCase() === "general");
+      const hit =
+        nodes.find((c: any) => c.name.toLowerCase() === this.CATEGORY_NAME.toLowerCase()) ||
+        nodes.find((c: any) => c.name.toLowerCase() === "general");
       this.catIdCache = hit ? hit.id : null;
       return this.catIdCache;
     } catch {
@@ -112,9 +121,13 @@ export class DiscussionManager {
     if (cached !== undefined) return cached;
     const [ownerVar, nameVar] = this.repoVars();
     const res = await GitManager.run([
-      "gh", "api", "graphql",
-      "-F", ownerVar,
-      "-F", nameVar,
+      "gh",
+      "api",
+      "graphql",
+      "-F",
+      ownerVar,
+      "-F",
+      nameVar,
       "-f",
       "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){discussions(first:30,orderBy:{field:UPDATED_AT,direction:DESC}){nodes{id,number,title}}}}",
     ]);
@@ -149,11 +162,17 @@ export class DiscussionManager {
       `---\n*Agents: ask for help, share blockers and findings here. ` +
       `Peers and operators can reply; replies are injected into retry prompts.*`;
     const res = await GitManager.run([
-      "gh", "api", "graphql",
-      "-F", `repositoryId=${repositoryId}`,
-      "-F", `categoryId=${catId}`,
-      "-F", `title=${title}`,
-      "-F", `body=${body}`,
+      "gh",
+      "api",
+      "graphql",
+      "-F",
+      `repositoryId=${repositoryId}`,
+      "-F",
+      `categoryId=${catId}`,
+      "-F",
+      `title=${title}`,
+      "-F",
+      `body=${body}`,
       "-f",
       "query=mutation($repositoryId:ID!,$categoryId:ID!,$title:String!,$body:String!){createDiscussion(input:{repositoryId:$repositoryId,categoryId:$categoryId,title:$title,body:$body}){discussion{id,number}}}",
     ]);
@@ -174,9 +193,13 @@ export class DiscussionManager {
 
   public static async postComment(discussionId: string, body: string): Promise<boolean> {
     const res = await GitManager.run([
-      "gh", "api", "graphql",
-      "-F", `discussionId=${discussionId}`,
-      "-F", `body=${body}`,
+      "gh",
+      "api",
+      "graphql",
+      "-F",
+      `discussionId=${discussionId}`,
+      "-F",
+      `body=${body}`,
       "-f",
       "query=mutation($discussionId:ID!,$body:String!){addDiscussionComment(input:{discussionId:$discussionId,body:$body}){comment{id}}}",
     ]);
@@ -190,9 +213,13 @@ export class DiscussionManager {
   /** Recent replies (oldest→newest) for prompt injection on retries. */
   public static async getRecentReplies(discussionId: string, limit = 5): Promise<string[]> {
     const res = await GitManager.run([
-      "gh", "api", "graphql",
-      "-F", `id=${discussionId}`,
-      "-F", `n=${String(limit)}`,
+      "gh",
+      "api",
+      "graphql",
+      "-F",
+      `id=${discussionId}`,
+      "-F",
+      `n=${String(limit)}`,
       "-f",
       "query=query($id:ID!,$n:Int!){node(id:$id){... on Discussion{comments(last:$n){nodes{body,author{login},createdAt}}}}}",
     ]);

@@ -38,13 +38,9 @@ export class StateManager {
    * Find tasks whose dependencies are fully COMPLETED and currently PENDING
    */
   public static getReadyTasks(roadmap: Roadmap, maxCount: number): TaskItem[] {
-    const completedTaskIds = new Set(
-      roadmap.tasks.filter((t) => t.status === "COMPLETED").map((t) => t.id)
-    );
+    const completedTaskIds = new Set(roadmap.tasks.filter((t) => t.status === "COMPLETED").map((t) => t.id));
 
-    const inProgressCount = roadmap.tasks.filter(
-      (t) => t.status === "IN_PROGRESS" || t.status === "IN_REVIEW"
-    ).length;
+    const inProgressCount = roadmap.tasks.filter((t) => t.status === "IN_PROGRESS" || t.status === "IN_REVIEW").length;
 
     const availableSlots = Math.max(0, maxCount - inProgressCount);
     if (availableSlots <= 0) {
@@ -83,11 +79,16 @@ export class StateManager {
 
     const statusBadge = (s: TaskStatus) => {
       switch (s) {
-        case "COMPLETED": return "✅ COMPLETED";
-        case "IN_PROGRESS": return "⚡ IN_PROGRESS";
-        case "IN_REVIEW": return "🔍 IN_REVIEW";
-        case "PENDING": return "⏳ PENDING";
-        case "FAILED": return "❌ FAILED";
+        case "COMPLETED":
+          return "✅ COMPLETED";
+        case "IN_PROGRESS":
+          return "⚡ IN_PROGRESS";
+        case "IN_REVIEW":
+          return "🔍 IN_REVIEW";
+        case "PENDING":
+          return "⏳ PENDING";
+        case "FAILED":
+          return "❌ FAILED";
       }
     };
 

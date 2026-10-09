@@ -27,11 +27,16 @@ export class PRManager {
   /** Open PR for a head branch, if any. */
   public static async getOpenPR(branch: string): Promise<TaskPR | null> {
     const res = await GitManager.run([
-      "gh", "pr", "list",
+      "gh",
+      "pr",
+      "list",
       ...this.repoFlag(),
-      "--head", branch,
-      "--state", "open",
-      "--json", "number,url",
+      "--head",
+      branch,
+      "--state",
+      "open",
+      "--json",
+      "number,url",
     ]);
     if (res.exitCode !== 0 || !res.stdout.trim()) return null;
     try {
@@ -58,12 +63,18 @@ export class PRManager {
       `---\n*Opened by the Orchestrator after deterministic gate + reviewer approval.*`;
     console.log(`🔀 Opening PR ${task.branch} → ${target}...`);
     const res = await GitManager.run([
-      "gh", "pr", "create",
+      "gh",
+      "pr",
+      "create",
       ...this.repoFlag(),
-      "--head", task.branch,
-      "--base", target,
-      "--title", title,
-      "--body", body,
+      "--head",
+      task.branch,
+      "--base",
+      target,
+      "--title",
+      title,
+      "--body",
+      body,
     ]);
     if (res.exitCode !== 0) {
       // Race: PR appeared between check and create — re-list once.
@@ -93,7 +104,10 @@ export class PRManager {
    */
   public static async mergeTaskPR(prNumber: number): Promise<boolean> {
     const res = await GitManager.run([
-      "gh", "pr", "merge", String(prNumber),
+      "gh",
+      "pr",
+      "merge",
+      String(prNumber),
       ...this.repoFlag(),
       "--merge",
       "--delete-branch=false",

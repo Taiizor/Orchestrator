@@ -53,9 +53,14 @@ export class OrchestratorEngine {
           const content = await Bun.file(fullPath).text();
           // If spec.md is untouched with only template comments, skip it so it doesn't clutter the context
           if (relPath === "spec.md") {
-            const stripped = content.replace(/<!--[\s\S]*?-->/g, "").replace(/^#.*$/gm, "").trim();
+            const stripped = content
+              .replace(/<!--[\s\S]*?-->/g, "")
+              .replace(/^#.*$/gm, "")
+              .trim();
             if (!stripped) continue;
-            fullInputContext = `### High-Level Directives & Project Overrides (\`inputs/spec.md\`):\n\`\`\`\n${content}\n\`\`\`\n\n` + fullInputContext;
+            fullInputContext =
+              `### High-Level Directives & Project Overrides (\`inputs/spec.md\`):\n\`\`\`\n${content}\n\`\`\`\n\n` +
+              fullInputContext;
             fileCount++;
             continue;
           }
@@ -70,12 +75,14 @@ export class OrchestratorEngine {
     }
 
     if (fileCount === 0 && assetList.length === 0) {
-      console.error("❌ No input specification files found in inputs/ directory. Please drop your project files or folder into inputs/.");
+      console.error(
+        "❌ No input specification files found in inputs/ directory. Please drop your project files or folder into inputs/."
+      );
       process.exit(1);
     }
 
     if (assetList.length > 0) {
-      fullInputContext += `### Available Visual Assets & Mockups:\n${assetList.map(a => `- \`inputs/${a}\``).join("\n")}\n\n`;
+      fullInputContext += `### Available Visual Assets & Mockups:\n${assetList.map((a) => `- \`inputs/${a}\``).join("\n")}\n\n`;
     }
 
     console.log(`📂 Ingested ${fileCount} input document(s) and ${assetList.length} visual asset(s) from inputs/`);
@@ -92,16 +99,21 @@ export class OrchestratorEngine {
     if (existsSync(analystPromptPath)) {
       const analystPromptTemplate = await Bun.file(analystPromptPath).text();
       const analystPrompt = `${systemPrompt}\n\n${analystPromptTemplate}\n\n${fullInputContext}\nSynthesize all inputs into the canonical specification (state/COMPILED_SPEC.md) now:`;
-      
+
       const analystRes = await OpenCodeClient.runWithFallback(analystPrompt, { timeoutMs: 10 * 60 * 1000 });
       if (analystRes.exitCode === 0 && analystRes.stdout.trim()) {
         compiledSpecContent = analystRes.stdout.trim();
         // Remove markdown code block wrappers if any
         if (compiledSpecContent.startsWith("```markdown")) {
-          compiledSpecContent = compiledSpecContent.replace(/^```markdown\s*/, "").replace(/```$/, "").trim();
+          compiledSpecContent = compiledSpecContent
+            .replace(/^```markdown\s*/, "")
+            .replace(/```$/, "")
+            .trim();
         }
         await Bun.write(CONFIG.COMPILED_SPEC_FILE, compiledSpecContent);
-        console.log(`✅ [Stage 1/3] Canonical specification synthesized and saved to ${CONFIG.COMPILED_SPEC_FILE} (${compiledSpecContent.length} bytes)!`);
+        console.log(
+          `✅ [Stage 1/3] Canonical specification synthesized and saved to ${CONFIG.COMPILED_SPEC_FILE} (${compiledSpecContent.length} bytes)!`
+        );
       } else {
         console.warn("⚠️ Analyst run did not return content; falling back to raw inputs for planner.");
       }
@@ -130,7 +142,7 @@ export class OrchestratorEngine {
     console.log("🧭 [Stage 2/3] Running DAG Planner to decompose specification into roadmap.json...");
     const plannerPrompt = await Bun.file("orchestrator/prompts/planner.md").text();
 
-    const specContext = compiledSpecContent 
+    const specContext = compiledSpecContent
       ? `## Synthesized Project Specification (${CONFIG.COMPILED_SPEC_FILE}):\n${compiledSpecContent}`
       : fullInputContext;
 
@@ -150,7 +162,11 @@ export class OrchestratorEngine {
           summary: raw.summary || "",
           globalStatus: "IN_PROGRESS",
           milestones: raw.milestones || [],
-          services: Array.isArray(raw.services) ? raw.services.filter((s: any) => typeof s === "string" || (s && typeof s.name === "string" && typeof s.image === "string")) : [],
+          services: Array.isArray(raw.services)
+            ? raw.services.filter(
+                (s: any) => typeof s === "string" || (s && typeof s.name === "string" && typeof s.image === "string")
+              )
+            : [],
           updatedAt: new Date().toISOString(),
           tasks: (raw.tasks || []).map((t: any, idx: number) => ({
             id: t.id || `TASK-${String(idx + 1).padStart(3, "0")}`,
@@ -280,7 +296,9 @@ export class OrchestratorEngine {
       if (dirs.length > 6) {
         console.warn(`⚠️ Forger produced ${dirs.length} skill dirs; keeping first 6 alphabetically.`);
       }
-    } catch { /* no skills directory */ }
+    } catch {
+      /* no skills directory */
+    }
     if (valid.length > 0) {
       console.log(`✅ Collected forged skills: ${valid.join(",")} (committed via persist paths).`);
     } else {
@@ -308,7 +326,9 @@ export class OrchestratorEngine {
     let anyActiveRuns = false;
     try {
       anyActiveRuns = (await GitManager.getActiveSubagentRuns()).length > 0;
-    } catch { /* conservative: assume active */ anyActiveRuns = true; }
+    } catch {
+      /* conservative: assume active */ anyActiveRuns = true;
+    }
 
     // Auto-detect completed task branches via STRUCTURED progress report
     // (all 4 sections required) AND a branch diff check:
@@ -328,10 +348,13 @@ export class OrchestratorEngine {
               // Undiffable (e.g. branch shares no history with develop):
               // UNKNOWN, never "empty". Route to review with a clear note
               // instead of auto-completing on a mirage.
-              console.log(`⚠️ [${task.id}] cannot diff vs ${CONFIG.INTEGRATION_BRANCH} (unrelated histories?); routing to IN_REVIEW.`);
+              console.log(
+                `⚠️ [${task.id}] cannot diff vs ${CONFIG.INTEGRATION_BRANCH} (unrelated histories?); routing to IN_REVIEW.`
+              );
               if (task.status !== "IN_REVIEW") {
                 task.status = "IN_REVIEW";
-                task.reviewNotes = "Branch cannot be diffed against develop (no common ancestor). Needs lineage repair or full-content review.";
+                task.reviewNotes =
+                  "Branch cannot be diffed against develop (no common ancestor). Needs lineage repair or full-content review.";
                 task.updatedAt = new Date().toISOString();
                 hasChanges = true;
               }
@@ -350,11 +373,15 @@ export class OrchestratorEngine {
               if (task.status === "IN_PROGRESS" && task.dispatchedAt) {
                 const dispAge = Date.now() - Date.parse(task.dispatchedAt);
                 if (!Number.isNaN(dispAge) && dispAge < STALE_MS && anyActiveRuns) {
-                  console.log(`ℹ️ [${task.id}] empty diff but dispatched ${Math.round(dispAge / 60000)}m ago with runs active; leaving IN_PROGRESS.`);
+                  console.log(
+                    `ℹ️ [${task.id}] empty diff but dispatched ${Math.round(dispAge / 60000)}m ago with runs active; leaving IN_PROGRESS.`
+                  );
                   continue;
                 }
                 if (!Number.isNaN(dispAge) && dispAge < STALE_MS) {
-                  console.log(`ℹ️ [${task.id}] empty diff, dispatched ${Math.round(dispAge / 60000)}m ago but no active runs; judging now.`);
+                  console.log(
+                    `ℹ️ [${task.id}] empty diff, dispatched ${Math.round(dispAge / 60000)}m ago but no active runs; judging now.`
+                  );
                 }
               }
               // Empty diff routing (all require structured progress, checked above):
@@ -365,7 +392,9 @@ export class OrchestratorEngine {
               const unique = uniqueEarly;
               if (!isDefaultProgress(progressContent) && unique > 0) {
                 if (task.status !== "COMPLETED") {
-                  console.log(`✅ [${task.id}] branch already integrated (empty diff, ${unique} unique commits). Marking COMPLETED.`);
+                  console.log(
+                    `✅ [${task.id}] branch already integrated (empty diff, ${unique} unique commits). Marking COMPLETED.`
+                  );
                   task.status = "COMPLETED";
                   task.reviewNotes = "Branch diff vs develop is empty; deliverables already integrated.";
                   task.updatedAt = new Date().toISOString();
@@ -376,7 +405,9 @@ export class OrchestratorEngine {
                 }
                 continue;
               }
-              console.log(`🔎 [${task.id}] empty diff with no evidence of work (placeholder report or 0 unique commits). Routing to IN_REVIEW for gate feedback.`);
+              console.log(
+                `🔎 [${task.id}] empty diff with no evidence of work (placeholder report or 0 unique commits). Routing to IN_REVIEW for gate feedback.`
+              );
               if (task.status === "IN_PROGRESS" || task.status === "PENDING") {
                 task.status = "IN_REVIEW";
                 task.updatedAt = new Date().toISOString();
@@ -385,7 +416,9 @@ export class OrchestratorEngine {
               continue;
             }
             if (task.status === "IN_PROGRESS" || task.status === "PENDING") {
-              console.log(`🔎 Detected completed deliverables for [${task.id}] on branch ${task.branch}. Transitioning to IN_REVIEW.`);
+              console.log(
+                `🔎 Detected completed deliverables for [${task.id}] on branch ${task.branch}. Transitioning to IN_REVIEW.`
+              );
               task.status = "IN_REVIEW";
               task.updatedAt = new Date().toISOString();
               hasChanges = true;
@@ -454,8 +487,7 @@ export class OrchestratorEngine {
         // Empty branch diff + structured progress = work already integrated
         // into develop (e.g. merged by an earlier tick). Complete silently
         // instead of looping reject → re-dispatch forever.
-        const onlyEmptyDiff =
-          gate.failures.length === 1 && gate.failures[0].startsWith("Empty diff");
+        const onlyEmptyDiff = gate.failures.length === 1 && gate.failures[0].startsWith("Empty diff");
         if (onlyEmptyDiff) {
           console.log(`✅ [${task.id}] branch already integrated (empty diff). Marking COMPLETED.`);
           task.status = "COMPLETED";
@@ -464,19 +496,20 @@ export class OrchestratorEngine {
           task.updatedAt = new Date().toISOString();
           if (roadmap.projectNumber) {
             await ProjectManager.updateItemStatus(roadmap.projectNumber, task, "Done");
-            await ProjectManager.postTaskProgressComment(task, `✅ **Already Integrated:** empty branch diff, marked COMPLETED without re-merge.`);
+            await ProjectManager.postTaskProgressComment(
+              task,
+              `✅ **Already Integrated:** empty branch diff, marked COMPLETED without re-merge.`
+            );
           }
           hasChanges = true;
           continue;
         }
-        await rejectTask(
-          `Deterministic gate failed:\n- ${gate.failures.join("\n- ")}`,
-          gate.failures
-        );
+        await rejectTask(`Deterministic gate failed:\n- ${gate.failures.join("\n- ")}`, gate.failures);
         continue;
       }
 
-      const reviewPrompt = `${reviewerPromptTemplate}\n\n` +
+      const reviewPrompt =
+        `${reviewerPromptTemplate}\n\n` +
         `### Task: [${task.id}] - ${task.title}\n` +
         `**Expected Deliverables:**\n${task.description}\n\n` +
         `### Subagent Progress Report (TASK_PROGRESS.md):\n${taskProgress}\n\n` +
@@ -505,13 +538,14 @@ export class OrchestratorEngine {
             };
             break;
           }
-        } catch { /* try next candidate */ }
+        } catch {
+          /* try next candidate */
+        }
       }
       if (!reviewResult) {
-        await rejectTask(
-          `Reviewer output unparseable (no valid {approved, notes} JSON). Raw head: ${res.stdout.slice(0, 300)}`,
-          ["Ensure reviewer returns fenced ```json with approved:boolean"]
-        );
+        await rejectTask(`Reviewer output unparseable (no valid {approved, notes} JSON). Raw head: ${res.stdout.slice(0, 300)}`, [
+          "Ensure reviewer returns fenced ```json with approved:boolean",
+        ]);
         continue;
       }
 
@@ -546,7 +580,10 @@ export class OrchestratorEngine {
             `chore(merge): integrate approved task ${task.id} (${task.title})`
           );
           if (merged && pr) {
-            await PRManager.postReviewComment(pr.number, `✅ **Integrated** via local merge (conflicts auto-resolved, tests green).`);
+            await PRManager.postReviewComment(
+              pr.number,
+              `✅ **Integrated** via local merge (conflicts auto-resolved, tests green).`
+            );
           }
         }
 
@@ -557,7 +594,10 @@ export class OrchestratorEngine {
           task.updatedAt = new Date().toISOString();
           if (roadmap.projectNumber) {
             await ProjectManager.updateItemStatus(roadmap.projectNumber, task, "Done");
-            await ProjectManager.postTaskProgressComment(task, `✅ **Approved & Integrated${viaPR ? ` via PR ${viaPR}` : ""}:** ${task.reviewNotes}`);
+            await ProjectManager.postTaskProgressComment(
+              task,
+              `✅ **Approved & Integrated${viaPR ? ` via PR ${viaPR}` : ""}:** ${task.reviewNotes}`
+            );
           }
           hasChanges = true;
         } else {
@@ -567,21 +607,17 @@ export class OrchestratorEngine {
           );
         }
       } else {
-        await rejectTask(
-          reviewResult.notes || "Rejected by reviewer.",
-          reviewResult.suggestedFixes || []
-        );
+        await rejectTask(reviewResult.notes || "Rejected by reviewer.", reviewResult.suggestedFixes || []);
         // Traceability: mirror the rejection onto the open PR, if one exists.
         try {
           const { PRManager: PRM } = await import("./pr_manager.ts");
           const openPR = await PRM.getOpenPR(task.branch);
           if (openPR) {
-            await PRM.postReviewComment(
-              openPR.number,
-              `⚠️ **Orchestrator review: CHANGES REQUESTED**\n\n${task.reviewNotes}`
-            );
+            await PRM.postReviewComment(openPR.number, `⚠️ **Orchestrator review: CHANGES REQUESTED**\n\n${task.reviewNotes}`);
           }
-        } catch { /* non-fatal */ }
+        } catch {
+          /* non-fatal */
+        }
       }
     }
 
@@ -721,7 +757,9 @@ export class OrchestratorEngine {
       return;
     }
 
-    console.log(`🚀 Dispatching ${readyTasks.length} parallel subagents (Concurrency limit: ${CONFIG.MAX_CONCURRENT_SUBAGENTS})...`);
+    console.log(
+      `🚀 Dispatching ${readyTasks.length} parallel subagents (Concurrency limit: ${CONFIG.MAX_CONCURRENT_SUBAGENTS})...`
+    );
 
     for (const task of readyTasks) {
       const dispatched = await GitManager.dispatchSubagentWorkflow(task.id, task.role, task.branch);
@@ -733,10 +771,15 @@ export class OrchestratorEngine {
         try {
           const runId = await GitManager.findRunForBranch(task.branch);
           if (runId) task.runId = runId;
-        } catch { /* non-fatal */ }
+        } catch {
+          /* non-fatal */
+        }
         if (roadmap.projectNumber) {
           await ProjectManager.updateItemStatus(roadmap.projectNumber, task, "In Progress");
-          await ProjectManager.postTaskProgressComment(task, `⚡ **Subagent Dispatched:** Executing on branch \`${task.branch}\` with role \`${task.role}\`.`);
+          await ProjectManager.postTaskProgressComment(
+            task,
+            `⚡ **Subagent Dispatched:** Executing on branch \`${task.branch}\` with role \`${task.role}\`.`
+          );
         }
       }
     }
@@ -756,14 +799,31 @@ export class OrchestratorEngine {
     const me = process.env.GITHUB_RUN_ID;
     if (me) {
       try {
-        const lr = await GitManager.run(["gh", "run", "list", "--workflow", "orchestrator.yml", "--limit", "10", "--json", "databaseId,status"]);
+        const lr = await GitManager.run([
+          "gh",
+          "run",
+          "list",
+          "--workflow",
+          "orchestrator.yml",
+          "--limit",
+          "10",
+          "--json",
+          "databaseId,status",
+        ]);
         const runs: any[] = JSON.parse(lr.stdout || "[]");
-        const older = runs.filter((r) => (r.status === "in_progress" || r.status === "queued" || r.status === "waiting") && Number(r.databaseId) < Number(me));
+        const older = runs.filter(
+          (r) =>
+            (r.status === "in_progress" || r.status === "queued" || r.status === "waiting") && Number(r.databaseId) < Number(me)
+        );
         if (older.length > 0) {
-          console.log(`ℹ️ Coalescing: orchestrator run #${older[0].databaseId} already active; exiting to save a redundant cycle.`);
+          console.log(
+            `ℹ️ Coalescing: orchestrator run #${older[0].databaseId} already active; exiting to save a redundant cycle.`
+          );
           return;
         }
-      } catch { /* proceed with tick */ }
+      } catch {
+        /* proceed with tick */
+      }
     }
     await GitManager.setupGitAuthor();
     await GitManager.run(["git", "fetch", "--all"]);
@@ -864,7 +924,9 @@ export class OrchestratorEngine {
       if (task.attempts >= task.maxAttempts) {
         task.status = "FAILED";
         task.failedAt = new Date().toISOString();
-        console.error(`❌ [${task.id}] no worker activity for >${CONFIG.STALE_RUN_TIMEOUT_MINUTES}m after ${task.attempts} attempts. Marked FAILED.`);
+        console.error(
+          `❌ [${task.id}] no worker activity for >${CONFIG.STALE_RUN_TIMEOUT_MINUTES}m after ${task.attempts} attempts. Marked FAILED.`
+        );
         task.reviewNotes = `Watchdog: dead run suspected (no push activity); max attempts reached.`;
       } else {
         task.status = "PENDING";
@@ -874,7 +936,10 @@ export class OrchestratorEngine {
       task.updatedAt = new Date().toISOString();
       if (roadmap.projectNumber) {
         await ProjectManager.updateItemStatus(roadmap.projectNumber, task, task.status === "FAILED" ? "Failed" : "Todo");
-        await ProjectManager.postTaskProgressComment(task, `⏰ **Watchdog:** No worker activity detected; task re-queued (${task.attempts}/${task.maxAttempts}).`);
+        await ProjectManager.postTaskProgressComment(
+          task,
+          `⏰ **Watchdog:** No worker activity detected; task re-queued (${task.attempts}/${task.maxAttempts}).`
+        );
       }
     }
 
@@ -899,7 +964,10 @@ export class OrchestratorEngine {
       console.log(`🌅 [${task.id}] auto-resurrected to PENDING (${task.resurrections}/${CONFIG.FAILED_AUTO_RESURRECT_MAX}).`);
       if (roadmap.projectNumber) {
         await ProjectManager.updateItemStatus(roadmap.projectNumber, task, "Todo");
-        await ProjectManager.postTaskProgressComment(task, `🌅 **Auto-resurrect #${task.resurrections}:** cool-down elapsed, re-queued without human intervention.`);
+        await ProjectManager.postTaskProgressComment(
+          task,
+          `🌅 **Auto-resurrect #${task.resurrections}:** cool-down elapsed, re-queued without human intervention.`
+        );
       }
     }
     // Resurrections ride on the end-of-tick persist (same as watchdog).
@@ -908,8 +976,8 @@ export class OrchestratorEngine {
     if (roadmap.milestones) {
       for (let i = 0; i < roadmap.milestones.length; i++) {
         const m = roadmap.milestones[i];
-        const milestoneTasks = roadmap.tasks.filter(t => t.milestone === m.title);
-        if (milestoneTasks.length > 0 && milestoneTasks.every(t => t.status === "COMPLETED")) {
+        const milestoneTasks = roadmap.tasks.filter((t) => t.milestone === m.title);
+        if (milestoneTasks.length > 0 && milestoneTasks.every((t) => t.status === "COMPLETED")) {
           const closed = await IssueManager.closeMilestoneIfCompleted(m.title);
           if (closed) {
             const tag = `v0.${i + 1}.0`;
@@ -917,7 +985,7 @@ export class OrchestratorEngine {
             await IssueManager.createMilestoneRelease(
               tag,
               `Milestone Completed: ${m.title}`,
-              `## 🏆 Milestone Achieved: ${m.title}\n\nAll tasks in this milestone were verified and integrated:\n${milestoneTasks.map(t => `- [x] **[${t.id}]** ${t.title}`).join("\n")}`
+              `## 🏆 Milestone Achieved: ${m.title}\n\nAll tasks in this milestone were verified and integrated:\n${milestoneTasks.map((t) => `- [x] **[${t.id}]** ${t.title}`).join("\n")}`
             );
           }
         }
@@ -1023,7 +1091,9 @@ async function main() {
         await ProjectManager.syncBoardState(roadmap, projectNum);
       }
       await OrchestratorEngine.persistRoadmap(roadmap, "chore(orchestrator): repair project board links");
-      console.log(projectNum ? `✅ Project board ready: #${projectNum}` : "⚠️ Project board still unavailable — see scope hint above.");
+      console.log(
+        projectNum ? `✅ Project board ready: #${projectNum}` : "⚠️ Project board still unavailable — see scope hint above."
+      );
       break;
     }
     case "setup": {
@@ -1042,7 +1112,15 @@ async function main() {
       if (here.length === 2) {
         reports.push(await RepoSetup.ensureRepoSettings(here[0], here[1], CONFIG.PROJECT_TOKEN, publicFeatures));
       } else {
-        const repo = await GitManager.run(["gh", "repo", "view", "--json", "owner,name", "--jq", "[.owner.login, .name] | join(\"/\")"]);
+        const repo = await GitManager.run([
+          "gh",
+          "repo",
+          "view",
+          "--json",
+          "owner,name",
+          "--jq",
+          '[.owner.login, .name] | join("/")',
+        ]);
         if (repo.exitCode === 0 && repo.stdout.includes("/")) {
           const [o, n] = repo.stdout.trim().split("/");
           reports.push(await RepoSetup.ensureRepoSettings(o, n, CONFIG.PROJECT_TOKEN));

@@ -10,12 +10,7 @@ export interface GateResult {
   diffStat: string;
 }
 
-const REQUIRED_SECTIONS = [
-  "done",
-  "doing",
-  "todo",
-  "verification",
-];
+const REQUIRED_SECTIONS = ["done", "doing", "todo", "verification"];
 
 /** Check TASK_PROGRESS.md has all 4 structured sections with non-empty content. */
 export function hasStructuredProgress(content: string): boolean {
@@ -62,7 +57,12 @@ export function globMatches(pattern: string, file: string): boolean {
   if (p.includes("*")) {
     // Escape regex, then * -> .*, ** -> .*
     const rx = new RegExp(
-      "^" + p.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*\*/g, ".*").replace(/\*/g, ".*") + "$"
+      "^" +
+        p
+          .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+          .replace(/\*\*/g, ".*")
+          .replace(/\*/g, ".*") +
+        "$"
     );
     return rx.test(file);
   }
@@ -121,11 +121,13 @@ export function scanSecrets(diff: string, files: string[]): string[] {
     }
   }
   // Sensitive filenames — except the canonical `.env.example` template.
-  if (files.some((f) => {
-    const m = f.match(/(^|\/)\.env([^/]*)$/i);
-    if (m && m[2] !== ".example") return true;
-    return f.includes(".pem") || f.includes(".key");
-  })) {
+  if (
+    files.some((f) => {
+      const m = f.match(/(^|\/)\.env([^/]*)$/i);
+      if (m && m[2] !== ".example") return true;
+      return f.includes(".pem") || f.includes(".key");
+    })
+  ) {
     hits.push("Sensitive file (.env/.pem/.key) in changeset");
   }
   return [...new Set(hits)];
@@ -157,11 +159,7 @@ function touchesApiOrSchema(files: string[]): boolean {
  * Deterministic pre-LLM gate. Fails fast on empty diff, missing progress
  * structure, secret hits, or out-of-scope writes. Warns on contract drift.
  */
-export async function runReviewGate(
-  task: TaskItem,
-  diff: string,
-  progressContent: string
-): Promise<GateResult> {
+export async function runReviewGate(task: TaskItem, diff: string, progressContent: string): Promise<GateResult> {
   const failures: string[] = [];
   const warnings: string[] = [];
   const fileList = (await GitManager.getBranchFileList(task.branch, CONFIG.INTEGRATION_BRANCH, { excludeDeleted: true })) ?? [];
@@ -169,9 +167,14 @@ export async function runReviewGate(
   // Legacy fork check: branches that share no history with develop produce
   // tip-vs-tip file lists (whole trees). File-level rules can't attribute
   // those, so they are skipped with a warning; the reviewer judges content.
-  const lineageBroken = !(await GitManager.haveCommonAncestor(`${remote}/${CONFIG.INTEGRATION_BRANCH}`, `${remote}/${task.branch}`));
+  const lineageBroken = !(await GitManager.haveCommonAncestor(
+    `${remote}/${CONFIG.INTEGRATION_BRANCH}`,
+    `${remote}/${task.branch}`
+  ));
   if (lineageBroken) {
-    warnings.push("Branch shares no history with develop (legacy fork); file-level scope/drift rules skipped — reviewer judges full tip diff.");
+    warnings.push(
+      "Branch shares no history with develop (legacy fork); file-level scope/drift rules skipped — reviewer judges full tip diff."
+    );
   }
   const statRes = await GitManager.run([
     "git",
@@ -192,7 +195,9 @@ export async function runReviewGate(
       failures.push(`TASK_PROGRESS.md missing sections: ${missing.join(", ")}.`);
     }
     if (isDefaultProgress(progressContent)) {
-      failures.push("TASK_PROGRESS.md is the runner placeholder, not an agent report: no evidence of work. Produce real Done/Verification content.");
+      failures.push(
+        "TASK_PROGRESS.md is the runner placeholder, not an agent report: no evidence of work. Produce real Done/Verification content."
+      );
     }
     if (!/bun test|bun run|test proof|passing|passed/i.test(progressContent)) {
       warnings.push("Verification section has no recognizable test evidence (bun test output).");

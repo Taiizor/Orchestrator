@@ -8,7 +8,10 @@ export class ConflictResolver {
   public static async resolveConflicts(): Promise<boolean> {
     // Get list of unmerged / conflicted files
     const res = await GitManager.run(["git", "diff", "--name-only", "--diff-filter=U"]);
-    const conflictedFiles = res.stdout.split("\n").map((f) => f.trim()).filter(Boolean);
+    const conflictedFiles = res.stdout
+      .split("\n")
+      .map((f) => f.trim())
+      .filter(Boolean);
 
     if (conflictedFiles.length === 0) {
       return true;
@@ -36,11 +39,7 @@ export class ConflictResolver {
       const resolvedContent = codeBlockMatch ? codeBlockMatch[1] : aiRes.stdout.trim();
 
       // Ensure no conflict markers remain
-      if (
-        resolvedContent.includes("<<<<<<<") ||
-        resolvedContent.includes("=======") ||
-        resolvedContent.includes(">>>>>>>")
-      ) {
+      if (resolvedContent.includes("<<<<<<<") || resolvedContent.includes("=======") || resolvedContent.includes(">>>>>>>")) {
         console.error(`❌ Conflict resolution failed for ${filePath}: conflict markers still present.`);
         return false;
       }

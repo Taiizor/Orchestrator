@@ -5,10 +5,7 @@
  * and prompts) so no per-project wiring is needed. Credentials are
  * ephemeral CI-only defaults — NEVER use them outside throwaway runners.
  */
-export const SERVICE_DEFS: Record<
-  string,
-  { image: string; env: Record<string, string>; check: string }
-> = {
+export const SERVICE_DEFS: Record<string, { image: string; env: Record<string, string>; check: string }> = {
   postgres: {
     image: "postgres:16-alpine",
     env: {
@@ -70,10 +67,26 @@ import type { ServiceDefinition } from "./types.ts";
 export type ServiceSpec = string | ServiceDefinition;
 
 /** Normalize roadmap entries: known-name shorthand or full custom object. */
-export function normalizeServices(specs: ServiceSpec[]): { name: string; image: string; env: Record<string, string>; ports: string[]; command?: string; healthcheck?: string[] }[] {
-  const out: { name: string; image: string; env: Record<string, string>; ports: string[]; command?: string; healthcheck?: string[] }[] = [];
+export function normalizeServices(
+  specs: ServiceSpec[]
+): { name: string; image: string; env: Record<string, string>; ports: string[]; command?: string; healthcheck?: string[] }[] {
+  const out: {
+    name: string;
+    image: string;
+    env: Record<string, string>;
+    ports: string[];
+    command?: string;
+    healthcheck?: string[];
+  }[] = [];
   const seen = new Set<string>();
-  const push = (entry: { name: string; image: string; env: Record<string, string>; ports: string[]; command?: string; healthcheck?: string[] }) => {
+  const push = (entry: {
+    name: string;
+    image: string;
+    env: Record<string, string>;
+    ports: string[];
+    command?: string;
+    healthcheck?: string[];
+  }) => {
     if (seen.has(entry.name)) return;
     seen.add(entry.name);
     out.push(entry);
@@ -86,10 +99,14 @@ export function normalizeServices(specs: ServiceSpec[]): { name: string; image: 
       const key = s === "minio" ? "s3" : s;
       const preset = SERVICE_DEFS[key];
       if (!preset) continue;
-      const ports = key === "postgres" ? ["5432:5432"] : key === "redis" ? ["6379:6379"] : key === "mongo" ? ["27017:27017"] : ["9090:9090"];
+      const ports =
+        key === "postgres" ? ["5432:5432"] : key === "redis" ? ["6379:6379"] : key === "mongo" ? ["27017:27017"] : ["9090:9090"];
       push({ name: key, image: preset.image, env: { ...preset.env }, ports });
     } else if (s && typeof s.name === "string" && typeof s.image === "string") {
-      const name = s.name.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+|-+$/g, "");
+      const name = s.name
+        .toLowerCase()
+        .replace(/[^a-z0-9-]/g, "-")
+        .replace(/^-+|-+$/g, "");
       if (!name || !s.image.trim()) continue; // validator rejects these at plan time
       out.push({
         name,
@@ -139,5 +156,9 @@ export function serviceEnv(specs: ServiceSpec[]): Record<string, string> {
 
 /** KEY=VAL lines for the workflow to append to $GITHUB_ENV (custom env included). */
 export function renderEnvFile(specs: ServiceSpec[]): string {
-  return Object.entries(serviceEnv(specs)).map(([k, v]) => `${k}=${v}`).join("\n") + "\n";
+  return (
+    Object.entries(serviceEnv(specs))
+      .map(([k, v]) => `${k}=${v}`)
+      .join("\n") + "\n"
+  );
 }

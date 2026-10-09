@@ -31,7 +31,10 @@ export const CONFIG = {
   DATA_FEATURES: process.env.DATA_FEATURES || "",
   // Extra logins always honored by ChatOps (besides repo collaborators
   // with push access). Comma-separated GitHub usernames.
-  CHATOPS_ADMINS: (process.env.CHATOPS_ADMINS || "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean),
+  CHATOPS_ADMINS: (process.env.CHATOPS_ADMINS || "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean),
 
   // Paths
   STATE_DIR: "state",
