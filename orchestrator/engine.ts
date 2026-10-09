@@ -774,14 +774,14 @@ export class OrchestratorEngine {
     } catch {
       // No remote state yet — persist local copy as-is.
     }
-    for (let attempt = 1; attempt <= 3; attempt++) {
+    for (let attempt = 1; attempt <= 5; attempt++) {
       await StateManager.saveRoadmap(roadmap);
       // Forged/hand-added project skills travel with state in data mode.
       for (const f of [...files, "inputs/skills"]) await GitManager.run(["git", "add", "-f", f]);
       await GitManager.run(["git", "commit", "-m", message]);
       const push = await GitManager.remoteGit(remote, ["push", remote, `HEAD:${CONFIG.BASE_BRANCH}`]);
       if (push.exitCode === 0) return;
-      console.warn(`⚠️ Data state push rejected (attempt ${attempt}/3). Re-syncing...`);
+      console.warn(`⚠️ Data state push rejected (attempt ${attempt}/5). Re-syncing...`);
       // Back off: the competing writer is usually another tick still
       // working; immediate retries just collide again.
       await new Promise((r) => setTimeout(r, 15000 * attempt));
