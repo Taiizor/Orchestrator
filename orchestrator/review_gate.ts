@@ -108,6 +108,33 @@ function addedLines(diff: string): string[] {
   return diff.split("\n").filter((l) => l.startsWith("+") && !l.startsWith("+++"));
 }
 
+/**
+ * Added lines grouped by file (from `+++ b/<path>` hunk headers).
+ * Lets the generic-assignment rule exempt test fixtures, where fake
+ * secrets are the entire point.
+ */
+function addedLinesByFile(diff: string): Map<string, string[]> {
+  const map = new Map<string, string[]>();
+  let cur = "";
+  for (const raw of diff.split("\n")) {
+    const h = raw.match(/^\+\+\+ b\/(.+)$/);
+    if (h) {
+      cur = h[1].trim();
+      if (!map.has(cur)) map.set(cur, []);
+      continue;
+    }
+    if (raw.startsWith("+") && !raw.startsWith("+++") && cur) {
+      map.get(cur)!.push(raw);
+    }
+  }
+  return map;
+}
+
+/** Paths whose secret-shaped literals are fixtures by definition. */
+function isTestPath(file: string): boolean {
+  return /(^|\/)(tests?|__tests__|__mocks__|__fixtures__|fixtures?)\//i.test(file) || /\.(test|spec)\.[a-z]+$/i.test(file);
+}
+
 export function scanSecrets(diff: string, files: string[]): string[] {
   const hits: string[] = [];
   const added = addedLines(diff);
@@ -115,14 +142,19 @@ export function scanSecrets(diff: string, files: string[]): string[] {
   for (const pat of SECRET_PATTERNS) {
     if (pat.rx.test(text)) hits.push(pat.name);
   }
-  // Generic assignments with NON-placeholder values only; synthetic
-  // fixtures go to scanSecretWarnings() instead of failing the gate.
-  for (const line of added) {
-    const m = line.match(GENERIC_SECRET_RX);
-    if (m && !PLACEHOLDER_VALUE_RX.test(m[2])) {
-      hits.push("Generic secret assignment");
-      break;
+  // Generic assignments with NON-placeholder values, in NON-test files,
+  // with single-token values only. Test fixtures, human sentences
+  // ("Must mix...") and synthetic values go to warnings or nowhere.
+  for (const [file, lines] of addedLinesByFile(diff)) {
+    if (isTestPath(file)) continue;
+    for (const line of lines) {
+      const m = line.match(GENERIC_SECRET_RX);
+      if (m && !/\s/.test(m[2]) && !PLACEHOLDER_VALUE_RX.test(m[2])) {
+        hits.push("Generic secret assignment");
+        break;
+      }
     }
+    if (hits.includes("Generic secret assignment")) break;
   }
   // Sensitive filenames — except the canonical `.env.example` template.
   if (
@@ -165,7 +197,7 @@ function touchesApiOrSchema(files: string[]): boolean {
  * under a previous version must be re-evaluated, never skipped by the
  * unchanged-tip optimization.
  */
-export const GATE_VERSION = 2;
+export const GATE_VERSION = 3;
 
 /**
  * Deterministic pre-LLM gate. Fails fast on empty diff, missing progress
