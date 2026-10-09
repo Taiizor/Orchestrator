@@ -112,11 +112,12 @@ export async function runReviewGate(
   const failures: string[] = [];
   const warnings: string[] = [];
   const fileList = await GitManager.getBranchFileList(task.branch, CONFIG.INTEGRATION_BRANCH);
+  const remote = GitManager.contentRemote();
   const statRes = await GitManager.run([
     "git",
     "diff",
     "--stat",
-    `origin/${CONFIG.INTEGRATION_BRANCH}...origin/${task.branch}`,
+    `${remote}/${CONFIG.INTEGRATION_BRANCH}...${remote}/${task.branch}`,
   ]);
   const diffStat = statRes.exitCode === 0 ? statRes.stdout.slice(0, 2000) : "";
 

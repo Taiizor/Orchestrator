@@ -11,3 +11,15 @@ state/*.tmp.md
 workspace/data/*.db
 workspace/data/*.db-wal
 workspace/data/*.db-shm
+# Dual-repo mode: project data lives in the private DATA_REPO and is
+# runtime-synced into the workdir. Never commit it to the public skeleton.
+# Tracked template files stay: inputs/README.md, inputs/spec.md,
+# inputs/assets/.gitkeep, inputs/references/.gitkeep, workspace/.gitkeep.
+inputs/assets/*
+!inputs/assets/.gitkeep
+inputs/references/*
+!inputs/references/.gitkeep
+workspace/*
+!workspace/.gitkeep
+# Local build cache (never commit)
+tsconfig.tsbuildinfo

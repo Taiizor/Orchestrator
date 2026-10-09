@@ -52,17 +52,28 @@ async function main() {
 
   const role = values.role || task.role;
   const branch = values.branch || task.branch;
+  const remote = GitManager.contentRemote();
 
-  // Switch / Create task branch
-  console.log(`🌿 Ensuring task branch ${branch}...`);
+  // Dual-repo: register the private data remote first so every content
+  // operation below resolves against it. No-op in single-repo mode.
+  if (GitManager.isDataMode()) {
+    await GitManager.ensureDataRemote();
+  }
+
+  // Switch / Create task branch (on the CONTENT remote in dual-repo mode,
+  // so agent output never touches the public origin)
+  console.log(`🌿 Ensuring task branch ${branch} (remote: ${remote})...`);
   const branchExists = await GitManager.branchExists(branch);
   if (branchExists) {
-    await GitManager.run(["git", "checkout", branch]);
-    await GitManager.run(["git", "pull", "origin", branch]);
+    await GitManager.run(["git", "checkout", "-B", branch, `${remote}/${branch}`]);
+    await GitManager.run(["git", "pull", remote, branch]);
   } else {
     // Checkout from integration branch
-    await GitManager.run(["git", "checkout", "-b", branch, `origin/${CONFIG.INTEGRATION_BRANCH}`]);
+    await GitManager.run(["git", "checkout", "-B", branch, `${remote}/${CONFIG.INTEGRATION_BRANCH}`]);
   }
+
+  // Materialize data content for this branch (dual-repo only; no-op otherwise)
+  await GitManager.syncDataIn(branch);
 
   // Ensure state directory remains present on task branch for prompt context
   if (!existsSync(CONFIG.ROADMAP_FILE)) {
@@ -186,14 +197,14 @@ async function main() {
     }
   }
 
-  // Commit task changes on task branch ONLY.
-  // State (roadmap.json / PROGRESS.md) is owned exclusively by the orchestrator
-  // to avoid cross-runner git races. The orchestrator tick auto-detects this
-  // branch's TASK_PROGRESS.md (structured 4-section check) and marks IN_REVIEW.
-  console.log(`📦 Committing and pushing work to branch ${branch}...`);
-  await GitManager.run(["git", "add", "workspace/"]);
-  await GitManager.run(["git", "commit", "-m", `feat(task): complete deliverables for ${task.id}`]);
-  await GitManager.run(["git", "push", "-u", "origin", branch]);
+  // Publish data content to the CONTENT remote (data repo in dual-repo
+  // mode). The public origin never receives task branches.
+  console.log(`📦 Publishing data work to branch ${branch}...`);
+  const published = await GitManager.publishTaskBranch(branch, `feat(task): complete deliverables for ${task.id}`);
+  if (!published) {
+    console.error(`❌ Data publish failed for ${task.id}; stopping before review wake.`);
+    process.exit(1);
+  }
 
   // Update GitHub Projects Kanban item to "In Review" (GitHub API, no git race)
   if (roadmap.projectNumber) {

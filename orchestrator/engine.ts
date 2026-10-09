@@ -17,6 +17,14 @@ export class OrchestratorEngine {
   public static async plan(): Promise<void> {
     console.log("🧭 Planning roadmap from inputs/...");
 
+    // Dual-repo: materialize private inputs before reading them.
+    await GitManager.setupGitAuthor();
+    await GitManager.run(["git", "fetch", "--all"]);
+    if (GitManager.isDataMode()) {
+      await GitManager.ensureDataRemote();
+      await GitManager.syncDataIn(CONFIG.BASE_BRANCH);
+    }
+
     if (!existsSync(CONFIG.INPUTS_DIR)) {
       console.error(`❌ inputs/ directory does not exist.`);
       process.exit(1);
@@ -198,8 +206,22 @@ export class OrchestratorEngine {
       [CONFIG.ROADMAP_FILE, CONFIG.PROGRESS_MD_FILE, CONFIG.COMPILED_SPEC_FILE]
     );
 
-    // Keep the develop integration branch synced (state lives on main only)
-    await GitManager.run(["git", "push", "origin", `HEAD:${CONFIG.INTEGRATION_BRANCH}`]);
+    // Keep the integration branch synced — on the CONTENT remote in
+    // dual-repo mode (public origin must never receive data branches).
+    // Seed only when the remote branch doesn't exist yet: never overwrite
+    // real project data with the template tree.
+    if (GitManager.isDataMode()) {
+      const remote = CONFIG.DATA_REMOTE;
+      const seedNeeded = !(await GitManager.remoteHasBranch(remote, CONFIG.INTEGRATION_BRANCH));
+      if (seedNeeded) {
+        console.log(`🌱 Seeding ${remote}/${CONFIG.INTEGRATION_BRANCH} with template tree...`);
+        await GitManager.run(["git", "push", remote, `HEAD:${CONFIG.INTEGRATION_BRANCH}`]);
+      } else {
+        console.log(`ℹ️ Data branch ${remote}/${CONFIG.INTEGRATION_BRANCH} exists; leaving project data untouched.`);
+      }
+    } else {
+      await GitManager.run(["git", "push", "origin", `HEAD:${CONFIG.INTEGRATION_BRANCH}`]);
+    }
 
     // Dispatch initial batch of independent tasks (now they have the committed state available!)
     await this.dispatchReadyTasks(roadmapData);
@@ -222,8 +244,8 @@ export class OrchestratorEngine {
       {
         const branchExists = await GitManager.branchExists(task.branch);
         if (branchExists) {
-          const progressRes = await GitManager.run(["git", "show", `origin/${task.branch}:workspace/${CONFIG.TASK_PROGRESS_FILE}`]);
-          if (progressRes.exitCode === 0 && hasStructuredProgress(progressRes.stdout)) {
+          const progressContent = await GitManager.showFile(task.branch, `workspace/${CONFIG.TASK_PROGRESS_FILE}`);
+          if (progressContent !== null && hasStructuredProgress(progressContent)) {
             const files = await GitManager.getBranchFileList(task.branch, CONFIG.INTEGRATION_BRANCH);
             const realChanges = files.filter((f) => f !== `workspace/${CONFIG.TASK_PROGRESS_FILE}`);
             if (realChanges.length === 0) {
@@ -274,9 +296,9 @@ export class OrchestratorEngine {
       // Get diff against integration branch
       const diff = await GitManager.getBranchDiff(task.branch, CONFIG.INTEGRATION_BRANCH);
 
-      // Attempt to read task progress file from branch
-      const progressCmd = await GitManager.run(["git", "show", `origin/${task.branch}:workspace/${CONFIG.TASK_PROGRESS_FILE}`]);
-      const taskProgress = progressCmd.exitCode === 0 ? progressCmd.stdout : "No progress file provided.";
+      // Attempt to read task progress file from branch (content-remote aware)
+      const progressContent = await GitManager.showFile(task.branch, `workspace/${CONFIG.TASK_PROGRESS_FILE}`);
+      const taskProgress = progressContent !== null ? progressContent : "No progress file provided.";
 
       // Step 1: Deterministic pre-LLM gate (no LLM cost on obvious failures)
       const gate = await runReviewGate(task, diff, taskProgress);
@@ -450,6 +472,10 @@ export class OrchestratorEngine {
    */
   private static async persistRoadmap(roadmap: Roadmap, message: string): Promise<void> {
     const files = [CONFIG.ROADMAP_FILE, CONFIG.PROGRESS_MD_FILE, CONFIG.COMPILED_SPEC_FILE];
+    // State commits belong on BASE_BRANCH (main): review merges leave the
+    // checkout on the integration branch — return first so `git push` can't
+    // spill content branches to the wrong remote.
+    await GitManager.run(["git", "checkout", CONFIG.BASE_BRANCH]);
     // Freshness first: a long tick (slow LLM reviews) may hold a stale copy.
     // Merge remote truth in BEFORE saving so we never wipe fields like
     // projectNumber that another run persisted meanwhile.
@@ -530,6 +556,11 @@ export class OrchestratorEngine {
     console.log("⏰ Orchestrator Tick started...");
     await GitManager.setupGitAuthor();
     await GitManager.run(["git", "fetch", "--all"]);
+    // Dual-repo: register the private data remote so content-remote reads
+    // (diffs, progress files) resolve. No-op in single-repo mode.
+    if (GitManager.isDataMode()) {
+      await GitManager.ensureDataRemote();
+    }
 
     // NOTE: state/roadmap.json on main is the source of truth (every tick
     // commits it there). There is no separate state branch by design.

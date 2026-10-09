@@ -78,6 +78,8 @@ jobs:
           OPENCODE_MODEL: ${{ secrets.OPENCODE_MODEL }}
           OPENCODE_VARIANT: ${{ secrets.OPENCODE_VARIANT }}
           INTEGRATION_BRANCH: develop
+          DATA_REPO: ${{ secrets.DATA_REPO }}
+          DATA_PAT: ${{ secrets.DATA_PAT }}
         run: |
           bun run subagents/runner.ts \
             --taskId="${{ inputs.taskId }}" \

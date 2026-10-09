@@ -101,6 +101,8 @@ jobs:
           OPENCODE_VARIANT: ${{ secrets.OPENCODE_VARIANT }}
           MAX_CONCURRENT_SUBAGENTS: 5
           INTEGRATION_BRANCH: develop
+          DATA_REPO: ${{ secrets.DATA_REPO }}
+          DATA_PAT: ${{ secrets.DATA_PAT }}
         run: |
           ACTION="${{ github.event.inputs.action || 'tick' }}"
           bun run orchestrator/engine.ts --action=$ACTION

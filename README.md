@@ -277,6 +277,17 @@ To enable the Orchestrator to manage GitHub Projects v2 and Milestones:
 ### Step 2: Define Your Target Project
 Edit [`inputs/spec.md`](inputs/spec.md) with your project requirements, user stories, and tech stack preferences. Add any visual mockups into `inputs/assets/`.
 
+### Step 2b (optional): Dual-repo mode — public skeleton + private data
+To run this template as a **public** repo while keeping project content private:
+1. Create a **private** repository for project data (e.g. `my-org/my-project-data`).
+2. Push your real `inputs/` + `workspace/` content there (any branch layout; the orchestrator seeds `develop` on first `plan` if missing).
+3. Add two repository secrets to the **public** repo:
+   - **`DATA_REPO`** = `owner/name` (or full URL) of the private data repo.
+   - **`DATA_PAT`** = classic PAT with `repo` scope (read/write on the data repo). Defaults to `GH_PROJECT_TOKEN` when empty.
+4. `inputs/*` (except templates) and `workspace/*` are `.gitignore`d here: CI materializes them from the data repo at runtime and publishes agent output back to data branches. Task branches and review **PRs live in the data repo**; issues/milestones/dashboard stay public (titles only — no file content).
+
+Leave `DATA_REPO` empty for classic single-repo mode (everything in one repo).
+
 ### Step 3: Trigger the Orchestrator
 1. Open the **Actions** tab on GitHub.
 2. Select **🤖 Orchestrator Engine**.

@@ -15,10 +15,20 @@ export interface TaskPR {
  * falls back to the local AI conflict-resolver merge.
  */
 export class PRManager {
+  /**
+   * Extra gh flags targeting the data repo in dual-repo mode, so review
+   * PRs live privately. Empty in single-repo mode (current repo default).
+   */
+  private static repoFlag(): string[] {
+    const slug = GitManager.isDataMode() ? GitManager.dataRepoSlug() : null;
+    return slug ? ["--repo", slug] : [];
+  }
+
   /** Open PR for a head branch, if any. */
   public static async getOpenPR(branch: string): Promise<TaskPR | null> {
     const res = await GitManager.run([
       "gh", "pr", "list",
+      ...this.repoFlag(),
       "--head", branch,
       "--state", "open",
       "--json", "number,url",
@@ -49,6 +59,7 @@ export class PRManager {
     console.log(`🔀 Opening PR ${task.branch} → ${target}...`);
     const res = await GitManager.run([
       "gh", "pr", "create",
+      ...this.repoFlag(),
       "--head", task.branch,
       "--base", target,
       "--title", title,
@@ -72,7 +83,7 @@ export class PRManager {
   }
 
   public static async postReviewComment(prNumber: number, body: string): Promise<void> {
-    await GitManager.run(["gh", "pr", "comment", String(prNumber), "--body", body]);
+    await GitManager.run(["gh", "pr", "comment", String(prNumber), ...this.repoFlag(), "--body", body]);
   }
 
   /**
@@ -83,6 +94,7 @@ export class PRManager {
   public static async mergeTaskPR(prNumber: number): Promise<boolean> {
     const res = await GitManager.run([
       "gh", "pr", "merge", String(prNumber),
+      ...this.repoFlag(),
       "--merge",
       "--delete-branch=false",
     ]);
