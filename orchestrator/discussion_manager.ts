@@ -14,6 +14,15 @@ export class DiscussionManager {
   private static scopeWarned = false;
 
   /**
+   * Per-process caches: repo/category/thread ids never change mid-run, so
+   * resolve each once. Saves ~3 GraphQL calls per subagent run (the quota
+   * that kept dying). getRecentReplies stays live (freshness matters).
+   */
+  private static repoIdCache: string | null | undefined = undefined;
+  private static catIdCache: string | null | undefined = undefined;
+  private static threadCache = new Map<string, { number: number; id: string } | null>();
+
+  /**
    * GraphQL repo variables: the DATA repo in dual-repo mode (discussions
    * carry progress heads, so they stay private), else current-repo
    * placeholders expanded by gh.
@@ -44,6 +53,7 @@ export class DiscussionManager {
   }
 
   private static async repoId(): Promise<string | null> {
+    if (this.repoIdCache !== undefined) return this.repoIdCache;
     const [ownerVar, nameVar] = this.repoVars();
     const res = await GitManager.run([
       "gh", "api", "graphql",
@@ -54,16 +64,20 @@ export class DiscussionManager {
     ]);
     if (res.exitCode !== 0) {
       this.scopeHint(res.stderr);
+      this.repoIdCache = null;
       return null;
     }
     try {
-      return JSON.parse(res.stdout).data.repository.id;
+      this.repoIdCache = JSON.parse(res.stdout).data.repository.id;
+      return this.repoIdCache;
     } catch {
+      this.repoIdCache = null;
       return null;
     }
   }
 
   private static async categoryId(): Promise<string | null> {
+    if (this.catIdCache !== undefined) return this.catIdCache;
     const [ownerVar, nameVar] = this.repoVars();
     const res = await GitManager.run([
       "gh", "api", "graphql",
@@ -74,14 +88,17 @@ export class DiscussionManager {
     ]);
     if (res.exitCode !== 0) {
       this.scopeHint(res.stderr);
+      this.catIdCache = null;
       return null;
     }
     try {
       const nodes = JSON.parse(res.stdout).data.repository.discussionCategories.nodes;
       const hit = nodes.find((c: any) => c.name.toLowerCase() === this.CATEGORY_NAME.toLowerCase())
         || nodes.find((c: any) => c.name.toLowerCase() === "general");
-      return hit ? hit.id : null;
+      this.catIdCache = hit ? hit.id : null;
+      return this.catIdCache;
     } catch {
+      this.catIdCache = null;
       return null;
     }
   }
@@ -91,6 +108,9 @@ export class DiscussionManager {
    * Avoids fragile server-side title search syntax.
    */
   public static async findTaskDiscussion(taskId: string): Promise<{ number: number; id: string } | null> {
+    const cached = this.threadCache.get(taskId);
+    if (cached !== undefined) return cached;
+    const [ownerVar, nameVar] = this.repoVars();
     const [ownerVar, nameVar] = this.repoVars();
     const res = await GitManager.run([
       "gh", "api", "graphql",
@@ -106,7 +126,9 @@ export class DiscussionManager {
     try {
       const nodes = JSON.parse(res.stdout).data.repository.discussions.nodes;
       const hit = nodes.find((d: any) => String(d.title).startsWith(`[${taskId}]`));
-      return hit ? { number: hit.number, id: hit.id } : null;
+      const found = hit ? { number: hit.number, id: hit.id } : null;
+      this.threadCache.set(taskId, found);
+      return found;
     } catch {
       return null;
     }
@@ -143,7 +165,9 @@ export class DiscussionManager {
     try {
       const d = JSON.parse(res.stdout).data.createDiscussion.discussion;
       console.log(`💬 Created task discussion #${d.number} for [${task.id}]`);
-      return { number: d.number, id: d.id };
+      const created = { number: d.number, id: d.id };
+      this.threadCache.set(task.id, created);
+      return created;
     } catch {
       return null;
     }

@@ -737,6 +737,22 @@ export class OrchestratorEngine {
    */
   public static async tick(): Promise<void> {
     console.log("⏰ Orchestrator Tick started...");
+    // Coalesce duplicate ticks (wake + cron landing the same second):
+    // when an OLDER orchestrator run is already active, exit — the
+    // singleton would only queue a redundant full cycle behind it.
+    // REST-only: burns zero GraphQL quota. Older (smaller id) survives.
+    const me = process.env.GITHUB_RUN_ID;
+    if (me) {
+      try {
+        const lr = await GitManager.run(["gh", "run", "list", "--workflow", "orchestrator.yml", "--limit", "10", "--json", "databaseId,status"]);
+        const runs: any[] = JSON.parse(lr.stdout || "[]");
+        const older = runs.filter((r) => (r.status === "in_progress" || r.status === "queued" || r.status === "waiting") && Number(r.databaseId) < Number(me));
+        if (older.length > 0) {
+          console.log(`ℹ️ Coalescing: orchestrator run #${older[0].databaseId} already active; exiting to save a redundant cycle.`);
+          return;
+        }
+      } catch { /* proceed with tick */ }
+    }
     await GitManager.setupGitAuthor();
     await GitManager.run(["git", "fetch", "--all"]);
     // Dual-repo: register the private data remote so content-remote reads
