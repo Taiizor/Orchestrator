@@ -435,6 +435,10 @@ export class GitManager {
    * the public origin never sees a byte of it.
    */
   public static async publishTaskBranch(branch: string, commitMsg: string): Promise<boolean> {
+    // Scrub the index first: file restores above (engine files, state) stage
+    // additions the data branch must never absorb. Only inputs/workspace
+    // travel in the publish commit.
+    await this.run(["git", "reset", "-q"]);
     await this.run(["git", "add", "-f", CONFIG.INPUTS_DIR, CONFIG.WORKSPACE_DIR]);
     // Never publish dependency trees: `add -f` overrides gitignore, and an
     // agent-side `bun install` inside workspace/ would otherwise commit
