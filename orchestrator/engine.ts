@@ -760,6 +760,9 @@ export class OrchestratorEngine {
       const push = await GitManager.remoteGit(remote, ["push", remote, `HEAD:${CONFIG.BASE_BRANCH}`]);
       if (push.exitCode === 0) return;
       console.warn(`⚠️ Data state push rejected (attempt ${attempt}/3). Re-syncing...`);
+      // Back off: the competing writer is usually another tick still
+      // working; immediate retries just collide again.
+      await new Promise((r) => setTimeout(r, 15000 * attempt));
       await GitManager.remoteGit(remote, ["fetch", remote, CONFIG.BASE_BRANCH]);
       await GitManager.run(["git", "reset", "-q"]);
       await GitManager.run(["git", "checkout", "-B", "data-state", `${remote}/${CONFIG.BASE_BRANCH}`]);
