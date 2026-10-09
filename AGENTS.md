@@ -91,6 +91,7 @@ Human operators can steer, pause, or direct the autonomous team via GitHub Issue
 - `/retry <TASK-ID>`: Resets retry counter to 0 and re-queues a failed or stuck task.
 - `/status`: Generates an immediate real-time progress snapshot comment.
 - `/discuss <TASK-ID> "message"`: Relays a message to the task's agent discussion thread (`DiscussionManager`); the agent reads recent replies on its next attempt.
+- `/setup [public|data|all]`: Audits & repairs repo features (issues/wiki/projects/discussions) on the public and/or data repo.
 
 Subagents encountering an `[OPERATOR DIRECTIVE]` in their prompt MUST prioritize it above all default assumptions.
 

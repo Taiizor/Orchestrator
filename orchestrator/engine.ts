@@ -818,9 +818,11 @@ async function main() {
       const { ProjectManager } = await import("./project_manager.ts");
       const me = await ProjectManager.getOwner();
       const here = (CONFIG.GITHUB_REPOSITORY || "").split("/");
+      const publicFeatures = RepoSetup.parseFeatures(CONFIG.PUBLIC_FEATURES, "issues,discussions,projects");
+      const dataFeatures = RepoSetup.parseFeatures(CONFIG.DATA_FEATURES, "discussions");
       const reports = [];
       if (here.length === 2) {
-        reports.push(await RepoSetup.ensureRepoSettings(here[0], here[1], CONFIG.PROJECT_TOKEN));
+        reports.push(await RepoSetup.ensureRepoSettings(here[0], here[1], CONFIG.PROJECT_TOKEN, publicFeatures));
       } else {
         const repo = await GitManager.run(["gh", "repo", "view", "--json", "owner,name", "--jq", "[.owner.login, .name] | join(\"/\")"]);
         if (repo.exitCode === 0 && repo.stdout.includes("/")) {
@@ -834,7 +836,7 @@ async function main() {
         const slug = GitManager.dataRepoSlug();
         if (slug) {
           const [o, n] = slug.split("/");
-          reports.push(await RepoSetup.ensureRepoSettings(o, n, CONFIG.DATA_PAT));
+          reports.push(await RepoSetup.ensureRepoSettings(o, n, CONFIG.DATA_PAT, dataFeatures));
         }
       }
       for (const r of reports) {

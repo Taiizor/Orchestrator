@@ -80,6 +80,8 @@ jobs:
           INTEGRATION_BRANCH: develop
           DATA_REPO: ${{ secrets.DATA_REPO }}
           DATA_PAT: ${{ secrets.DATA_PAT }}
+          PUBLIC_FEATURES: ${{ vars.PUBLIC_FEATURES }}
+          DATA_FEATURES: ${{ vars.DATA_FEATURES }}
         run: |
           bun run subagents/runner.ts \
             --taskId="${{ inputs.taskId }}" \

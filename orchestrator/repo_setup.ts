@@ -17,12 +17,22 @@ export interface RepoSetupReport {
  * (classic `repo` scope). GITHUB_TOKEN alone can only report.
  */
 export class RepoSetup {
-  private static readonly WANT: Record<string, boolean> = {
-    has_issues: true,
-    has_discussions: true,
-    has_projects: true,
-    allow_merge_commit: true,
+  /** Feature name -> repo settings key. (Pull requests have no off switch.) */
+  private static readonly FEATURE_KEYS: Record<string, string> = {
+    issues: "has_issues",
+    wiki: "has_wiki",
+    projects: "has_projects",
+    discussions: "has_discussions",
   };
+
+  /** Parse "issues,wiki" env into a validated set (unknown names ignored). */
+  public static parseFeatures(raw: string | undefined, fallback: string): Set<string> {
+    const src = (raw || "").trim() ? raw! : fallback;
+    const known = Object.keys(this.FEATURE_KEYS);
+    return new Set(
+      src.split(",").map((s) => s.trim().toLowerCase()).filter((s) => known.includes(s))
+    );
+  }
 
   private static async runAs(
     cmd: string[],
@@ -37,10 +47,16 @@ export class RepoSetup {
   public static async ensureRepoSettings(
     owner: string,
     repo: string,
-    pat: string
+    pat: string,
+    wanted?: Set<string>
   ): Promise<RepoSetupReport> {
     const slug = `${owner}/${repo}`;
     const lines: string[] = [];
+    const want = wanted ?? new Set(["issues", "discussions", "projects"]);
+    const checks: Record<string, boolean> = { allow_merge_commit: true };
+    for (const [feat, key] of Object.entries(this.FEATURE_KEYS)) {
+      checks[key] = want.has(feat);
+    }
     const get = await this.runAs(["gh", "api", `repos/${slug}`], "");
     if (get.exitCode !== 0) {
       lines.push(`❌ Cannot read ${slug}: ${get.stderr.slice(0, 120)}`);
@@ -55,16 +71,16 @@ export class RepoSetup {
     }
 
     const patch: Record<string, boolean> = {};
-    for (const [key, want] of Object.entries(this.WANT)) {
+    for (const [key, wantVal] of Object.entries(checks)) {
       const current = !!info[key];
-      if (current === want) {
+      if (current === wantVal) {
         lines.push(`✅ ${key} = ${current}`);
       } else {
-        lines.push(`🔧 ${key}: ${current} → ${want}`);
-        patch[key] = want;
+        lines.push(`🔧 ${key}: ${current} → ${wantVal}`);
+        patch[key] = wantVal;
       }
     }
-    lines.push(`ℹ️ visibility=${info.private ? "private" : "public"}, wiki=${!!info.has_wiki}, default_branch=${info.default_branch}`);
+    lines.push(`ℹ️ visibility=${info.private ? "private" : "public"}, default_branch=${info.default_branch}`);
 
     const keys = Object.keys(patch);
     if (keys.length === 0) {

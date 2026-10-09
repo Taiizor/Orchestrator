@@ -18,6 +18,10 @@ export const CONFIG = {
   DATA_REPO: process.env.DATA_REPO || "",
   DATA_PAT: process.env.DATA_PAT || process.env.GH_PROJECT_TOKEN || "",
   DATA_REMOTE: "data",
+  // Feature toggles for the setup action (comma lists from
+  // issues|wiki|projects|discussions). Pull requests have no off switch.
+  PUBLIC_FEATURES: process.env.PUBLIC_FEATURES || "issues,discussions,projects",
+  DATA_FEATURES: process.env.DATA_FEATURES || "discussions",
 
   // Paths
   STATE_DIR: "state",

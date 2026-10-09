@@ -55,7 +55,8 @@ export class IssueManager {
       `- \`/directive <TASK-ID> "New instruction"\`: Steer or correct an active or pending task\n` +
       `- \`/retry <TASK-ID>\`: Re-queue a failed or stuck task\n` +
       `- \`/status\`: Request an immediate status report comment\n` +
-      `- \`/discuss <TASK-ID> "message"\`: Relay a message to the task's agent discussion thread\n`;
+      `- \`/discuss <TASK-ID> "message"\`: Relay a message to the task's agent discussion thread\n` +
+      `- \`/setup [public|data|all]\`: Audit & repair repo features (issues/wiki/projects/discussions)\n`;
 
     if (issueNumber) {
       // Update existing issue body
@@ -204,6 +205,42 @@ export class IssueManager {
             await this.acknowledgeComment(dashboardNumber, commentId, `⚠️ **Task Not Found:** No task with ID \`${taskId}\`.`);
           }
         }
+      } else if (body.startsWith("/setup")) {
+        // /setup [public|data|all] — one-shot repo settings audit & repair
+        // from ChatOps. Writes need an admin PAT; otherwise reports only.
+        console.log("🔧 ChatOps command received: /setup");
+        const scope = (body.match(/^\/setup\s*(public|data|all)?/) || [])[1] || "all";
+        const { RepoSetup } = await import("./repo_setup.ts");
+        const { ProjectManager } = await import("./project_manager.ts");
+        const { CONFIG } = await import("./config.ts");
+        const publicFeatures = RepoSetup.parseFeatures(CONFIG.PUBLIC_FEATURES, "issues,discussions,projects");
+        const dataFeatures = RepoSetup.parseFeatures(CONFIG.DATA_FEATURES, "discussions");
+        const out: string[] = [];
+        const wantPublic = scope === "public" || scope === "all";
+        const wantData = scope === "data" || scope === "all";
+        if (wantPublic) {
+          const repo = await GitManager.run(["gh", "repo", "view", "--json", "owner,name", "--jq", "[.owner.login, .name] | join(\"/\")"]);
+          if (repo.exitCode === 0 && repo.stdout.includes("/")) {
+            const [o, n] = repo.stdout.trim().split("/");
+            const r = await RepoSetup.ensureRepoSettings(o, n, CONFIG.PROJECT_TOKEN, publicFeatures);
+            out.push(`### ${r.repo}\n${r.lines.join("\n")}`);
+          } else {
+            out.push(`⚠️ Could not determine current repository.`);
+          }
+        }
+        if (wantData) {
+          if (GitManager.isDataMode()) {
+            const slug = GitManager.dataRepoSlug();
+            if (slug) {
+              const [o, n] = slug.split("/");
+              const r = await RepoSetup.ensureRepoSettings(o, n, CONFIG.DATA_PAT, dataFeatures);
+              out.push(`### ${r.repo}\n${r.lines.join("\n")}`);
+            }
+          } else {
+            out.push(`ℹ️ No data repo configured (DATA_REPO empty) — nothing to check.`);
+          }
+        }
+        await this.acknowledgeComment(dashboardNumber, commentId, `🔧 **Setup Report (${scope}):**\n\n${out.join("\n\n")}`);
       }
     }
 
