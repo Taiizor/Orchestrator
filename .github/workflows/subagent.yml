@@ -46,7 +46,7 @@ jobs:
           bun-version: latest
 
       - name: ⚡ Cache Bun Modules & OpenCode Binary
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.bun/install/cache
