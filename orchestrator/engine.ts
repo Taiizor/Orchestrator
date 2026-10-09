@@ -905,7 +905,7 @@ async function main() {
       if (projectNum) {
         await ProjectManager.syncBoardState(roadmap, projectNum);
       }
-      await this.persistRoadmap(roadmap, "chore(orchestrator): repair project board links");
+      await OrchestratorEngine.persistRoadmap(roadmap, "chore(orchestrator): repair project board links");
       console.log(projectNum ? `✅ Project board ready: #${projectNum}` : "⚠️ Project board still unavailable — see scope hint above.");
       break;
     }
@@ -960,7 +960,7 @@ async function main() {
           console.log("ℹ️ No roadmap yet; skipping service files.");
           break;
         }
-        await this.ensureServiceFiles(roadmap);
+        await OrchestratorEngine.ensureServiceFiles(roadmap);
       }
       break;
     }
@@ -985,7 +985,7 @@ async function main() {
         }
         const changed = await IssueManager.processChatOps(roadmap);
         if (changed) {
-          await this.persistRoadmap(roadmap, "chore(orchestrator): chatops command");
+          await OrchestratorEngine.persistRoadmap(roadmap, "chore(orchestrator): chatops command");
         } else {
           await StateManager.saveRoadmap(roadmap);
         }
