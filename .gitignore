@@ -25,5 +25,7 @@ workspace/*
 # dual-repo mode, never committed to the public skeleton.
 state/*
 !state/.gitkeep
+# Local reference copies (never commit)
+ECC-main/
 # Local build cache (never commit)
 tsconfig.tsbuildinfo
