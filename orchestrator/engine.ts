@@ -728,6 +728,8 @@ export class OrchestratorEngine {
   private static async persistRoadmapToData(roadmap: Roadmap, message: string, files: string[]): Promise<void> {
     const remote = CONFIG.DATA_REMOTE;
     const dataMain = await GitManager.remoteHasBranch(remote, CONFIG.BASE_BRANCH);
+    // Clear staged leftovers so the switch below never aborts.
+    await GitManager.run(["git", "reset", "-q"]);
     if (dataMain) {
       await GitManager.run(["git", "checkout", "-B", "data-state", `${remote}/${CONFIG.BASE_BRANCH}`]);
     } else {
@@ -750,6 +752,7 @@ export class OrchestratorEngine {
       if (push.exitCode === 0) return;
       console.warn(`⚠️ Data state push rejected (attempt ${attempt}/3). Re-syncing...`);
       await GitManager.remoteGit(remote, ["fetch", remote, CONFIG.BASE_BRANCH]);
+      await GitManager.run(["git", "reset", "-q"]);
       await GitManager.run(["git", "checkout", "-B", "data-state", `${remote}/${CONFIG.BASE_BRANCH}`]);
       try {
         const show = await GitManager.run(["git", "show", `${remote}/${CONFIG.BASE_BRANCH}:${CONFIG.ROADMAP_FILE}`]);

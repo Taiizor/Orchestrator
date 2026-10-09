@@ -284,7 +284,13 @@ export class GitManager {
           synced = true;
         }
       }
-      if (synced) return true;
+      if (synced) {
+        // Unstage immediately: these files must live in the workdir WITHOUT
+        // entering the index — staged state blocks later `checkout -B`
+        // switches ("would be overwritten") and leaks into unrelated commits.
+        await this.run(["git", "reset", "-q", "--", ...paths]);
+        return true;
+      }
     }
     console.log(`ℹ️ No data content found on ${remote} yet (fresh data repo?) — using local templates.`);
     return false;
@@ -397,7 +403,10 @@ export class GitManager {
     const eng = await this.run(["git", "checkout", "origin/main", "--", "orchestrator", "subagents", ".opencode", "package.json"]);
     if (eng.exitCode !== 0) {
       console.warn("⚠️ Engine file restore had issues:", (eng.stdout + eng.stderr).slice(0, 300));
+      return;
     }
+    // Keep workdir files, drop them from the index (same anti-leak rule).
+    await this.run(["git", "reset", "-q", "--", "orchestrator", "subagents", ".opencode", "package.json"]);
   }
 
   /**
@@ -413,6 +422,9 @@ export class GitManager {
     const { ConflictResolver } = await import("./conflict_resolver.ts");
     // Remember where we are so the tick workdir is left intact afterwards.
     const startRef = (await this.run(["git", "branch", "--show-current"])).stdout.trim() || "main";
+    // Clear staged leftovers (synced state etc.) — they abort the switch
+    // ("would be overwritten") and would pollute the merge commit.
+    await this.run(["git", "reset", "-q"]);
     // Ensure local target tracks the content remote's integration branch
     await this.run(["git", "checkout", "-B", targetBranch, `${remote}/${targetBranch}`]);
     await this.restoreEngineFiles();
