@@ -771,7 +771,7 @@ export class OrchestratorEngine {
       }
     }
 
-    // Step 0: Process ChatOps commands (/pause, /resume, /directive, /retry, /status)
+    // Step 0: Process ChatOps commands (/pause, /resume, /tick, /directive, /retry, /status)
     const chatOpsChanged = await IssueManager.processChatOps(roadmap);
     if (chatOpsChanged) {
       await StateManager.saveRoadmap(roadmap);

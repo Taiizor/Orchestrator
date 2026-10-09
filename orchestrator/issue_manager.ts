@@ -79,6 +79,7 @@ export class IssueManager {
       `You can leave comments on this issue to guide the agents:\n` +
       `- \`/pause\`: Pause active execution\n` +
       `- \`/resume\`: Resume task execution\n` +
+      `- \`/tick\`: Trigger an immediate orchestration cycle\n` +
       `- \`/directive <TASK-ID> "New instruction"\`: Steer or correct an active or pending task\n` +
       `- \`/retry <TASK-ID>\`: Re-queue a failed or stuck task\n` +
       `- \`/status\`: Request an immediate status report comment\n` +
@@ -167,7 +168,7 @@ export class IssueManager {
 
       // Typo tolerance: /staus, /pausse, /statuss... (edit distance ≤ 2).
       // Unknown commands get the help text instead of silence.
-      const KNOWN = ["pause", "resume", "retry", "directive", "revise", "status", "discuss", "setup", "ask", "add", "log"];
+      const KNOWN = ["pause", "resume", "tick", "retry", "directive", "revise", "status", "discuss", "setup", "ask", "add", "log"];
       const wordMatch = body.match(/^\/([A-Za-z]+)/);
       if (wordMatch) {
         const word = wordMatch[1].toLowerCase();
@@ -200,7 +201,23 @@ export class IssueManager {
         roadmap.globalStatus = "IN_PROGRESS";
         hasChanges = true;
         await this.acknowledgeComment(dashboardNumber, commentId, "▶️ **Orchestrator Resumed:** Task scheduling and dispatching resumed.");
-      } else if (body.startsWith("/retry")) {
+      } else if (body.startsWith("/tick")) {
+        // /tick — request an immediate orchestration cycle via
+        // workflow_dispatch (default action=tick). Dedupe like the
+        // subagent wake: skip when a run is already queued/active.
+        console.log("🔔 ChatOps command received: /tick");
+        const pending = await GitManager.run(["gh", "run", "list", "--workflow", "orchestrator.yml", "--limit", "5", "--json", "status", "--jq", '[.[] | select(.status == "queued" or .status == "in_progress" or .status == "waiting" or .status == "requested")] | length']);
+        const count = parseInt(pending.stdout.trim(), 10);
+        if (!Number.isNaN(count) && count > 0) {
+          await this.acknowledgeComment(dashboardNumber, commentId, `🔔 **Tick already queued/running** (${count}) — skipping duplicate wake.`);
+        } else {
+          const trig = await GitManager.run(["gh", "workflow", "run", "orchestrator.yml"]);
+          if (trig.exitCode === 0) {
+            await this.acknowledgeComment(dashboardNumber, commentId, "🔔 **Tick requested:** orchestration cycle dispatched, results land on this board.");
+          } else {
+            await this.acknowledgeComment(dashboardNumber, commentId, `⚠️ **Tick dispatch failed:** ${trig.stderr.slice(0, 200)}`);
+          }
+        } else if (body.startsWith("/retry")) {
         const match = body.match(/\/retry\s+([A-Za-z0-9_-]+)/);
         if (match) {
           const taskId = match[1];

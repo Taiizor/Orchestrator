@@ -194,6 +194,7 @@ Both `orchestrator.yml` and `subagent.yml` utilize `actions/cache@v4` to cache B
 You can steer, pause, or query the autonomous team directly from GitHub Issue comments on the Dashboard Issue:
 - `/pause`: Pause new task dispatches while letting active runs safely finish.
 - `/resume`: Unpause scheduling and dispatch the next batch of ready tasks.
+- `/tick`: Trigger an immediate orchestration cycle (same as the 15-min cron).
 - `/directive <TASK-ID> "instruction"`: Inject new directives or course corrections into a task; automatically cancels any active run and re-queues it with the directive.
 - `/retry <TASK-ID>`: Reset retry counter to 0 and re-queue a failed or stuck task.
 - `/status`: Post an instantaneous progress snapshot comment.

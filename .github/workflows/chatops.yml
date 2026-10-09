@@ -1,0 +1,63 @@
+name: 💬 ChatOps Fast Lane
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  chatops:
+    name: 💬 ChatOps Fast Lane
+    # Standalone fast lane: answers operator commands in ~1 min without
+    # running the heavy tick (slash comments no longer trigger
+    # orchestrator.yml). Only fires on slash comments.
+    concurrency:
+      group: chatops-singleton
+      cancel-in-progress: false
+    if: github.event_name == 'issue_comment' && startsWith(github.event.comment.body, '/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      issues: write
+      discussions: write
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🥟 Setup Bun Runtime
+        uses: oven-sh/setup-bun@v2.2.0
+        with:
+          bun-version: latest
+
+      - name: ⚙️ Install OpenCode CLI
+        run: |
+          if ! command -v opencode &> /dev/null; then
+            echo "Installing OpenCode CLI..."
+            bun install -g --trust @opencode/cli
+          fi
+          echo "$HOME/.bun/bin" >> $GITHUB_PATH
+          export PATH="$HOME/.bun/bin:$PATH"
+          mkdir -p "$HOME/.config/opencode"
+          printf '{\n  "permission": {\n    "*": "allow"\n  }\n}\n' > "$HOME/.config/opencode/opencode.json"
+          opencode --version || echo "OpenCode installed"
+
+      - name: 📦 Install Project Dependencies
+        run: bun install
+
+      - name: 💬 Run ChatOps Handler
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_PROJECT_TOKEN: ${{ secrets.GH_PROJECT_TOKEN }}
+          OPENCODE_MODEL: ${{ secrets.OPENCODE_MODEL }}
+          OPENCODE_VARIANT: ${{ secrets.OPENCODE_VARIANT }}
+          INTEGRATION_BRANCH: develop
+          DATA_REPO: ${{ secrets.DATA_REPO }}
+          DATA_PAT: ${{ secrets.DATA_PAT }}
+          PUBLIC_FEATURES: ${{ vars.PUBLIC_FEATURES }}
+          DATA_FEATURES: ${{ vars.DATA_FEATURES }}
+        run: bun run orchestrator/engine.ts --action=chatops

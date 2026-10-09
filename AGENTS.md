@@ -83,6 +83,7 @@ Every subagent MUST create and maintain `workspace/TASK_PROGRESS.md` before conc
 Human operators can steer, pause, or direct the autonomous team via GitHub Issue comments on the Master Dashboard Issue:
 - `/pause`: Halts dispatching of new tasks. Active subagents safely complete their current task.
 - `/resume`: Resumes scheduling and task dispatching.
+- `/tick`: Triggers an immediate orchestration cycle (same as the 15-min cron).
 - `/directive <TASK-ID> "instruction"`: Injects an urgent directive into a task. If active, the Orchestrator cancels the workflow run (`gh run cancel`), applies the directive to `reviewNotes`, and re-dispatches the subagent.
 - `/retry <TASK-ID>`: Resets retry counter to 0 and re-queues a failed or stuck task.
 - `/status`: Generates an immediate real-time progress snapshot comment.
