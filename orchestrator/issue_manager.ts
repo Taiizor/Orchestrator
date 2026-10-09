@@ -217,7 +217,8 @@ export class IssueManager {
           } else {
             await this.acknowledgeComment(dashboardNumber, commentId, `⚠️ **Tick dispatch failed:** ${trig.stderr.slice(0, 200)}`);
           }
-        } else if (body.startsWith("/retry")) {
+        }
+      } else if (body.startsWith("/retry")) {
         const match = body.match(/\/retry\s+([A-Za-z0-9_-]+)/);
         if (match) {
           const taskId = match[1];
