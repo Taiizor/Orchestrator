@@ -68,7 +68,7 @@ export class StateManager {
   /**
    * Generate human & AI readable master progress report in Markdown.
    * Redacted mode (dual-repo public dashboard) drops titles, notes and
-   * branches — IDs, roles and statuses only.
+   * branches — IDs, roles, statuses and dependencies only.
    */
   public static renderProgressMarkdown(roadmap: Roadmap, opts?: { redact?: boolean }): string {
     const redact = !!opts?.redact;
@@ -100,8 +100,8 @@ export class StateManager {
 
     md += `### 📋 Task Breakdown\n\n`;
     if (redact) {
-      md += `| ID | Role | Status |\n`;
-      md += `| :--- | :--- | :--- |\n`;
+      md += `| ID | Role | Status | Dependencies |\n`;
+      md += `| :--- | :--- | :--- | :--- |\n`;
     } else {
       md += `| ID | Title | Role | Status | Branch | Dependencies | Notes |\n`;
       md += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
@@ -109,7 +109,8 @@ export class StateManager {
 
     for (const task of roadmap.tasks) {
       if (redact) {
-        md += `| \`${task.id}\` | \`${task.role}\` | ${statusBadge(task.status)} |\n`;
+        const deps = task.dependencies.length > 0 ? task.dependencies.map((d) => `\`${d}\``).join(", ") : "-";
+        md += `| \`${task.id}\` | \`${task.role}\` | ${statusBadge(task.status)} | ${deps} |\n`;
         continue;
       }
       const deps = task.dependencies.length > 0 ? task.dependencies.join(", ") : "-";
