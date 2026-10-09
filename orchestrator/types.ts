@@ -29,6 +29,7 @@ export interface TaskItem {
   failedAt?: string; // ISO timestamp of last FAILED transition (auto-resurrect cooldown)
   resurrections?: number; // Auto-resurrect count (bounded; human /retry resets to 0)
   lastReviewSha?: string; // Branch tip SHA of last completed review (skip re-review when unchanged)
+  lastGateVersion?: number; // Ruleset version of last verdict (rule fixes invalidate old skips)
   createdAt: string;
   updatedAt: string;
 }

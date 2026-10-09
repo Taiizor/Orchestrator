@@ -160,6 +160,14 @@ function touchesApiOrSchema(files: string[]): boolean {
 }
 
 /**
+ * Gate ruleset version. Bumped whenever deterministic rules change
+ * (scope lists, secret patterns, file filters): old verdicts recorded
+ * under a previous version must be re-evaluated, never skipped by the
+ * unchanged-tip optimization.
+ */
+export const GATE_VERSION = 2;
+
+/**
  * Deterministic pre-LLM gate. Fails fast on empty diff, missing progress
  * structure, secret hits, or out-of-scope writes. Warns on contract drift.
  */

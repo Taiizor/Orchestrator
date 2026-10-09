@@ -6,7 +6,7 @@ import { GitManager } from "./git_manager.ts";
 import { OpenCodeClient } from "./opencode_client.ts";
 import { IssueManager } from "./issue_manager.ts";
 import { ProjectManager } from "./project_manager.ts";
-import { hasStructuredProgress, isDefaultProgress, runReviewGate } from "./review_gate.ts";
+import { GATE_VERSION, hasStructuredProgress, isDefaultProgress, runReviewGate } from "./review_gate.ts";
 import { validateRoadmap, formatValidation } from "./roadmap_validator.ts";
 import type { Roadmap, TaskItem, ReviewResult } from "./types.ts";
 
@@ -482,7 +482,7 @@ export class OrchestratorEngine {
       // (Verdicts always move the task out of IN_REVIEW, so a repeat here
       // with the same tip means a no-op cycle re-queued it.)
       const tipSha = await GitManager.branchTipSha(task.branch);
-      if (tipSha && task.lastReviewSha === tipSha) {
+      if (tipSha && task.lastReviewSha === tipSha && task.lastGateVersion === GATE_VERSION) {
         console.log(`⏭️ [${task.id}] branch unchanged since last review (${tipSha.slice(0, 7)}); skipping re-review.`);
         continue;
       }
@@ -502,7 +502,10 @@ export class OrchestratorEngine {
       const rejectTask = async (notes: string, fixes: string[]) => {
         console.warn(`⚠️ [${task.id}] REJECTED: ${notes}`);
         task.attempts += 1;
-        if (tipSha) task.lastReviewSha = tipSha;
+        if (tipSha) {
+            task.lastReviewSha = tipSha;
+            task.lastGateVersion = GATE_VERSION;
+          }
         task.reviewNotes = notes + (fixes.length > 0 ? `\nFixes: ${fixes.join(", ")}` : "");
         if (task.attempts >= task.maxAttempts) {
           task.status = "FAILED";
@@ -529,7 +532,10 @@ export class OrchestratorEngine {
         if (onlyEmptyDiff) {
           console.log(`✅ [${task.id}] branch already integrated (empty diff). Marking COMPLETED.`);
           task.status = "COMPLETED";
-          if (tipSha) task.lastReviewSha = tipSha;
+          if (tipSha) {
+            task.lastReviewSha = tipSha;
+            task.lastGateVersion = GATE_VERSION;
+          }
           task.reviewNotes = "Branch diff vs develop is empty; deliverables already integrated.";
           task.updatedAt = new Date().toISOString();
           if (roadmap.projectNumber) {
@@ -627,7 +633,10 @@ export class OrchestratorEngine {
 
         if (merged) {
           task.status = "COMPLETED";
-          if (tipSha) task.lastReviewSha = tipSha;
+          if (tipSha) {
+            task.lastReviewSha = tipSha;
+            task.lastGateVersion = GATE_VERSION;
+          }
           task.reviewNotes = (reviewResult.notes || "Approved and integrated.") + (viaPR ? ` (PR ${viaPR})` : "");
           task.updatedAt = new Date().toISOString();
           if (roadmap.projectNumber) {
@@ -1000,6 +1009,8 @@ export class OrchestratorEngine {
       task.status = "PENDING";
       task.attempts = 0;
       task.resurrections = res + 1;
+      task.lastReviewSha = undefined;
+      task.lastGateVersion = undefined;
       task.updatedAt = new Date().toISOString();
       task.reviewNotes = `Auto-resurrect #${res + 1}/${CONFIG.FAILED_AUTO_RESURRECT_MAX} after ${CONFIG.FAILED_RESURRECT_COOLDOWN_MIN}m cooldown (was FAILED). Previous: ${(task.reviewNotes || "-").slice(0, 200)}`;
       console.log(`🌅 [${task.id}] auto-resurrected to PENDING (${task.resurrections}/${CONFIG.FAILED_AUTO_RESURRECT_MAX}).`);

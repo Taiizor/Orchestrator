@@ -347,6 +347,8 @@ export class IssueManager {
               task.status = "PENDING";
               task.attempts = 0;
               task.resurrections = 0;
+              task.lastReviewSha = undefined;
+              task.lastGateVersion = undefined;
               hasChanges = true;
               lines.push(`🔄 **Task [${taskId}] Re-queued:** attempts reset, status → PENDING.`);
             } else {
