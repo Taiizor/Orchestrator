@@ -101,7 +101,7 @@ export function validateRoadmap(raw: {
       warnings.push(`[${t.id}] has no verificationCommand; proof of completion unenforceable.`);
     } else if (!isKnownStackCommand(t.verificationCommand)) {
       warnings.push(
-        `[${t.id}] verificationCommand "${t.verificationCommand.slice(0, 60)}" matches no known stack toolchain (bun/go/cargo/dotnet/pytest); proof may be unverifiable in CI.`
+        `[${t.id}] verificationCommand "${t.verificationCommand.slice(0, 60)}" matches no known stack toolchain (bun/go/cargo/dotnet/pytest/phpunit); proof may be unverifiable in CI.`
       );
     }
     if (!t.targetFiles || t.targetFiles.length === 0) {
