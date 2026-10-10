@@ -150,6 +150,12 @@ jobs:
       - name: 🧩 Stage ECC skills (toolchain-style, on-demand depth)
         run: bun run scripts/stage-ecc-skills.ts
 
+      - name: 🧹 Restore generated ECC manifest (keep tree clean for branch ops)
+        # install-ecc.ts rewrites vendor/ecc/.manifest.json (tracked pin file);
+        # a dirty tree aborts every later branch checkout/merge. The staged
+        # skills are already copied — restoring the pin loses nothing.
+        run: git checkout -- vendor/ecc/.manifest.json 2>/dev/null || true
+
       - name: 🌿 Ensure State and Integration Branches Exist
         env:
           DATA_REPO: ${{ secrets.DATA_REPO }}
