@@ -639,8 +639,13 @@ export class IssueManager {
               updatedAt: now,
             });
             hasChanges = true;
-            const warn =
-              check.warnings.length > 0 ? `\n\n${formatValidation({ errors: [], warnings: check.warnings })}` : "";
+            // Only the new task's warnings are actionable; completed tasks'
+            // thin plans are history. Summarize the rest instead of spamming.
+            const ownWarns = check.warnings.filter((w) => w.includes(`[${nextId}]`));
+            const histCount = check.warnings.length - ownWarns.length;
+            let warn = "";
+            if (ownWarns.length > 0) warn += `\n\n${formatValidation({ errors: [], warnings: ownWarns })}`;
+            if (histCount > 0) warn += `\n\n_(${histCount} historical warnings on already-completed tasks omitted.)_`;
             await this.acknowledgeComment(
               dashboardNumber,
               commentId,
