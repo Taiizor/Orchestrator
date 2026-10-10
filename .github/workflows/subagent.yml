@@ -41,7 +41,7 @@ jobs:
       - name: 🔑 Generate GitHub App Token (optional)
         id: app-token
         if: ${{ env.APP_ID != '' && env.APP_PRIVATE_KEY != '' }}
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ env.APP_ID }}
           private-key: ${{ env.APP_PRIVATE_KEY }}
