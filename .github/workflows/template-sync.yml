@@ -49,10 +49,10 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH"
-          if git merge "upstream/main" -m "chore(sync): merge template ${UPSTREAM}"; then
+          if git merge "upstream/main" --allow-unrelated-histories -m "chore(sync): merge template ${UPSTREAM}"; then
             echo "merge=clean" >> "$GITHUB_ENV"
           else
-            git merge --abort
+            git merge --abort 2>/dev/null || true
             echo "merge=conflict" >> "$GITHUB_ENV"
           fi
           git push -u origin "$BRANCH" || git push origin "$BRANCH"
@@ -60,7 +60,7 @@ jobs:
       - name: 📝 Open sync PR (clean merge)
         if: steps.check.outputs.behind != '0' && env.merge == 'clean'
         run: |
-          gh pr create --base main --head "$branch" \
+          gh pr create --base main --head "$BRANCH" \
             --title "🔄 Template sync: ${UPSTREAM}" \
             --body "Engine updates from the template repo (\`${UPSTREAM}\`). Review, then merge when calm — never during an active milestone push." \
           || echo "Sync PR already exists."
