@@ -9,7 +9,7 @@ import { OpenCodeClient } from "./opencode_client.ts";
 import { IssueManager } from "./issue_manager.ts";
 import { ProjectManager } from "./project_manager.ts";
 import { GATE_VERSION, hasStructuredProgress, isDefaultProgress, runReviewGate } from "./review_gate.ts";
-import { validateRoadmap, formatValidation } from "./roadmap_validator.ts";
+import { validateRoadmap, formatValidation, sanitizeCoverage } from "./roadmap_validator.ts";
 import { initializeGitHubAppAuth } from "./github_app.ts";
 import type { Roadmap, TaskItem, ReviewResult } from "./types.ts";
 
@@ -206,6 +206,7 @@ export class OrchestratorEngine {
           summary: raw.summary || "",
           globalStatus: "IN_PROGRESS",
           milestones: raw.milestones || [],
+          coverage: sanitizeCoverage((raw as Record<string, unknown>).coverage),
           services: Array.isArray(raw.services)
             ? raw.services.filter(
                 (s: any) => typeof s === "string" || (s && typeof s.name === "string" && typeof s.image === "string")
@@ -247,6 +248,19 @@ export class OrchestratorEngine {
     }
 
     // Deterministic DAG validation BEFORE persisting (cycles, dupes, bad roles, missing deps)
+    // Coverable inputs for the input→task coverage check (docs + assets;
+    // generated skills and template files excluded).
+    const coverableInputs: string[] = [];
+    try {
+      const iglob = new Bun.Glob("inputs/**/*");
+      for await (const rel of iglob.scan({ cwd: ".", onlyFiles: true })) {
+        const norm = rel.replace(/\\/g, "/");
+        if (/(^|\/)README\.md$/.test(norm) || norm.endsWith(".gitkeep") || norm.startsWith("inputs/skills/")) continue;
+        coverableInputs.push(norm.startsWith("inputs/") ? norm : `inputs/${norm}`);
+      }
+    } catch {
+      // No inputs dir — coverage check stays silent.
+    }
     const validation = validateRoadmap({
       tasks: roadmapData.tasks.map((t) => ({
         id: t.id,
@@ -260,6 +274,8 @@ export class OrchestratorEngine {
       })),
       milestones: roadmapData.milestones,
       services: roadmapData.services,
+      inputFiles: coverableInputs,
+      coverage: roadmapData.coverage,
     });
     if (validation.warnings.length > 0) {
       console.warn("⚠️ Roadmap validation warnings:\n" + formatValidation({ errors: [], warnings: validation.warnings }));

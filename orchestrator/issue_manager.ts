@@ -640,9 +640,10 @@ export class IssueManager {
               updatedAt: now,
             });
             hasChanges = true;
-            // Only the new task's warnings are actionable; completed tasks'
+            // Only the new task's warnings are actionable, plus roadmap-level
+            // warnings (no task ID — e.g. input coverage); completed tasks'
             // thin plans are history. Summarize the rest instead of spamming.
-            const ownWarns = check.warnings.filter((w) => w.includes(`[${nextId}]`));
+            const ownWarns = check.warnings.filter((w) => w.includes(`[${nextId}]`) || !/\[[A-Z]+-\d+\]/.test(w));
             const histCount = check.warnings.length - ownWarns.length;
             let warn = "";
             if (ownWarns.length > 0) warn += `\n\n${formatValidation({ errors: [], warnings: ownWarns })}`;

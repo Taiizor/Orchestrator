@@ -59,6 +59,7 @@ export interface Roadmap {
   tasks: TaskItem[];
   updatedAt: string;
   lastBoardSyncAt?: string; // Last successful board drift-heal (skip idle snapshots)
+  coverage?: Record<string, string[]>; // Input-file → task IDs map (planner-authored; guards against dropped requirements)
 }
 
 export interface TaskProgressReport {

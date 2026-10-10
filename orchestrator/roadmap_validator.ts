@@ -25,6 +25,18 @@ function globOverlap(a: string, b: string): boolean {
   return na === nb || na.startsWith(nb) || nb.startsWith(na);
 }
 
+/** Sanitize a planner-authored input-coverage map (string keys, string[] ids). */
+export function sanitizeCoverage(raw: unknown): Record<string, string[]> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Record<string, string[]> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof k !== "string" || !Array.isArray(v)) continue;
+    const ids = (v as unknown[]).filter((x) => typeof x === "string").map(String);
+    if (ids.length > 0) out[k] = ids;
+  }
+  return out;
+}
+
 /** Validate planner-generated roadmap before persisting. */
 export function validateRoadmap(raw: {
   tasks: {
@@ -39,6 +51,10 @@ export function validateRoadmap(raw: {
   }[];
   milestones?: { title: string }[];
   services?: (string | { name?: string; image?: string; env?: Record<string, string>; ports?: string[] })[];
+  /** Coverable input files (`inputs/`-relative posix paths). Only the plan path supplies these. */
+  inputFiles?: string[];
+  /** Input-file → task ID coverage map authored by the planner. */
+  coverage?: Record<string, string[]>;
 }): ValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -145,6 +161,26 @@ export function validateRoadmap(raw: {
     if (!mtasks.some((t) => SERVING_ROLES.has(t.role))) continue;
     if (!mtasks.some((t) => t.role === "launch")) {
       warnings.push(`Milestone "${m.title}" serves HTTP but has no launch-verification task; tak-çalıştır is unproven.`);
+    }
+  }
+
+  // Input→task coverage: every ingested input file should map to ≥1 task,
+  // otherwise requirements silently evaporate (thin-plan class). Only the
+  // plan path supplies inputFiles; surgical adds skip this check.
+  if (raw.inputFiles && raw.inputFiles.length > 0) {
+    const cov = raw.coverage && typeof raw.coverage === "object" ? raw.coverage : null;
+    if (!cov) {
+      warnings.push(
+        `Roadmap has no input-coverage map; ${raw.inputFiles.length} input file(s) untracked (requirements may be dropped).`
+      );
+    } else {
+      const idSet = new Set(tasks.map((t) => t.id));
+      for (const f of raw.inputFiles) {
+        const refs = Array.isArray((cov as Record<string, unknown>)[f]) ? (cov as Record<string, string[]>)[f] : [];
+        if (!refs.some((id) => idSet.has(id))) {
+          warnings.push(`Input "${f}" is not covered by any task; its requirements may be dropped.`);
+        }
+      }
     }
   }
 

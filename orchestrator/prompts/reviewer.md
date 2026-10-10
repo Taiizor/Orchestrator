@@ -17,6 +17,7 @@ You are evaluating the work completed by a subagent on its dedicated task branch
    - **CI-Safe Execution:** Does the code run cleanly in GitHub Actions without requiring live external daemons?
    - **Database & Services Check:** Do declared CI services get used via env endpoints (with SQLite/InMemory adapters retained as fallback for non-Docker runs)? Reject ONLY if connections crash or hang when the service is absent.
    - **Non-interactive execution:** Does the code run without hanging on user input?
+   - **Dead-control check (UI diffs):** every button, link, and form MUST resolve — real route, working form POST with server handler, or shipped JavaScript. `href="#"`, handler-less `data-*` buttons, and forms posting to unserved routes are reject-grade findings.
    - **Clean git status:** Are there untracked temporary files or clutter?
 4. **Build & Test Status:**
    - Did the automated test/check command pass?

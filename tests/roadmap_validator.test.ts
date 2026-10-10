@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { validateRoadmap, formatValidation } from "../orchestrator/roadmap_validator.ts";
+import { validateRoadmap, formatValidation, sanitizeCoverage } from "../orchestrator/roadmap_validator.ts";
 
 describe("Roadmap Validator Module", () => {
   describe("validateRoadmap", () => {
@@ -140,6 +140,38 @@ describe("Roadmap Validator Module", () => {
       });
       expect(result.warnings.length).toBe(0);
     });
+
+    it("should warn on uncovered input files", () => {
+      const tasks = [{
+        id: "t1", role: "backend", dependencies: [], targetFiles: ["a"],
+        description: "word ".repeat(25).trim(),
+        deliverables: ["Create a.ts", "Test a.ts"],
+        verificationCommand: "bun test"
+      }];
+      const covered = validateRoadmap({
+        tasks,
+        inputFiles: ["inputs/spec.md", "inputs/mock.png"],
+        coverage: { "inputs/spec.md": ["t1"], "inputs/mock.png": ["t1"] }
+      });
+      expect(covered.warnings.length).toBe(0);
+
+      const missing = validateRoadmap({
+        tasks,
+        inputFiles: ["inputs/spec.md", "inputs/mock.png"],
+        coverage: { "inputs/spec.md": ["t1"] }
+      });
+      expect(missing.warnings.some(w => w.includes('Input "inputs/mock.png" is not covered'))).toBe(true);
+
+      const nomap = validateRoadmap({ tasks, inputFiles: ["inputs/spec.md"] });
+      expect(nomap.warnings.some(w => w.includes("no input-coverage map"))).toBe(true);
+    });
+
+    it("should skip coverage checks without inputFiles", () => {
+      const result = validateRoadmap({
+        tasks: [{ id: "t1", role: "backend", dependencies: [], targetFiles: ["a"] }]
+      });
+      expect(result.warnings.some(w => w.includes("not covered"))).toBe(false);
+    });
   });
 
   describe("formatValidation", () => {
@@ -153,6 +185,27 @@ describe("Roadmap Validator Module", () => {
       expect(str).toContain("- Err1");
       expect(str).toContain("Warnings:");
       expect(str).toContain("- Warn1");
+    });
+  });
+
+  describe("sanitizeCoverage", () => {
+    it("should keep string keys with string-id arrays", () => {
+      expect(sanitizeCoverage({ "inputs/a.md": ["t1", "t2"], "inputs/b.png": ["t1"] })).toEqual({
+        "inputs/a.md": ["t1", "t2"],
+        "inputs/b.png": ["t1"],
+      });
+    });
+
+    it("should drop non-array values and non-string ids", () => {
+      expect(sanitizeCoverage({ "inputs/a.md": "t1", "inputs/b.md": ["t1", 42, null], "inputs/c.md": [] })).toEqual({
+        "inputs/b.md": ["t1"],
+      });
+    });
+
+    it("should return {} for non-objects", () => {
+      expect(sanitizeCoverage(null)).toEqual({});
+      expect(sanitizeCoverage("x")).toEqual({});
+      expect(sanitizeCoverage([["a", ["t1"]]])).toEqual({});
     });
   });
 });
