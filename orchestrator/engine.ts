@@ -732,7 +732,9 @@ export class OrchestratorEngine {
       await GitManager.run(["git", "commit", "-m", message]);
       const push = await GitManager.run(["git", "push"]);
       if (push.exitCode === 0) return;
-      console.warn(`⚠️ Push rejected (attempt ${attempt}/3). Rebasing...`);
+      const delayMs = attempt * 2000 + Math.floor(Math.random() * 1000);
+      console.warn(`⚠️ Push rejected (attempt ${attempt}/3). Backing off for ${delayMs}ms before rebase...`);
+      await Bun.sleep(delayMs);
       await GitManager.run(["git", "fetch", "origin"]);
       const rebase = await GitManager.run(["git", "pull", "--rebase"]);
       if (rebase.exitCode === 0) continue;
@@ -856,6 +858,8 @@ export class OrchestratorEngine {
             `⚡ **Subagent Dispatched:** Executing on branch \`${task.branch}\` with role \`${task.role}\`.`
           );
         }
+        // Polite pacing: avoid burst workflow dispatches and comment creation
+        await Bun.sleep(1000);
       }
     }
 

@@ -295,9 +295,11 @@ export class ProjectManager {
         const args = ["gh", "api", "repos/:owner/:repo/milestones", "-f", `title=${m.title}`];
         if (m.description) args.push("-f", `description=${m.description}`);
         await GitManager.run(args);
+        await Bun.sleep(800);
       } else if (hit.state === "closed" && !(isComplete?.(m.title) ?? false)) {
         console.log(`🔓 Reopening closed Milestone: "${m.title}" (#${hit.number}) — unfinished tasks remain...`);
         await GitManager.run(["gh", "api", `repos/:owner/:repo/milestones/${hit.number}`, "-X", "PATCH", "-f", "state=open"]);
+        await Bun.sleep(500);
       }
     }
   }
@@ -334,6 +336,7 @@ export class ProjectManager {
         lbl.description,
         "--force",
       ]);
+      await Bun.sleep(400);
     }
   }
 
@@ -464,6 +467,8 @@ export class ProjectManager {
           task.issueNumber = parseInt(match[1], 10);
         }
       }
+      // Polite pacing: GitHub secondary rate limits trigger when creating issues too fast
+      await Bun.sleep(1500);
     }
   }
 
@@ -590,9 +595,11 @@ export class ProjectManager {
         } else {
           stats.skipped++;
         }
+        await Bun.sleep(500);
       } else if (current !== desired) {
         await this.updateItemStatus(projectNumber, task, desired);
         stats.updated++;
+        await Bun.sleep(500);
       } else {
         stats.skipped++;
       }
@@ -668,6 +675,7 @@ export class ProjectManager {
         "--comment",
         `✅ **Task Completed & Verified:** Merged into integration branch with 0 test failures.`,
       ]);
+      await Bun.sleep(500);
     }
   }
 

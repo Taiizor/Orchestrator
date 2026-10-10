@@ -449,9 +449,26 @@ export class GitManager {
       }
     }
 
-    const pushRes = await this.remoteGit(remote, ["push", remote, targetBranch]);
+    let pushSuccess = false;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const pushRes = await this.remoteGit(remote, ["push", remote, targetBranch]);
+      if (pushRes.exitCode === 0) {
+        pushSuccess = true;
+        break;
+      }
+      if (attempt < 3) {
+        const delayMs = attempt * 2000 + Math.floor(Math.random() * 1000);
+        console.warn(
+          `⚠️ Push failed for merged ${targetBranch} (attempt ${attempt}/3). Backing off for ${delayMs}ms before pull & rebase...`
+        );
+        await Bun.sleep(delayMs);
+        await this.remoteGit(remote, ["pull", "--rebase", remote, targetBranch]);
+      } else {
+        console.error(`❌ Push failed for merged ${targetBranch} after 3 attempts:`, pushRes.stderr);
+      }
+    }
     await this.run(["git", "checkout", startRef]);
-    return pushRes.exitCode === 0;
+    return pushSuccess;
   }
 
   /**
@@ -508,12 +525,22 @@ export class GitManager {
       return false;
     }
     const remote = this.contentRemote();
-    const pushRes = await this.remoteGit(remote, ["push", "-u", remote, `HEAD:${branch}`]);
-    if (pushRes.exitCode !== 0) {
-      console.error(`❌ Could not push data branch ${branch} to ${remote}:`, pushRes.stderr);
-      return false;
+    const maxRetries = 3;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      const pushRes = await this.remoteGit(remote, ["push", "-u", remote, `HEAD:${branch}`]);
+      if (pushRes.exitCode === 0) return true;
+      if (attempt < maxRetries) {
+        const delayMs = attempt * 2000 + Math.floor(Math.random() * 1000);
+        console.warn(
+          `⚠️ Push rejected for data branch ${branch} (attempt ${attempt}/${maxRetries}). Backing off for ${delayMs}ms...`
+        );
+        await Bun.sleep(delayMs);
+      } else {
+        console.error(`❌ Could not push data branch ${branch} to ${remote} after ${maxRetries} attempts:`, pushRes.stderr);
+        return false;
+      }
     }
-    return true;
+    return false;
   }
 
   /**
@@ -537,7 +564,11 @@ export class GitManager {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       const pushRes = await this.run(["git", "push"]);
       if (pushRes.exitCode === 0) return true;
-      console.warn(`⚠️ Push rejected (attempt ${attempt}/${maxRetries}). Fetching and rebasing...`);
+      const delayMs = attempt * 2000 + Math.floor(Math.random() * 1000);
+      console.warn(
+        `⚠️ Push rejected (attempt ${attempt}/${maxRetries}). Backing off for ${delayMs}ms before fetch & rebase...`
+      );
+      await Bun.sleep(delayMs);
       await this.run(["git", "fetch", "origin"]);
       const rebaseRes = await this.run(["git", "pull", "--rebase"]);
       if (rebaseRes.exitCode !== 0) {
