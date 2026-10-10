@@ -193,6 +193,7 @@ export class OpenCodeClient {
         console.warn(
           `⚠️ [OpenCode] Model ${label} encountered an issue (Exit: ${res.exitCode}, ApiError: ${isApiError}, ContentLength: ${parsedStdout.length}). Falling back to next model...`
         );
+        console.warn(`   ↳ stderr tail: ${(retryRes.stderr || res.stderr || "(empty)").slice(-400)}`);
         lastResult = {
           stdout: retryParsed,
           stderr: retryRes.stderr || res.stderr,
@@ -205,6 +206,7 @@ export class OpenCodeClient {
       console.warn(
         `⚠️ [OpenCode] Model ${label} encountered an issue (Exit: ${res.exitCode}, ApiError: ${isApiError}, ContentLength: ${parsedStdout.length}). Falling back to next model...`
       );
+      console.warn(`   ↳ stderr tail: ${(res.stderr || "(empty)").slice(-400)}`);
       lastResult = {
         stdout: parsedStdout,
         stderr: res.stderr,
