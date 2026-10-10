@@ -13,7 +13,7 @@ This document defines the rules, roles, constraints, quality gates, and inter-ag
 | **Backend Developer** | `backend` | Implements API endpoints, controllers, business services, and database queries. | `workspace/src/api/**`, `workspace/src/services/**`, unit tests | Uses CI services via env (fallbacks retained) & updates `CONTRACTS.md`. |
 | **Frontend Developer**| `frontend` | Builds responsive UI, components, styling, and client-side state. | `workspace/src/ui/**`, client bundler configs, assets | Connects exclusively to documented backend contracts. |
 | **Mobile Developer**| `mobile` | Builds mobile features: offline-first, permissions, push, store readiness. | `workspace/src/mobile/**`, platform configs | Follows contracts; no hardcoded copy or secrets on device. |
-| **QA Engineer** | `qa` | Writes automated unit and integration tests using `bun test`. | `workspace/tests/**`, test execution logs | Focuses on test coverage, edge cases, and verification. |
+| **QA Engineer** | `qa` | Writes automated unit and integration tests with the product stack's runner. | `workspace/tests/**`, test execution logs | Focuses on test coverage, edge cases, and verification. |
 | **Security Auditor** | `security` | Audits SQL injection (SQLite), secret leaks, path traversal, payload size limits. | `workspace/SECURITY_AUDIT.md` | Does not introduce new features; audits and hardens. |
 | **Code Reviewer** | `reviewer` | Evaluates clean code standards, error boundaries, edge cases, regression risks. | Review evaluation JSON & comments | Evaluates PR branches before merge approval. Read-only auditor: may read the full repo/diffs, writes only to `TASK_PROGRESS.md` (review section) or PR comments. |
 | **Progress Tracker** | `tracker` | Audits `TASK_PROGRESS.md` claims against actual git diffs to eliminate hallucinations. | Progress audit reports | Validates claims against raw git diffs. Read-only auditor: may read `state/`, `inputs/`, all branches; writes verdict to `TASK_PROGRESS.md` (`### 6.`) only. |
@@ -25,9 +25,7 @@ This document defines the rules, roles, constraints, quality gates, and inter-ag
 ## 2. Universal CI/CD Constraints (STRICT & UNCOMPROMISING)
 
 Every subagent MUST adhere to these environmental rules:
-1. **Runtime & Package Manager:** **Bun is the sole runtime and package manager.**
-   - NEVER invoke `node`, `npm`, `npx`, `pnpm`, or `yarn`.
-   - Always run commands via `bun run`, `bun test`, `bun add`, or `bunx`.
+1. **Engine vs product runtimes:** the orchestrator ENGINE always runs on **Bun** (`bun run orchestrator/engine.ts`, `bun run subagents/runner.ts`). The PRODUCT in `workspace/` uses the roadmap-declared `stack` (`bun | go | rust | dotnet | python`, default `bun`) — product build/test commands use that toolchain (`bun test` | `go test ./...` | `cargo test` | `dotnet test` | `python -m pytest -q`). NEVER invoke `node`, `npm`, `npx`, `pnpm`, or `yarn` for JS/TS work.
 2. **Services-First CI Execution (Docker-backed) with Adapter Fallback:**
    - **Real Services in CI:** GitHub runners provide Docker. When the roadmap declares `services` (presets `postgres`/`redis`/`mongo`/`s3`, or full custom `{name, image, env?, ports?}` definitions), the workflow starts them from the generated `workspace/docker-compose.services.yml` before any agent runs. Connect via env endpoints (`DATABASE_URL`, `REDIS_URL`, `MONGO_URL`, `S3_*`, plus custom `env` — see `container-services` skill).
    - **Data Is Ephemeral:** containers reset every run. Seed fixtures inside tasks/tests; never assume pre-existing rows, buckets, or keys.
@@ -75,7 +73,7 @@ Every subagent MUST create and maintain `workspace/TASK_PROGRESS.md` before conc
 - **1. ✅ Done:** Concrete list of created/modified files, functions, and interfaces.
 - **2. ⚡ Doing:** Current operational status and summary of actions taken.
 - **3. 📋 Todo:** Deferred items or instructions for downstream dependencies.
-- **4. 🧪 Verification & Test Proof:** **Actual terminal output of tests (`bun test`) proving 0 failures.**
+- **4. 🧪 Verification & Test Proof:** **Actual terminal output of the product stack's tests proving 0 failures.**
   - *No claims without proof.* Subagents must run tests before pushing. The runner embeds the actual terminal output into this section.
 - **Task anatomy (planner contract):** every task carries `description` (min ~80 words, exact file paths), `deliverables` (min 2 concrete items — the acceptance criteria), and `verificationCommand` (exact proof command). Thin plans are flagged by the roadmap validator; subagents treat `deliverables` as binding.
 
@@ -113,10 +111,10 @@ Before any task branch is merged into `develop`:
    - **Test Evidence:** QA verification confirms 0 failed unit/integration tests.
 2. **PR Integration (`orchestrator/pr_manager.ts`):**
    - Approved work opens (or reuses) a PR `task/<id>` → `develop`; the review summary is posted as a PR comment.
-   - `gh pr merge` is tried first; unmergable PRs fall back to local merge + AI conflict resolution (verified with `bun test` in `workspace/`).
+   - `gh pr merge` is tried first; unmergable PRs fall back to local merge + AI conflict resolution (verified with the product stack's tests in `workspace/`).
    - Rejections are mirrored onto the open PR for traceability.
 3. **Autonomous Conflict Resolution:**
-   - If git merge produces conflict markers (`<<<<<<< HEAD`), `ConflictResolver` invokes OpenCode to reconcile both changes, validates with `bun test`, and commits the resolved merge.
+   - If git merge produces conflict markers (`<<<<<<< HEAD`), `ConflictResolver` invokes OpenCode to reconcile both changes, validates with the product stack's tests, and commits the resolved merge.
    - If tests fail after conflict resolution, merge is aborted and flagged for safety.
 4. **GitHub Hygiene:**
    - Task issues are deduplicated by `[TASK-ID]` title prefix (`ProjectManager.findTaskIssue` adopts the canonical issue; duplicates are closed as `--duplicate-of`).

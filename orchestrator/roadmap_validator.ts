@@ -1,4 +1,5 @@
 import type { Roadmap } from "./types.ts";
+import { STACK_IDS, isKnownStackCommand } from "./stacks.ts";
 
 export interface ValidationResult {
   errors: string[];
@@ -51,6 +52,7 @@ export function validateRoadmap(raw: {
   }[];
   milestones?: { title: string }[];
   services?: (string | { name?: string; image?: string; env?: Record<string, string>; ports?: string[] })[];
+  stack?: unknown;
   /** Coverable input files (`inputs/`-relative posix paths). Only the plan path supplies these. */
   inputFiles?: string[];
   /** Input-file → task ID coverage map authored by the planner. */
@@ -61,6 +63,10 @@ export function validateRoadmap(raw: {
   const tasks = raw.tasks || [];
 
   if (tasks.length === 0) errors.push("Roadmap has zero tasks.");
+
+  if (raw.stack !== undefined && !(typeof raw.stack === "string" && (STACK_IDS as string[]).includes(raw.stack))) {
+    errors.push(`Unknown stack "${String(raw.stack).slice(0, 40)}". Known: ${STACK_IDS.join(", ")}.`);
+  }
 
   const KNOWN_SERVICES = ["postgres", "redis", "mongo", "minio", "s3"];
   for (const s of raw.services || []) {
@@ -93,6 +99,10 @@ export function validateRoadmap(raw: {
     }
     if (!t.verificationCommand) {
       warnings.push(`[${t.id}] has no verificationCommand; proof of completion unenforceable.`);
+    } else if (!isKnownStackCommand(t.verificationCommand)) {
+      warnings.push(
+        `[${t.id}] verificationCommand "${t.verificationCommand.slice(0, 60)}" matches no known stack toolchain (bun/go/cargo/dotnet/pytest); proof may be unverifiable in CI.`
+      );
     }
     if (!t.targetFiles || t.targetFiles.length === 0) {
       warnings.push(`[${t.id}] has no targetFiles; parallel safety cannot be verified.`);

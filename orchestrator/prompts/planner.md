@@ -43,6 +43,7 @@ Return ONLY a JSON block enclosed in ```json ``` with the following structure �
     { "title": "v1.0.0 - UI & Full Verification", "description": "Frontend, integration tests, and release" }
   ],
   "services": ["postgres"],
+  "stack": "bun",
   "tasks": [
     {
       "id": "TASK-001",
@@ -64,6 +65,8 @@ Return ONLY a JSON block enclosed in ```json ``` with the following structure �
 }
 ```
 
+> `stack` is REQUIRED: one of `bun | go | rust | dotnet | python`. The engine itself always runs on Bun; `stack` selects the PRODUCT toolchain only.
+
 ---
 
 ## ⚡ Concurrency & Execution Guidelines
@@ -72,12 +75,19 @@ Return ONLY a JSON block enclosed in ```json ``` with the following structure �
 
 ## ✅ Pre-Output Self-Verification & Completeness Floor (non-negotiable)
 
-- **Field requirements:** every task MUST have a `description` of min ~80 words with exact file paths, a `deliverables` array with min 2 concrete items (files, functions, contracts, tests), and a `verificationCommand` (`bun test`, `bun run build`, or `bun test <path>`). Tasks missing these are rejected downstream.
+- **Field requirements:** every task MUST have a `description` of min ~80 words with exact file paths, a `deliverables` array with min 2 concrete items (files, functions, contracts, tests), and a `verificationCommand` matching the declared `stack` (see toolchain table below). Tasks missing these are rejected downstream.
 - **Task sizing:** each task must be completable by one subagent in a single run (5–15 minutes of work). Split anything bigger into smaller tasks with explicit dependencies.
 - **Coverage:** every requirement area from the inputs (API, schema, UI screens, tests, security) must map to at least one task. Fewer than 5 tasks for a real project means scope was dropped — go back and decompose further.
 - **Self-check before outputting:** no dependency cycles, every `milestone` matches a milestone title EXACTLY, every `role` is from the enum above, parallel tasks have disjoint `targetFiles`, no two tasks own the same files. Fix violations before outputting.
 - **Input coverage map (REQUIRED):** emit a top-level `"coverage"` object mapping every ingested `inputs/` file (exact `inputs/<path>` posix keys: specs, references, AND every visual asset) to the task IDs covering it. UI tasks MUST name their applicable mockup files. Unmapped inputs are flagged as dropped requirements.
-- **Stack containment (Bun+TypeScript exclusive):** the entire toolchain (workflows, review gate, verification, skills) is built for Bun+TypeScript ONLY — no Go/Rust/Python toolchain exists in runners and `bun test` is hardcoded into merge/verify flows. NEVER emit tasks in another language on your own authority. A non-Bun runtime is allowed ONLY when `inputs/spec.md` explicitly authorizes it by name; otherwise stay in Bun+TypeScript and say so.
+- **Product stack (polyglot):** the ENGINE always runs on Bun, but the PRODUCT in `workspace/` may use any supported stack. Resolve it in this order: (1) explicit `stack:` (or language) declaration in `inputs/spec.md` wins; (2) stack implied by input manifests (`go.mod` → go, `Cargo.toml` → rust, `*.sln`/`*.csproj` → dotnet, `pyproject.toml`/`requirements.txt` → python); (3) default `bun`. Emit the chosen stack as top-level `"stack"` and use ONLY its toolchain for every task's `verificationCommand`. Mixing toolchains inside one roadmap is a planning defect.
+  | Stack | Test command | Build command |
+  |---|---|---|
+  | `bun` | `bun test` | `bun run build` |
+  | `go` | `go test ./...` | `go build ./...` |
+  | `rust` | `cargo test` | `cargo build` |
+  | `dotnet` | `dotnet test` | `dotnet build` |
+  | `python` | `python -m pytest -q` | `python -m compileall .` |
 - **Task sizing:** each task must be completable by one subagent in a single run (5–15 minutes of work). Split anything bigger into smaller tasks with explicit dependencies.
 
 ## 🐳 CI Service Detection (Docker on GitHub runners)

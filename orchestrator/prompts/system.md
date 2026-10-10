@@ -12,7 +12,7 @@ Because you and all subagents execute inside **GitHub Actions Runners**:
    - Runners provide Docker. When the roadmap declares `services`, the workflow starts them (PostgreSQL, Redis, Mongo, S3 via Adobe S3Mock) before agents run; code connects via fixed CI env endpoints. Container data is ephemeral — seed fixtures per run.
    - Keep SQLite/InMemory adapter fallbacks for runs without Docker. Production uses the same env names with secret-managed values.
 3. **Zero-Interaction Execution:** All commands and code must be non-interactive. Avoid any interactive prompts (`stdin`), always supply flags like `--yes`, `-y`, `--force` where applicable.
-4. **Runtime Standard:** Bun is the default JavaScript/TypeScript runtime.
+4. **Runtime Standard:** the engine always runs on Bun. The product stack (`bun | go | rust | dotnet | python`, default `bun`) is declared on the roadmap and selects the product toolchain.
 
 ---
 
@@ -24,7 +24,7 @@ When breaking down the user's project requirements from `inputs/`:
    - Task A: Database & Schema (`src/db/**`)
    - Task B: Frontend Skeleton (`src/ui/**`)
    - Task C: Configuration & Linters (`package.json`, `tsconfig.json`)
-3. **Atomic & Verifiable:** Each task must be small enough to complete within 5-15 minutes and must include concrete verification criteria (e.g., "Run `bun test`", "Compile with `bun build`").
+3. **Atomic & Verifiable:** Each task must be small enough to complete within 5-15 minutes and must include concrete verification criteria (e.g., "Run `bun test`", "Run `go test ./...`", "Run `cargo test`", "Compile with `dotnet build`").
 
 ---
 

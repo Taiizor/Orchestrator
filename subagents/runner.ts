@@ -4,6 +4,7 @@ import { CONFIG } from "../orchestrator/config.ts";
 import { StateManager } from "../orchestrator/state_manager.ts";
 import { GitManager } from "../orchestrator/git_manager.ts";
 import { OpenCodeClient } from "../orchestrator/opencode_client.ts";
+import { STACKS, detectWorkspaceStack, normalizeStackId, runStackTests } from "../orchestrator/stacks.ts";
 import { ProjectManager } from "../orchestrator/project_manager.ts";
 import { DiscussionManager } from "../orchestrator/discussion_manager.ts";
 import { initializeGitHubAppAuth } from "../orchestrator/github_app.ts";
@@ -16,6 +17,7 @@ async function main() {
       taskId: { type: "string" },
       role: { type: "string" },
       branch: { type: "string" },
+      stack: { type: "string" },
     },
     strict: true,
     allowPositionals: true,
@@ -185,8 +187,15 @@ async function main() {
     fullstack: ["api-contracts", "ui-conventions", "systematic-debugging", "code-review"],
     launch: ["container-services", "systematic-debugging", "test-evidence", "observability-basics"],
   };
+  // Stack-aware skill filter: bun:sqlite / Bun-only hardening guidance must
+  // not pollute Go/Rust/.NET/Python prompts (wrong snippets, wrong toolchain).
+  // Precedence: --stack CLI (dispatch input) → roadmap.stack → workspace markers.
+  const cliStack = typeof values.stack === "string" ? values.stack : undefined;
+  const productStack = normalizeStackId(cliStack ?? (roadmap as { stack?: unknown }).stack, await detectWorkspaceStack("."));
+  console.log(`🧱 Product stack: ${productStack} (${STACKS[productStack].label}).`);
+  const BUN_ONLY_SKILLS = new Set(["sqlite-hardening"]);
   let skillsText = "";
-  const skillNames = ROLE_SKILLS[role] || [];
+  const skillNames = (ROLE_SKILLS[role] || []).filter((n) => productStack === "bun" || !BUN_ONLY_SKILLS.has(n));
   for (const name of skillNames) {
     const p = `.opencode/skills/${name}/SKILL.md`;
     if (existsSync(p)) {
@@ -372,23 +381,48 @@ async function main() {
     console.warn(`⚠️ [${task.id}] model run failed, but uncommitted work exists — publishing partial progress for review.`);
   }
 
-  // 1. Run automated test proof if tests exist
+  // 1. Run automated test proof with the product stack's toolchain.
+  // Detection order: roadmap.stack (planner-declared) → workspace markers.
   let testProof = "No unit tests found in workspace yet.";
-  const glob = new Bun.Glob("**/*.{test,spec}.{ts,js}");
-  let hasTests = false;
-  for await (const _ of glob.scan({ cwd: "workspace" })) {
-    hasTests = true;
-    break;
-  }
+  const stackHasTests = async (): Promise<boolean> => {
+    if (productStack === "go") {
+      const glob = new Bun.Glob("**/*_test.go");
+      for await (const _ of glob.scan({ cwd: "workspace" })) return true;
+      return existsSync("workspace/go.mod");
+    }
+    if (productStack === "rust") return existsSync("workspace/Cargo.toml");
+    if (productStack === "dotnet") {
+      for (const pat of ["workspace/*.sln", "workspace/**/*.csproj"] as const) {
+        try {
+          const glob = new Bun.Glob(pat);
+          for await (const _ of glob.scan({ cwd: ".", onlyFiles: true })) return true;
+        } catch {
+          /* continue */
+        }
+      }
+      return false;
+    }
+    if (productStack === "python") {
+      for (const pat of ["workspace/test_*.py", "workspace/**/*_test.py", "workspace/tests/**/*.py"] as const) {
+        try {
+          const glob = new Bun.Glob(pat);
+          for await (const _ of glob.scan({ cwd: ".", onlyFiles: true })) return true;
+        } catch {
+          /* continue */
+        }
+      }
+      return existsSync("workspace/pyproject.toml") || existsSync("workspace/requirements.txt");
+    }
+    const glob = new Bun.Glob("**/*.{test,spec}.{ts,js}");
+    for await (const _ of glob.scan({ cwd: "workspace" })) return true;
+    return false;
+  };
 
-  if (hasTests) {
-    console.log("🧪 Executing 'bun test' to verify deliverables...");
-    const testProc = Bun.spawn(["bun", "test"], { cwd: "workspace", stderr: "pipe", stdout: "pipe" });
-    const stdout = await new Response(testProc.stdout).text();
-    const stderr = await new Response(testProc.stderr).text();
-    const exitCode = await testProc.exited;
-    testProof = (stdout + "\n" + stderr).trim();
-    if (exitCode !== 0) {
+  if (await stackHasTests()) {
+    console.log(`🧪 Executing '${STACKS[productStack].testCommand}' to verify deliverables...`);
+    const testRes = await runStackTests(productStack, "workspace");
+    testProof = ((testRes.stdout || "") + "\n" + (testRes.stderr || "")).trim() || `(no output, exit ${testRes.exitCode})`;
+    if (testRes.exitCode !== 0) {
       console.warn("⚠️ Automated tests reported failures. Embedding test output into TASK_PROGRESS.md for review.");
     } else {
       console.log("✅ All automated tests passed successfully!");

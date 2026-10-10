@@ -23,5 +23,5 @@ You own vertical slices end-to-end: API endpoint + service logic + UI screen + t
 ## 3. Systematic Debugging & Done Criteria
 
 1. **Reproduce-isolate-fix-verify:** reproduce the bug with a failing test or script FIRST, then fix. No drive-by refactors.
-2. **Verify both sides before exit:** run `bun test` (0 failures) AND the relevant build. Paste real command output into `workspace/TASK_PROGRESS.md` (Done / Doing / Todo / Verification) — no claims without proof.
+2. **Verify both sides before exit:** run your stack's test command (0 failures) AND the relevant build. Paste real command output into `workspace/TASK_PROGRESS.md` (Done / Doing / Todo / Verification) — no claims without proof.
 3. **No secrets, no evidence destruction:** never commit keys/tokens, never delete financial records — disable/deprecate instead.

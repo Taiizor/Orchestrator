@@ -752,11 +752,11 @@ export class GitManager {
   /**
    * Dispatch Subagent GitHub Actions workflow
    */
-  public static async dispatchSubagentWorkflow(taskId: string, role: string, branch: string): Promise<boolean> {
+  public static async dispatchSubagentWorkflow(taskId: string, role: string, branch: string, stack?: string): Promise<boolean> {
     console.log(`🚀 Dispatching GitHub Action for ${taskId} (${role}) on branch ${branch}...`);
 
     // Using gh CLI (pre-installed in GitHub Actions runners)
-    const res = await this.run([
+    const args = [
       "gh",
       "workflow",
       "run",
@@ -767,7 +767,9 @@ export class GitManager {
       `role=${role}`,
       "-f",
       `branch=${branch}`,
-    ]);
+    ];
+    if (stack) args.push("-f", `stack=${stack}`);
+    const res = await this.run(args);
 
     if (res.exitCode !== 0) {
       console.error(`Failed to dispatch workflow via gh CLI:`, res.stderr);

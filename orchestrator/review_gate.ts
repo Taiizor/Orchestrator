@@ -1,5 +1,6 @@
 import { CONFIG } from "./config.ts";
 import { GitManager } from "./git_manager.ts";
+import { TEST_EVIDENCE_RX } from "./stacks.ts";
 import type { TaskItem } from "./types.ts";
 
 export interface GateResult {
@@ -203,7 +204,7 @@ function touchesApiOrSchema(files: string[]): boolean {
  * under a previous version must be re-evaluated, never skipped by the
  * unchanged-tip optimization.
  */
-export const GATE_VERSION = 3;
+export const GATE_VERSION = 4;
 
 /**
  * Deterministic pre-LLM gate. Fails fast on empty diff, missing progress
@@ -249,8 +250,10 @@ export async function runReviewGate(task: TaskItem, diff: string, progressConten
         "TASK_PROGRESS.md is the runner placeholder, not an agent report: no evidence of work. Produce real Done/Verification content."
       );
     }
-    if (!/bun test|bun run|test proof|passing|passed/i.test(progressContent)) {
-      warnings.push("Verification section has no recognizable test evidence (bun test output).");
+    if (!TEST_EVIDENCE_RX.test(progressContent)) {
+      warnings.push(
+        "Verification section has no recognizable test evidence (bun test | go test | cargo test | dotnet test | pytest output)."
+      );
     }
   }
 

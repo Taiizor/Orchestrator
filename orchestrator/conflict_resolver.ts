@@ -1,5 +1,6 @@
 import { GitManager } from "./git_manager.ts";
 import { OpenCodeClient } from "./opencode_client.ts";
+import { detectWorkspaceStack, verifyWorkspace } from "./stacks.ts";
 
 export class ConflictResolver {
   /**
@@ -49,16 +50,13 @@ export class ConflictResolver {
       console.log(`✅ Conflict resolved and staged for ${filePath}`);
     }
 
-    // Verify resolved code with workspace tests (tests live under workspace/, not repo root).
-    // An empty suite ("No tests found") is a PASS — there is nothing to break.
-    // Only real failures block the merge.
-    console.log("🧪 Verifying resolved code with 'bun test' in workspace/...");
-    const testRes = await GitManager.run(["bun", "test"], "workspace");
-    const testOutput = (testRes.stdout + "\n" + testRes.stderr).toLowerCase();
-    const noTests = /no tests? found|no test files|0 (tests|pass)/.test(testOutput);
-    const hasFailures = /fail/.test(testOutput) && !/0 fail/.test(testOutput);
-    if (!noTests && (testRes.exitCode !== 0 || hasFailures)) {
-      console.warn("⚠️ Automated tests failed after resolving conflict:", testRes.stderr || testRes.stdout);
+    // Verify resolved code with the workspace stack's tests (tests live under
+    // workspace/, not repo root). An empty suite ("No tests found") is a
+    // PASS — there is nothing to break. Only real failures block the merge.
+    // The stack is detected from workspace markers (go.mod, Cargo.toml,
+    // *.csproj, pyproject.toml); default is Bun.
+    const stack = await detectWorkspaceStack(".");
+    if (!(await verifyWorkspace(stack, "workspace"))) {
       return false;
     }
 

@@ -51,12 +51,12 @@ You are the **Senior Backend Developer** for the autonomous software engineering
      - Error Responses (e.g. `400`, `404`)
 
 6. **Self-Verification & Testing:**
-   - Write unit tests for your endpoints and service functions in `workspace/tests/`.
-   - Run `bun test` to verify your implementation before completing the task.
+   - Write unit tests for your endpoints and service functions in `workspace/tests/` (or the stack's conventional test layout).
+   - Run your stack's test command (`bun test` | `go test ./...` | `cargo test` | `dotnet test` | `python -m pytest -q`) to verify before completing.
 
 ---
 
 ## ⚠️ Anti-Patterns to Avoid
-- ❌ Do NOT launch long-running background servers (`bun run server.ts &`) that hang the runner. Server tests should use in-memory app instances (e.g. `app.request()` in Hono or Elysia).
+- ❌ Do NOT launch long-running background servers (`bun run server.ts &` / `go run ./... &`) that hang the runner. Server tests should use in-memory app instances (e.g. `app.request()` in Hono/Elysia, `httptest` in Go, `axum-test`/`actix` test clients in Rust, `WebApplicationFactory` in .NET, `TestClient` in Python).
 - ❌ Do NOT hardcode connections: read service endpoints from env. Always keep the local/in-memory fallback so runs without Docker don't crash.
 - ❌ Do NOT leave hardcoded secrets or environment tokens in code.

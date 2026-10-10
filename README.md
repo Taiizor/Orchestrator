@@ -33,7 +33,7 @@ flowchart TD
     subgraph QualityGate["🔍 4. Review & Quality Gate"]
         Tracker["Tracker: Claims vs Git Diff Audit"]
         Security["Security: SQLi, Secrets, Path Traversal"]
-        Reviewer["Reviewer: Clean Code & 'bun test'"]
+        Reviewer["Reviewer: Clean Code & stack tests"]
     end
 
     subgraph Integration["🌿 5. Branch Merge & Conflict Resolution"]
@@ -58,7 +58,7 @@ flowchart TD
 
     GitMerge -->|Clean Merge| Success
     GitMerge -->|Conflict Detected| ConflictResolver
-    ConflictResolver -->|Verified with bun test| Success
+    ConflictResolver -->|Verified with stack tests| Success
 ```
 
 ---
@@ -82,7 +82,7 @@ sequenceDiagram
 
     GH->>Sub: Starts parallel Subagent jobs (task branches)
     Sub->>Sub: Runs OpenCode (muse-spark / nemotron free models)
-    Sub->>Sub: Writes code, runs 'bun test', updates TASK_PROGRESS.md
+    Sub->>Sub: Writes code, runs stack tests, updates TASK_PROGRESS.md
     Sub->>GH: Pushes branch & marks task IN_REVIEW
     Sub->>GH: 🔔 Wakes up Orchestrator (gh workflow run orchestrator.yml)
     Note over Sub: Subagent finishes and exits
@@ -112,7 +112,7 @@ flowchart LR
     D --> E[gh pr merge]
     E -->|Success| F[✅ Merged, issue closed, Kanban → Done]
     E -->|Unmergable / Conflict| G[Local merge + AI ConflictResolver]
-    G --> H[Runs 'bun test' in workspace/]
+    G --> H[Runs stack tests in workspace/]
     H -->|Tests Pass| F
     H -->|Tests Fail| I[Reject with reviewNotes & Re-dispatch]
 ```
@@ -129,7 +129,7 @@ flowchart LR
   - **1. ✅ Done:** Concrete list of created/modified files and functions.
   - **2. ⚡ Doing:** Current operational status.
   - **3. 📋 Todo:** Next steps or integration notes for downstream tasks.
-  - **4. 🧪 Verification & Test Proof:** Terminal output of `bun test` proving zero errors.
+  - **4. 🧪 Verification & Test Proof:** Terminal output of the product stack's tests proving zero errors.
 - **Tracker Agent Audit:** The `tracker` subagent cross-references claimed progress against the actual `git diff` to eliminate hallucinations and incomplete implementations.
 
 ### 2. 🛡️ Enterprise Security & Quality Gate
@@ -150,7 +150,7 @@ Before any branch is merged into `develop`:
 - **Isolated Git Branches:** Every subagent works on a separate branch (`task/<taskId>`).
 - **Disjoint Scoping:** Orchestrator assigns non-overlapping target files (e.g. `src/db/*` vs `src/ui/*`) to independent parallel tasks.
 - **AI Conflict Resolver ([`orchestrator/conflict_resolver.ts`](orchestrator/conflict_resolver.ts)):**  
-  If two branches modify the same file (e.g. adding dependencies to `package.json` or routes to `index.ts`), OpenCode analyzes Git conflict markers, cleanly merges both changes, validates with `bun test`, and commits the resolved merge autonomously!
+  If two branches modify the same file (e.g. adding dependencies to `package.json` or routes to `index.ts`), OpenCode analyzes Git conflict markers, cleanly merges both changes, validates with the stack's tests, and commits the resolved merge autonomously!
 
 ### 4. 🎁 100% Free-Tier & Zero-Cost Model Cascade
 OpenCode allows execution without registration or API keys through generous IP-rate-limited free models. Because **every GitHub Actions runner receives a brand-new IP address**, rate limits are practically non-existent across runs!
@@ -215,7 +215,7 @@ You can steer, pause, or query the autonomous team directly from GitHub Issue co
 | **Backend Developer** | [`subagents/prompts/roles/backend.md`](subagents/prompts/roles/backend.md) | Implements REST APIs, controllers, services, and database queries. | `src/api/**`, `src/services/**`, unit tests |
 | **Frontend Developer**| [`subagents/prompts/roles/frontend.md`](subagents/prompts/roles/frontend.md) | Builds responsive UI, components, styling, and client-side state. | `src/ui/**`, client bundler configs |
 | **Mobile Developer**| [`subagents/prompts/roles/mobile.md`](subagents/prompts/roles/mobile.md) | Builds mobile features: offline-first, permissions, push, store readiness. | `src/mobile/**`, platform configs |
-| **QA Engineer** | [`subagents/prompts/roles/qa.md`](subagents/prompts/roles/qa.md) | Writes automated unit and integration tests using `bun test`. | `tests/**`, test execution logs |
+| **QA Engineer** | [`subagents/prompts/roles/qa.md`](subagents/prompts/roles/qa.md) | Writes automated unit and integration tests with the product stack's runner. | `tests/**`, test execution logs |
 | **Security Auditor** | [`subagents/prompts/roles/security.md`](subagents/prompts/roles/security.md) | Audits SQL injection, secret leaks, path traversal, payload size limits. | `workspace/SECURITY_AUDIT.md` |
 | **Progress Tracker** | [`subagents/prompts/roles/tracker.md`](subagents/prompts/roles/tracker.md) | Audits `TASK_PROGRESS.md` claims against actual git diffs to eliminate hallucinations. | Progress audit reports |
 | **Code Reviewer** | [`subagents/prompts/roles/reviewer.md`](subagents/prompts/roles/reviewer.md) | Evaluates clean code standards, error boundaries, edge cases, regression risks. | Review evaluation JSON & comments |

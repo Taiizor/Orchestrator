@@ -16,6 +16,11 @@ on:
         description: 'Target task branch (e.g. task/TASK-001-setup-db)'
         required: true
         type: string
+      stack:
+        description: 'Product stack (bun | go | rust | dotnet | python) — observability only; all toolchains are provisioned'
+        required: false
+        default: 'bun'
+        type: string
 
 concurrency:
   # Isolated per task ID: independent tasks execute concurrently without blocking each other
@@ -56,10 +61,31 @@ jobs:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
 
-      - name: 🥟 Setup Bun Runtime
+      - name: 🥟 Setup Bun Runtime (engine + JS/TS products)
         uses: oven-sh/setup-bun@v2.2.0
         with:
           bun-version: latest
+
+      - name: 🐹 Setup Go toolchain (Go products)
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: 🦀 Setup Rust toolchain (Rust products)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: 🟣 Setup .NET SDK (.NET products)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.x
+
+      - name: 🐍 Setup Python + pytest (Python products)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
 
       - name: ⚡ Cache Bun Modules & OpenCode Binary
         uses: actions/cache@v6
@@ -200,7 +226,8 @@ jobs:
           bun run subagents/runner.ts \
             --taskId="${{ inputs.taskId }}" \
             --role="${{ inputs.role }}" \
-            --branch="${{ inputs.branch }}"
+            --branch="${{ inputs.branch }}" \
+            --stack="${{ inputs.stack }}"
 
       - name: 📤 Collect OpenCode Logs (on failure)
         if: failure()

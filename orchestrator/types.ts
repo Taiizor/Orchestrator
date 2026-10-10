@@ -16,7 +16,7 @@ export interface TaskItem {
   dependencies: string[]; // IDs of tasks that must be COMPLETED first
   targetFiles: string[]; // Files/directories allocated to this task to prevent conflicts
   deliverables?: string[]; // Concrete acceptance items (files, functions, contracts, tests)
-  verificationCommand?: string; // Exact command proving the deliverables (bun test | bun run build | ...)
+  verificationCommand?: string; // Exact proof command for the product stack (bun test | go test ./... | cargo test | dotnet test | python -m pytest -q | ...)
   status: TaskStatus; // Current lifecycle status
   branch: string; // Dedicated branch for this task
   runId?: number; // GitHub Actions workflow run ID if triggered
@@ -47,6 +47,8 @@ export interface ServiceDefinition {
   healthcheck?: string[]; // CMD array for readiness probe
 }
 
+import type { StackId } from "./stacks.ts";
+
 export interface Roadmap {
   projectName: string;
   version: number;
@@ -55,6 +57,7 @@ export interface Roadmap {
   projectUrl?: string; // Linked GitHub Project v2 URL
   milestones?: { title: string; description?: string }[];
   services?: (string | ServiceDefinition)[]; // preset names or full custom defs
+  stack?: StackId; // Product stack (bun | go | rust | dotnet | python). Engine itself always runs on Bun.
   globalStatus: "PLANNING" | "IN_PROGRESS" | "COMPLETED" | "PAUSED" | "FAILED";
   tasks: TaskItem[];
   updatedAt: string;

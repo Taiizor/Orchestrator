@@ -10,6 +10,7 @@ import { IssueManager } from "./issue_manager.ts";
 import { ProjectManager } from "./project_manager.ts";
 import { GATE_VERSION, hasStructuredProgress, isDefaultProgress, runReviewGate } from "./review_gate.ts";
 import { validateRoadmap, formatValidation, sanitizeCoverage } from "./roadmap_validator.ts";
+import { STACKS, normalizeStackId } from "./stacks.ts";
 import { initializeGitHubAppAuth } from "./github_app.ts";
 import type { Roadmap, TaskItem, ReviewResult } from "./types.ts";
 
@@ -201,6 +202,7 @@ export class OrchestratorEngine {
     if (jsonMatch) {
       try {
         const raw = JSON.parse(jsonMatch[1].trim());
+        const stack = normalizeStackId((raw as Record<string, unknown>).stack, "bun");
         roadmapData = {
           projectName: raw.projectName || "Generated Project",
           version: raw.version || 1,
@@ -213,6 +215,7 @@ export class OrchestratorEngine {
                 (s: any) => typeof s === "string" || (s && typeof s.name === "string" && typeof s.image === "string")
               )
             : [],
+          stack,
           updatedAt: new Date().toISOString(),
           tasks: (raw.tasks || []).map((t: any, idx: number) => ({
             id: t.id || `TASK-${String(idx + 1).padStart(3, "0")}`,
@@ -275,6 +278,7 @@ export class OrchestratorEngine {
       })),
       milestones: roadmapData.milestones,
       services: roadmapData.services,
+      stack: (roadmapData as Roadmap).stack,
       inputFiles: coverableInputs,
       coverage: roadmapData.coverage,
     });
@@ -699,13 +703,14 @@ export class OrchestratorEngine {
       `\`\`\`json\n{\n  "projectName": "string",\n  "version": 1,\n  "summary": "what exists today (stack, areas, maturity)",\n` +
       `  "milestones": [{ "title": "v1.0.0 - Adopted Baseline", "description": "as-built state at adoption" }],\n` +
       `  "services": [],\n` +
+      `  "stack": "bun | go | rust | dotnet | python (detect from survey markers: go.mod → go, Cargo.toml → rust, *.sln/*.csproj → dotnet, pyproject.toml/requirements.txt → python, else bun)",\n` +
       `  "tasks": [{\n    "id": "TASK-001",\n    "title": "Area name (as-built)",\n    "milestone": "v1.0.0 - Adopted Baseline",\n` +
       `    "description": "REQUIRED, min ~80 words: what EXISTS (files, interfaces, behaviors), exact paths",\n` +
       `    "role": "architect | backend | frontend | mobile | qa | security",\n` +
       `    "dependencies": [],\n    "targetFiles": ["workspace/src/..."],\n` +
       `    "branch": "task/TASK-001-adopted-area",\n` +
       `    "deliverables": ["existing file 1", "existing behavior 2"],\n` +
-      `    "verificationCommand": "bun test"\n  }]\n}\`\`\`\n` +
+      `    "verificationCommand": "the adopted stack's test command (bun test | go test ./... | cargo test | dotnet test | python -m pytest -q)"\n  }]\n}\`\`\`\n` +
       `Rules: one task per coherent area (api slices, services, ui areas, db/schema, tests, contracts). Every task documents AS-BUILT reality, never aspirations. Min 3 tasks for a real codebase.`;
     const res = await OpenCodeClient.runWithFallback(adoptPrompt, { timeoutMs: 10 * 60 * 1000 });
     const jsonMatch = res.stdout.match(/```json([\s\S]*?)```/) || res.stdout.match(/(\{[\s\S]*\})/);
@@ -721,6 +726,15 @@ export class OrchestratorEngine {
       process.exit(1);
     }
     const now = new Date().toISOString();
+    const adoptedStack = normalizeStackId((raw as Record<string, unknown>).stack, "bun");
+    // Cross-check against workspace markers (LLM mislabels happen): markers win.
+    let detectedStack: "bun" | "go" | "rust" | "dotnet" | "python" = "bun";
+    try {
+      const { detectWorkspaceStack } = await import("./stacks.ts");
+      detectedStack = await detectWorkspaceStack(".");
+    } catch {
+      /* survey-only fallback */
+    }
     const roadmap: Roadmap = {
       projectName: raw.projectName || "Adopted Project",
       version: raw.version || 1,
@@ -733,6 +747,7 @@ export class OrchestratorEngine {
           ? raw.milestones
           : [{ title: "v1.0.0 - Adopted Baseline", description: "as-built state at adoption" }],
       services: [],
+      stack: detectedStack !== "bun" ? detectedStack : adoptedStack,
       updatedAt: now,
       tasks: ((raw.tasks || []) as any[]).map((t: any, idx: number) => ({
         id: t.id || `TASK-${String(idx + 1).padStart(3, "0")}`,
@@ -770,6 +785,7 @@ export class OrchestratorEngine {
       })),
       milestones: roadmap.milestones,
       services: roadmap.services,
+      stack: roadmap.stack,
     });
     if (validation.errors.length > 0) {
       console.error(`❌ Adopted roadmap invalid:\n${formatValidation(validation)}`);
@@ -1473,7 +1489,7 @@ export class OrchestratorEngine {
     );
 
     for (const task of readyTasks) {
-      const dispatched = await GitManager.dispatchSubagentWorkflow(task.id, task.role, task.branch);
+      const dispatched = await GitManager.dispatchSubagentWorkflow(task.id, task.role, task.branch, roadmap.stack);
       if (dispatched) {
         task.status = "IN_PROGRESS";
         task.updatedAt = new Date().toISOString();
@@ -1743,10 +1759,11 @@ export class OrchestratorEngine {
       // failed, and the announcement goes out ONLY on a fresh creation.
       // A repeat tick after a failed persist must stay quiet instead of
       // celebrating twice.
+      const stackTest = STACKS[normalizeStackId((roadmap as Roadmap).stack, "bun")].testCommand;
       const outcome = await IssueManager.createMilestoneRelease(
         "v1.0.0",
         `Release v1.0.0 - ${roadmap.projectName}`,
-        `## 🚀 Project Completed: ${roadmap.projectName}\n\nAll tasks implemented, reviewed, audited, and tested.\n\n### Deliverables:\n- Core workspace built in \`workspace/\`\n- 0 test failures on \`bun test\`\n- Security audit clean`
+        `## 🚀 Project Completed: ${roadmap.projectName}\n\nAll tasks implemented, reviewed, audited, and tested.\n\n### Deliverables:\n- Core workspace built in \`workspace/\` (${(roadmap as Roadmap).stack || "bun"} stack)\n- 0 test failures on \`${stackTest}\`\n- Security audit clean`
       );
       if (outcome !== "failed") {
         roadmap.globalStatus = "COMPLETED";

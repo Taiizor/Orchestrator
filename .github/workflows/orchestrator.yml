@@ -65,10 +65,35 @@ jobs:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
 
-      - name: 🥟 Setup Bun Runtime
+      - name: 🥟 Setup Bun Runtime (engine + JS/TS products)
         uses: oven-sh/setup-bun@v2.2.0
         with:
           bun-version: latest
+
+      # Product toolchains (polyglot): the engine itself needs only Bun, but
+      # conflict-resolution verification runs the PRODUCT stack's tests, so
+      # every toolchain is provisioned here too. Setup actions are no-ops
+      # when the stack is unused (fast cache hits, ~10-30s each).
+      - name: 🐹 Setup Go toolchain (Go products)
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: 🦀 Setup Rust toolchain (Rust products)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: 🟣 Setup .NET SDK (.NET products)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.x
+
+      - name: 🐍 Setup Python + pytest (Python products)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
 
       - name: ⚡ Cache Bun Modules & OpenCode Binary
         uses: actions/cache@v6

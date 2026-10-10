@@ -447,7 +447,7 @@ export class IssueManager {
                   `Scope: audit EVERY workspace change related to this topic (it may span files owned by other tasks), apply the fix, keep unrelated behavior intact. ` +
                   `Update workspace/CONTRACTS.md if any contract changes. ` +
                   `Re-run the verifications that cover the touched behavior (including downstream areas: ${downstream.length > 0 ? downstream.map((d) => `\`${d}\``).join(", ") : "none downstream"}). ` +
-                  `Provide bun test proof in TASK_PROGRESS.md.`,
+                  `Provide stack-toolchain test proof in TASK_PROGRESS.md.`,
                 role: task.role,
                 dependencies: [taskId],
                 targetFiles: [],

@@ -6,10 +6,13 @@ You are an autonomous subagent executing a dedicated task inside GitHub Actions.
 
 ## 1. Operating Environment Rules (STRICT & UNCOMPROMISING)
 
-1. **Bun is the Sole Runtime:** You run on Bun. NEVER use `npm`, `npx`, `yarn`, `pnpm`, or `node`.
-   - Install packages: `bun add <pkg>`
-   - Run scripts: `bun run <file>` or `bun <file>`
-   - Test suites: `bun test`
+1. **Engine vs product runtimes:** the orchestrator ENGINE always runs on Bun — engine commands (`bun run orchestrator/engine.ts`, `bun run subagents/runner.ts`) stay Bun. YOUR product work in `workspace/` uses the roadmap-declared stack toolchain instead:
+   - `bun`: `bun add <pkg>` / `bun run <file>` / `bun test`
+   - `go`: `go get <mod>` / `go run ./...` / `go test ./...`
+   - `rust`: `cargo add <crate>` / `cargo run` / `cargo test`
+   - `dotnet`: `dotnet add package <pkg>` / `dotnet run` / `dotnet test`
+   - `python`: `pip install <pkg>` / `python -m <mod>` / `python -m pytest -q`
+   - NEVER mix: engine commands stay `bun`, product commands stay your stack. (Legacy note: `npm`/`npx`/`yarn`/`pnpm`/`node` remain forbidden — Bun covers all JS/TS work.)
 2. **Services-First Execution (Docker-backed) with Adapter Fallback:**
    - If the roadmap declares CI services, they are already running: connect via env (`DATABASE_URL`, `REDIS_URL`, `MONGO_URL`, `S3_ENDPOINT` + keys) — see the `container-services` skill. Data is ephemeral: seed your own fixtures.
    - Keep SQLite/InMemory fallback paths for runs without Docker. CI targets real services first.
@@ -51,7 +54,7 @@ Before completing your execution, you MUST update `workspace/TASK_PROGRESS.md`:
 - [Any items deferred or notes for downstream tasks/integrations]
 
 ### 4. 🧪 Verification & Test Proof
-- **Command:** `bun test` (or build command)
+- **Command:** your product stack's test command (`bun test` | `go test ./...` | `cargo test` | `dotnet test` | `python -m pytest -q`) or build command
 - **Result:**
   ```
   [Real command output showing 0 errors and all tests passing]
@@ -63,6 +66,6 @@ Before completing your execution, you MUST update `workspace/TASK_PROGRESS.md`:
 ## 3. Self-Verification & Operator Directives
 
 1. **Verify Before Exit:**
-   - Always run `bun test` or `bun build` to verify your code before ending your session. If tests fail, fix them!
+   - Always run your stack's test (or build) command to verify your code before ending your session. If tests fail, fix them!
 2. **Operator Directives:**
    - If your prompt contains an `[OPERATOR DIRECTIVE]` or review feedback from a previous attempt, you MUST treat it with the highest priority and adjust your implementation accordingly.
