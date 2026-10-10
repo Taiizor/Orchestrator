@@ -19,6 +19,9 @@ export const CONFIG = {
   // budget. Prevents an idle night after a terminal failure.
   FAILED_RESURRECT_COOLDOWN_MIN: safeInt(process.env.FAILED_RESURRECT_COOLDOWN_MIN, 60),
   FAILED_AUTO_RESURRECT_MAX: safeInt(process.env.FAILED_AUTO_RESURRECT_MAX, 2),
+  // Skill Forger: cap on collected project skills per run (context-budget
+  // guard for downstream agent prompts). Override via MAX_FORGED_SKILLS.
+  MAX_FORGED_SKILLS: safeInt(process.env.MAX_FORGED_SKILLS, 20),
 
   // Git & Branching
   BASE_BRANCH: process.env.BASE_BRANCH || "main",

@@ -322,6 +322,7 @@ export class OrchestratorEngine {
    */
   private static async collectForgedSkills(): Promise<string[]> {
     const valid: string[] = [];
+    const cap = CONFIG.MAX_FORGED_SKILLS > 0 ? CONFIG.MAX_FORGED_SKILLS : 20;
     try {
       const glob = new Bun.Glob("inputs/skills/*");
       const dirs: string[] = [];
@@ -329,7 +330,7 @@ export class OrchestratorEngine {
         const base = rel.split(/[/\\]/).pop() || "";
         if (!base.startsWith(".") && base !== ".gitkeep") dirs.push(rel.replace(/\\/g, "/"));
       }
-      for (const dir of dirs.sort().slice(0, 6)) {
+      for (const dir of dirs.sort().slice(0, cap)) {
         const p = `${dir}/SKILL.md`;
         try {
           const raw = await Bun.file(p).text();
@@ -349,8 +350,8 @@ export class OrchestratorEngine {
           console.warn(`⚠️ Ignoring ${dir} (no readable SKILL.md).`);
         }
       }
-      if (dirs.length > 6) {
-        console.warn(`⚠️ Forger produced ${dirs.length} skill dirs; keeping first 6 alphabetically.`);
+      if (dirs.length > cap) {
+        console.warn(`⚠️ Forger produced ${dirs.length} skill dirs; keeping first ${cap} alphabetically.`);
       }
     } catch {
       /* no skills directory */
