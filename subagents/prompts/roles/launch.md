@@ -15,7 +15,7 @@ You are the **final gate before a milestone ships**: boot the composed applicati
 ## 2. Decide: Playwright or HTTP Smoke
 
 Probe live routes first (`/`, `/health` if any, `/v1/*` from `workspace/CONTRACTS.md`, UI paths from the spec). Record content types:
-- **HTML served anywhere** → full Playwright smoke (install first if missing: `bun add -D @playwright/test`, then `bunx playwright install chromium`). Load every served page: assert 200, assert key selectors from the UI code, collect console errors + failed requests. Any red = gap.
+- **HTML served anywhere** → full Playwright smoke (install first if missing: `bun add -D @playwright/test`, then `bunx playwright install chromium`). Load every served page: assert 200, assert key selectors from the UI code (prefer `data-testid` selectors — they are stable by design), collect console errors + failed requests. Any red = gap.
 - **No HTML but UI code exists in repo** → gap in itself (`UI modules present but no routes serve HTML`), then HTTP smoke for the API.
 - **API-only by design** → HTTP smoke only: every documented endpoint family gets at least list + create + validation-error probes; assert status codes AND `{ data, error }` envelope shape. State the reason in the verdict.
 
