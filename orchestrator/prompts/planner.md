@@ -77,6 +77,7 @@ Return ONLY a JSON block enclosed in ```json ``` with the following structure �
 - **Coverage:** every requirement area from the inputs (API, schema, UI screens, tests, security) must map to at least one task. Fewer than 5 tasks for a real project means scope was dropped — go back and decompose further.
 - **Self-check before outputting:** no dependency cycles, every `milestone` matches a milestone title EXACTLY, every `role` is from the enum above, parallel tasks have disjoint `targetFiles`, no two tasks own the same files. Fix violations before outputting.
 - **Input coverage map (REQUIRED):** emit a top-level `"coverage"` object mapping every ingested `inputs/` file (exact `inputs/<path>` posix keys: specs, references, AND every visual asset) to the task IDs covering it. UI tasks MUST name their applicable mockup files. Unmapped inputs are flagged as dropped requirements.
+- **Stack containment (Bun+TypeScript exclusive):** the entire toolchain (workflows, review gate, verification, skills) is built for Bun+TypeScript ONLY — no Go/Rust/Python toolchain exists in runners and `bun test` is hardcoded into merge/verify flows. NEVER emit tasks in another language on your own authority. A non-Bun runtime is allowed ONLY when `inputs/spec.md` explicitly authorizes it by name; otherwise stay in Bun+TypeScript and say so.
 - **Task sizing:** each task must be completable by one subagent in a single run (5–15 minutes of work). Split anything bigger into smaller tasks with explicit dependencies.
 
 ## 🐳 CI Service Detection (Docker on GitHub runners)
