@@ -87,8 +87,7 @@ function isAllowedFile(task: TaskItem, file: string): boolean {
   if (file.startsWith("state/")) return false; // state files must only change via orchestrator
   return (task.targetFiles || []).some((pat) => {
     // targetFiles entries are workspace-relative; diff paths are repo-relative
-    const norm = pat.replace(/^workspace\//, "workspace/");
-    return globMatches(norm, file) || globMatches(pat, file);
+    return globMatches(pat, file);
   });
 }
 
