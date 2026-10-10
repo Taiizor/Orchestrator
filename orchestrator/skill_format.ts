@@ -30,6 +30,11 @@ export function normalizeSkillFrontmatter(raw: string): string | null {
 export function skillFrontmatterName(raw: string): string | undefined {
   const m = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n/);
   const line = m && m[1].split("\n").find((l) => /^\s*name\s*:/.test(l));
-  const v = line && line.slice(line.indexOf(":") + 1).trim().replace(/^["']|["']$/g, "");
+  const v =
+    line &&
+    line
+      .slice(line.indexOf(":") + 1)
+      .trim()
+      .replace(/^["']|["']$/g, "");
   return v || undefined;
 }

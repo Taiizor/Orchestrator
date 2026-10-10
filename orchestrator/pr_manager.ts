@@ -117,15 +117,7 @@ export class PRManager {
    * local merge + AI conflict resolver instead.
    */
   public static async mergeTaskPR(prNumber: number): Promise<boolean> {
-    const res = await this.gh([
-      "gh",
-      "pr",
-      "merge",
-      String(prNumber),
-      ...this.repoFlag(),
-      "--merge",
-      "--delete-branch=false",
-    ]);
+    const res = await this.gh(["gh", "pr", "merge", String(prNumber), ...this.repoFlag(), "--merge", "--delete-branch=false"]);
     if (res.exitCode !== 0) {
       console.warn(`⚠️ gh pr merge #${prNumber} failed (likely conflicts):`, res.stderr);
       return false;

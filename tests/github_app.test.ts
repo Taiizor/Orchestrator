@@ -6,6 +6,7 @@ import {
   generateAppJwt,
   initializeGitHubAppAuth,
 } from "../orchestrator/github_app.ts";
+import { CONFIG, refreshAuthFromEnv } from "../orchestrator/config.ts";
 
 describe("GitHub App Module", () => {
   const originalEnv = { ...process.env };
@@ -67,5 +68,31 @@ describe("GitHub App Module", () => {
   it("initializeGitHubAppAuth should return false and not throw when unconfigured", async () => {
     const res = await initializeGitHubAppAuth();
     expect(res).toBe(false);
+  });
+
+  it("refreshAuthFromEnv should sync runtime env into the CONFIG snapshot", () => {
+    const prevEnv = {
+      GITHUB_TOKEN: process.env.GITHUB_TOKEN,
+      GH_TOKEN: process.env.GH_TOKEN,
+      GH_PROJECT_TOKEN: process.env.GH_PROJECT_TOKEN,
+      DATA_PAT: process.env.DATA_PAT,
+    };
+
+    process.env.GITHUB_TOKEN = "";
+    process.env.GH_TOKEN = "ghs_test_runtime_token";
+    process.env.GH_PROJECT_TOKEN = "ghs_test_project_token";
+    process.env.DATA_PAT = "";
+    refreshAuthFromEnv();
+    // GITHUB_TOKEN falls back to GH_TOKEN; DATA_PAT falls back to GH_PROJECT_TOKEN
+    expect(CONFIG.GITHUB_TOKEN).toBe("ghs_test_runtime_token");
+    expect(CONFIG.PROJECT_TOKEN).toBe("ghs_test_project_token");
+    expect(CONFIG.DATA_PAT).toBe("ghs_test_project_token");
+
+    // Restore ambient env and re-sync so no state leaks to other tests
+    for (const [k, v] of Object.entries(prevEnv)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    refreshAuthFromEnv();
   });
 });

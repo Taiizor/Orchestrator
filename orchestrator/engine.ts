@@ -268,20 +268,35 @@ export class OrchestratorEngine {
           const wt = await GitManager.run(["git", "write-tree"], ".", undefined, idxEnv);
           if (wt.exitCode === 0 && /^[0-9a-f]{40}$/.test(wt.stdout.trim())) tree = wt.stdout.trim();
         }
-        try { await Bun.file(idxFile).exists() && (await import("node:fs")).unlinkSync(idxFile); } catch { /* best-effort */ }
+        try {
+          (await Bun.file(idxFile).exists()) && (await import("node:fs")).unlinkSync(idxFile);
+        } catch {
+          /* best-effort */
+        }
         if (!/^[0-9a-f]{40}$/.test(tree)) {
           console.warn("⚠️ Seed tree creation failed; skipping develop seed (task forks will fail loudly instead).");
         } else {
           const ct = await GitManager.run([
-            "git", "-c", "user.name=github-actions[bot]", "-c", "user.email=github-actions[bot]@users.noreply.github.com",
-            "commit-tree", tree, "-m", "seed(data): clean workspace baseline",
+            "git",
+            "-c",
+            "user.name=github-actions[bot]",
+            "-c",
+            "user.email=github-actions[bot]@users.noreply.github.com",
+            "commit-tree",
+            tree,
+            "-m",
+            "seed(data): clean workspace baseline",
           ]);
           const sha = ct.stdout.trim();
           if (ct.exitCode !== 0 || !/^[0-9a-f]{40}$/.test(sha)) {
             console.warn("⚠️ Seed commit creation failed; skipping develop seed.");
           } else {
             const push = await GitManager.remoteGit(remote, ["push", remote, `${sha}:refs/heads/${CONFIG.INTEGRATION_BRANCH}`]);
-            console.log(push.exitCode === 0 ? `🌱 Seeded ${remote}/${CONFIG.INTEGRATION_BRANCH} @ ${sha.slice(0, 7)}.` : `⚠️ Seed push failed: ${push.stderr.slice(0, 200)}`);
+            console.log(
+              push.exitCode === 0
+                ? `🌱 Seeded ${remote}/${CONFIG.INTEGRATION_BRANCH} @ ${sha.slice(0, 7)}.`
+                : `⚠️ Seed push failed: ${push.stderr.slice(0, 200)}`
+            );
           }
         }
       } else {
@@ -430,7 +445,7 @@ export class OrchestratorEngine {
               // (uniqueEarly computed above for the hold check — reused here.)
               const unique = uniqueEarly;
               if (!isDefaultProgress(progressContent) && unique > 0) {
-                if (task.status !== "COMPLETED" as string) {
+                if (task.status !== ("COMPLETED" as string)) {
                   console.log(
                     `✅ [${task.id}] branch already integrated (empty diff, ${unique} unique commits). Marking COMPLETED.`
                   );
@@ -526,9 +541,9 @@ export class OrchestratorEngine {
         console.warn(`⚠️ [${task.id}] REJECTED: ${notes}`);
         task.attempts += 1;
         if (tipSha) {
-            task.lastReviewSha = tipSha;
-            task.lastGateVersion = GATE_VERSION;
-          }
+          task.lastReviewSha = tipSha;
+          task.lastGateVersion = GATE_VERSION;
+        }
         task.reviewNotes = notes + (fixes.length > 0 ? `\nFixes: ${fixes.join(", ")}` : "");
         if (task.attempts >= task.maxAttempts) {
           task.status = "FAILED";

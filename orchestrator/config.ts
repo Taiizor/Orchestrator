@@ -91,6 +91,26 @@ export const CONFIG = {
 } as const;
 
 /**
+ * Re-read auth-related env vars into CONFIG.
+ *
+ * CONFIG is a module-level snapshot taken at import time, but
+ * initializeGitHubAppAuth() mints the installation token at runtime
+ * (after imports) and writes it into process.env. Without this refresh,
+ * consumers reading CONFIG.PROJECT_TOKEN / CONFIG.DATA_PAT would keep
+ * seeing "" and silently skip Projects v2 sync / DATA operations.
+ * Idempotent and cheap — safe to call at startup.
+ */
+export function refreshAuthFromEnv(): void {
+  const mutable = CONFIG as unknown as Record<string, unknown>;
+  mutable.GITHUB_TOKEN = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "";
+  mutable.PROJECT_TOKEN = process.env.GH_PROJECT_TOKEN || "";
+  mutable.DATA_PAT = process.env.DATA_PAT || process.env.GH_PROJECT_TOKEN || "";
+  mutable.APP_ID = process.env.GH_APP_ID || process.env.APP_ID || "";
+  mutable.APP_PRIVATE_KEY = process.env.GH_APP_PRIVATE_KEY || process.env.APP_PRIVATE_KEY || "";
+  mutable.APP_INSTALLATION_ID = process.env.GH_APP_INSTALLATION_ID || process.env.APP_INSTALLATION_ID || "";
+}
+
+/**
  * Validate critical config values at startup. Logs warnings for missing
  * optional tokens and throws on impossible numeric states.
  */
@@ -114,4 +134,3 @@ export function validateConfig(): void {
     console.warn("⚠️ GH_PROJECT_TOKEN is not set — GitHub Projects v2 board sync will be skipped.");
   }
 }
-

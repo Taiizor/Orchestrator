@@ -648,7 +648,16 @@ export class ProjectManager {
       // Self-heal: stale boards (same-titled ghosts) or fresh items missing
       // from the board — add first, then retry the edit once.
       console.log(`➕ Issue not on board; adding before status edit...`);
-      const addRes = await this.projectGh(["gh", "project", "item-add", String(projectNumber), "--owner", owner, "--url", task.issueUrl]);
+      const addRes = await this.projectGh([
+        "gh",
+        "project",
+        "item-add",
+        String(projectNumber),
+        "--owner",
+        owner,
+        "--url",
+        task.issueUrl,
+      ]);
       if (addRes.exitCode === 0) {
         editRes = await this.projectGh(editArgs);
       } else {

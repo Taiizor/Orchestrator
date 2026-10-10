@@ -400,7 +400,16 @@ export class GitManager {
    * these never leak into data commits.
    */
   public static async restoreEngineFiles(): Promise<void> {
-    const eng = await this.run(["git", "checkout", "origin/main", "--", "orchestrator", "subagents", ".opencode", "package.json"]);
+    const eng = await this.run([
+      "git",
+      "checkout",
+      "origin/main",
+      "--",
+      "orchestrator",
+      "subagents",
+      ".opencode",
+      "package.json",
+    ]);
     if (eng.exitCode !== 0) {
       console.warn("⚠️ Engine file restore had issues:", (eng.stdout + eng.stderr).slice(0, 300));
       return;
@@ -506,7 +515,10 @@ export class GitManager {
     await this.run(["git", "reset", "-q", `${CONFIG.WORKSPACE_DIR}/node_modules`]);
     await this.run(["git", "reset", "-q", `${CONFIG.WORKSPACE_DIR}/.services.env`]);
     const staged = await this.run(["git", "diff", "--cached", "--name-only"]);
-    const files = staged.stdout.split("\n").map((f) => f.trim()).filter(Boolean);
+    const files = staged.stdout
+      .split("\n")
+      .map((f) => f.trim())
+      .filter(Boolean);
     if (files.length === 0) {
       // Empty stage: either a no-op republish (branch already carries work)
       // or an agent that produced nothing. Only the former is success.
@@ -565,9 +577,7 @@ export class GitManager {
       const pushRes = await this.run(["git", "push"]);
       if (pushRes.exitCode === 0) return true;
       const delayMs = attempt * 2000 + Math.floor(Math.random() * 1000);
-      console.warn(
-        `⚠️ Push rejected (attempt ${attempt}/${maxRetries}). Backing off for ${delayMs}ms before fetch & rebase...`
-      );
+      console.warn(`⚠️ Push rejected (attempt ${attempt}/${maxRetries}). Backing off for ${delayMs}ms before fetch & rebase...`);
       await Bun.sleep(delayMs);
       await this.run(["git", "fetch", "origin"]);
       const rebaseRes = await this.run(["git", "pull", "--rebase"]);

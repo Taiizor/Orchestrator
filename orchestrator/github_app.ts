@@ -1,5 +1,6 @@
 import { createSign } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
+import { refreshAuthFromEnv } from "./config.ts";
 
 export interface AppTokenResult {
   token: string;
@@ -14,8 +15,7 @@ let cachedToken: AppTokenResult | null = null;
  */
 export function isGitHubAppConfigured(): boolean {
   const appId = process.env.GH_APP_ID || process.env.APP_ID;
-  const privateKey =
-    process.env.GH_APP_PRIVATE_KEY || process.env.APP_PRIVATE_KEY || process.env.GH_APP_PRIVATE_KEY_PATH;
+  const privateKey = process.env.GH_APP_PRIVATE_KEY || process.env.APP_PRIVATE_KEY || process.env.GH_APP_PRIVATE_KEY_PATH;
   return Boolean(appId && privateKey);
 }
 
@@ -103,8 +103,7 @@ export async function getInstallationToken(options?: {
   const privateKey = normalizePrivateKey(rawKey);
   const jwt = generateAppJwt(appId, privateKey);
 
-  let installationId =
-    options?.installationId || process.env.GH_APP_INSTALLATION_ID || process.env.APP_INSTALLATION_ID || "";
+  let installationId = options?.installationId || process.env.GH_APP_INSTALLATION_ID || process.env.APP_INSTALLATION_ID || "";
 
   // If installation ID is not explicitly provided, attempt auto-discovery
   if (!installationId) {
@@ -232,6 +231,10 @@ export async function initializeGitHubAppAuth(): Promise<boolean> {
       if (!process.env.DATA_PAT) {
         process.env.DATA_PAT = token;
       }
+      // CONFIG is snapshotted at import time — refresh it so downstream
+      // readers (ProjectManager, GitManager) see the minted token instead
+      // of the stale "" value.
+      refreshAuthFromEnv();
       return true;
     }
   } catch (err: any) {
