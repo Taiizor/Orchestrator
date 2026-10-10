@@ -758,14 +758,18 @@ export class IssueManager {
    * so the tag and release go there (data develop tip), never to the public
    * skeleton. Single-repo fallback keeps the old origin behavior.
    */
-  public static async createMilestoneRelease(tag: string, title: string, notes: string): Promise<boolean> {
+  public static async createMilestoneRelease(
+    tag: string,
+    title: string,
+    notes: string
+  ): Promise<"created" | "existed" | "failed"> {
     console.log(`🏷️ Creating Git Tag ${tag} and GitHub Release...`);
     if (GitManager.isDataMode()) {
       const remote = GitManager.contentRemote();
       const slug = GitManager.dataRepoSlug();
       if (!slug) {
         console.warn(`⚠️ DATA_REPO unparseable; skipping release ${tag}.`);
-        return false;
+        return "failed";
       }
       // Ambient GITHUB_TOKEN cannot see the private data repo; run gh
       // under the data PAT (same pattern as RepoSetup.runAs).
@@ -776,7 +780,7 @@ export class IssueManager {
       const existing = await GitManager.run(["gh", "release", "view", tag, "--repo", slug], ".", undefined, ghEnv);
       if (existing.exitCode === 0) {
         console.log(`ℹ️ Release ${tag} already exists on ${slug}; skipping.`);
-        return true;
+        return "existed";
       }
       // Tag the data integration-branch tip (NOT this checkout's HEAD,
       // which is engine code). Refresh the ref first; the tick may hold a
@@ -787,7 +791,7 @@ export class IssueManager {
       const sha = tip.stdout.trim();
       if (tip.exitCode !== 0 || !/^[0-9a-f]{40}$/.test(sha)) {
         console.warn(`⚠️ Cannot resolve ${remote}/${branch} tip; skipping release ${tag}.`);
-        return false;
+        return "failed";
       }
       const tagExists = await GitManager.remoteGit(remote, ["ls-remote", remote, `refs/tags/${tag}`]);
       if (tagExists.exitCode !== 0 || !tagExists.stdout.trim()) {
@@ -795,7 +799,7 @@ export class IssueManager {
         const push = await GitManager.remoteGit(remote, ["push", remote, tag]);
         if (push.exitCode !== 0) {
           console.warn(`⚠️ Tag push failed for ${tag}:`, push.stderr.slice(0, 200));
-          return false;
+          return "failed";
         }
       } else {
         console.log(`ℹ️ Tag ${tag} already on ${remote}; reusing for release.`);
@@ -808,15 +812,15 @@ export class IssueManager {
       );
       if (res.exitCode === 0) {
         console.log(`📦 GitHub Release ${tag} successfully published to ${slug}!`);
-        return true;
+        return "created";
       }
       console.warn(`⚠️ Release create failed for ${tag}:`, res.stderr.slice(0, 200));
-      return false;
+      return "failed";
     }
     const already = await GitManager.run(["gh", "release", "view", tag]);
     if (already.exitCode === 0) {
       console.log(`ℹ️ Release ${tag} already exists; skipping.`);
-      return true;
+      return "existed";
     }
     await GitManager.run(["git", "tag", "-a", tag, "-m", title]);
     await GitManager.run(["git", "push", "origin", tag]);
@@ -825,8 +829,8 @@ export class IssueManager {
 
     if (res.exitCode === 0) {
       console.log(`📦 GitHub Release ${tag} successfully published!`);
-      return true;
+      return "created";
     }
-    return false;
+    return "failed";
   }
 }

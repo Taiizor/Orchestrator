@@ -1297,24 +1297,36 @@ export class OrchestratorEngine {
 
     // Step 2: Check for finished roadmap
     const allCompleted = roadmap.tasks.length > 0 && roadmap.tasks.every((t) => t.status === "COMPLETED");
-    if (allCompleted) {
+    if (allCompleted && roadmap.globalStatus !== "COMPLETED") {
       console.log("🎉 ALL TASKS COMPLETED! Target project is fully built and verified.");
-      roadmap.globalStatus = "COMPLETED";
-      await this.persistRoadmap(roadmap, "chore(orchestrator): all tasks completed");
-
-      // Sync Dashboard Issue & Publish Release Tag
-      const issueNum = await IssueManager.syncDashboardIssue(roadmap);
-      if (issueNum) {
-        await IssueManager.postMilestoneUpdate(
-          issueNum,
-          "🎉 **All tasks have been successfully completed and verified!** Creating Final Release `v1.0.0`..."
-        );
-      }
-      await IssueManager.createMilestoneRelease(
+      // Idempotent celebration: the release call reports created/existed/
+      // failed, and the announcement goes out ONLY on a fresh creation.
+      // A repeat tick after a failed persist must stay quiet instead of
+      // celebrating twice.
+      const outcome = await IssueManager.createMilestoneRelease(
         "v1.0.0",
         `Release v1.0.0 - ${roadmap.projectName}`,
         `## 🚀 Project Completed: ${roadmap.projectName}\n\nAll tasks implemented, reviewed, audited, and tested.\n\n### Deliverables:\n- Core workspace built in \`workspace/\`\n- 0 test failures on \`bun test\`\n- Security audit clean`
       );
+      if (outcome !== "failed") {
+        roadmap.globalStatus = "COMPLETED";
+        await this.persistRoadmap(roadmap, "chore(orchestrator): all tasks completed");
+      }
+      // Sync Dashboard Issue & Publish Release Tag
+      const issueNum = await IssueManager.syncDashboardIssue(roadmap);
+      if (issueNum && outcome === "created") {
+        await IssueManager.postMilestoneUpdate(
+          issueNum,
+          "🎉 **All tasks have been successfully completed and verified!** Creating Final Release `v1.0.0`..."
+        );
+      } else {
+        console.log(`ℹ️ Final release v1.0.0 outcome: ${outcome}; celebration skipped.`);
+      }
+      return;
+    }
+    if (allCompleted) {
+      // Steady state: celebrated and released before — stay quiet.
+      console.log("ℹ️ Roadmap already COMPLETED and released; nothing to do.");
       return;
     }
 
