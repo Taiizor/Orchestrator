@@ -640,7 +640,7 @@ export class IssueManager {
             });
             hasChanges = true;
             const warn =
-              check.warnings.length > 0 ? `\n\nWarnings:\n${formatValidation({ errors: [], warnings: check.warnings })}` : "";
+              check.warnings.length > 0 ? `\n\n${formatValidation({ errors: [], warnings: check.warnings })}` : "";
             await this.acknowledgeComment(
               dashboardNumber,
               commentId,
