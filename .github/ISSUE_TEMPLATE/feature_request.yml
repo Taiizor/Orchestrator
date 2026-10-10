@@ -1,0 +1,29 @@
+name: 💡 Feature request
+description: Propose a stack, skill, gate, or workflow improvement
+title: "[feat]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What hurts today? Which run/task showed it?
+      placeholder: PHP products need Pest support, but the gate only knows phpunit…
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Concrete change (files, prompts, workflows). "Support X" is not concrete.
+      placeholder: Add STACKS.php.testCommand fallback chain + pest evidence pattern in review_gate.ts…
+    validations:
+      required: true
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope checklist
+      options:
+        - label: Fits one product stack without touching others
+        - label: No new fallback/data layers (Docker-always holds)
+        - label: Covered by engine tests (bun test proof expected in PR)

@@ -1,0 +1,48 @@
+name: 🐞 Bug report
+description: Something in the engine, a workflow, or an agent prompt misbehaves
+title: "[bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Logs beat prose — paste terminal output wherever asked.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: Concrete failure (wrong dispatch, failed gate, broken merge, bad prompt output…)
+      placeholder: Tick #123 re-queued TASK-004 forever with…
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+      placeholder: The task should have failed closed with reviewNotes…
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - engine (tick/review/dispatch)
+        - subagent runner / prompts
+        - workflows (orchestrator/subagent/chatops)
+        - skills
+        - docs
+        - tests
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / proof
+      description: Paste the failing run output, TASK_PROGRESS excerpt, or gate verdict. Redact secrets.
+      render: shell
+  - type: input
+    id: version
+    attributes:
+      label: Engine version (commit SHA or release tag)
+      placeholder: main@a1b2c3d

@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 💬 Discussions / Q&A
+    url: https://github.com/Taiizor/Orchestrator/discussions
+    about: Questions, ideas, and operator talk (enable Discussions first if missing).
