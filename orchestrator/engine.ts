@@ -1,5 +1,7 @@
 import { parseArgs } from "util";
-import { existsSync } from "fs";
+import { existsSync, statSync, mkdirSync, rmSync, cpSync, copyFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, dirname } from "node:path";
 import { CONFIG } from "./config.ts";
 import { StateManager } from "./state_manager.ts";
 import { GitManager } from "./git_manager.ts";
@@ -730,6 +732,10 @@ export class OrchestratorEngine {
     // State commits belong on BASE_BRANCH (main): review merges leave the
     // checkout on the integration branch — return first so `git push` can't
     // spill content branches to the wrong remote.
+    // Mid-job dirt (bun install rewrites bun.lock) aborts both the checkout
+    // below and `pull --rebase` in the retry loop — stash tracked edits
+    // aside first, restore them on the way out (runners are ephemeral).
+    await GitManager.run(["git", "stash", "push", "-m", "orchestrator-state-keepout"]);
     await GitManager.run(["git", "checkout", CONFIG.BASE_BRANCH]);
     // Freshness first: a long tick (slow LLM reviews) may hold a stale copy.
     // Merge remote truth in BEFORE saving so we never wipe fields like
@@ -747,7 +753,10 @@ export class OrchestratorEngine {
       for (const f of files) await GitManager.run(["git", "add", f]);
       await GitManager.run(["git", "commit", "-m", message]);
       const push = await GitManager.run(["git", "push"]);
-      if (push.exitCode === 0) return;
+      if (push.exitCode === 0) {
+        await GitManager.run(["git", "stash", "pop"]);
+        return;
+      }
       const delayMs = attempt * 2000 + Math.floor(Math.random() * 1000);
       console.warn(`⚠️ Push rejected (attempt ${attempt}/3). Backing off for ${delayMs}ms before rebase...`);
       console.warn(`   ↳ push stderr: ${(push.stdout + push.stderr).slice(0, 500)}`);
@@ -766,57 +775,121 @@ export class OrchestratorEngine {
         console.warn("⚠️ Could not load remote roadmap; retrying with local copy.");
       }
     }
+    await GitManager.run(["git", "stash", "pop"]);
     console.error("❌ persistRoadmap: push failed after 3 attempts; changes remain local.");
   }
 
   /**
    * Dual-repo state persist: state files are force-added (gitignored) onto a
-   * local `data-state` branch tracking data/main and pushed there. Includes
-   * the same freshness-merge as the public path so concurrent ticks can't
-   * wipe each other's roadmap fields.
+   * scratch linked worktree tracking data/main and pushed from there.
+   * Includes the same freshness-merge as the public path so concurrent ticks
+   * can't wipe each other's roadmap fields.
+   *
+   * The worktree isolation is load-bearing: the main checkout gets dirty
+   * mid-job (bun install rewrites bun.lock, runners leave other tracked
+   * edits) and `git checkout -B data-state` then aborts to protect local
+   * changes — HEAD silently stays on the public history and every push is
+   * rejected as non-fast-forward forever. Operating in a scratch worktree
+   * keeps the main checkout (and the running engine's sources) untouched.
    */
   private static async persistRoadmapToData(roadmap: Roadmap, message: string, files: string[]): Promise<void> {
     const remote = CONFIG.DATA_REMOTE;
+    const tip = `${remote}/${CONFIG.BASE_BRANCH}`;
     const dataMain = await GitManager.remoteHasBranch(remote, CONFIG.BASE_BRANCH);
-    // Clear staged leftovers so the switch below never aborts.
-    await GitManager.run(["git", "reset", "-q"]);
-    if (dataMain) {
-      await GitManager.run(["git", "checkout", "-B", "data-state", `${remote}/${CONFIG.BASE_BRANCH}`]);
-    } else {
-      console.log(`🌱 Initializing data state branch from local ${CONFIG.BASE_BRANCH}...`);
-      await GitManager.run(["git", "checkout", "-B", "data-state"]);
-    }
-    try {
-      const show = await GitManager.run(["git", "show", `${remote}/${CONFIG.BASE_BRANCH}:${CONFIG.ROADMAP_FILE}`]);
-      const remoteRm = JSON.parse(show.stdout) as Roadmap;
-      Object.assign(roadmap, StateManager.mergeRoadmaps(roadmap, remoteRm));
-    } catch {
-      // No remote state yet — persist local copy as-is.
-    }
-    for (let attempt = 1; attempt <= 5; attempt++) {
-      await StateManager.saveRoadmap(roadmap);
-      // Forged/hand-added project skills travel with state in data mode.
-      for (const f of [...files, "inputs/skills"]) await GitManager.run(["git", "add", "-f", f]);
-      await GitManager.run(["git", "commit", "-m", message]);
-      const push = await GitManager.remoteGit(remote, ["push", remote, `HEAD:${CONFIG.BASE_BRANCH}`]);
-      if (push.exitCode === 0) return;
-      console.warn(`⚠️ Data state push rejected (attempt ${attempt}/5). Re-syncing...`);
-      console.warn(`   ↳ push stderr: ${(push.stdout + push.stderr).slice(0, 500)}`);
-      // Back off: the competing writer is usually another tick still
-      // working; immediate retries just collide again.
-      await new Promise((r) => setTimeout(r, 15000 * attempt));
-      await GitManager.remoteGit(remote, ["fetch", remote, CONFIG.BASE_BRANCH]);
-      await GitManager.run(["git", "reset", "-q"]);
-      await GitManager.run(["git", "checkout", "-B", "data-state", `${remote}/${CONFIG.BASE_BRANCH}`]);
+    const wtDir = join(tmpdir(), `data-state-${process.pid}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`);
+    const wt = async (args: string[]) => GitManager.run(["git", "-C", wtDir, ...args]);
+    const cleanup = async () => {
       try {
-        const show = await GitManager.run(["git", "show", `${remote}/${CONFIG.BASE_BRANCH}:${CONFIG.ROADMAP_FILE}`]);
+        await GitManager.run(["git", "worktree", "remove", "--force", wtDir]);
+      } catch {
+        // Ephemeral runner; leftovers die with the VM (matters only locally).
+      }
+      try {
+        await GitManager.run(["git", "worktree", "prune"]);
+      } catch {
+        // Best-effort.
+      }
+    };
+    try {
+      await GitManager.run(["git", "worktree", "prune"]);
+      rmSync(wtDir, { recursive: true, force: true });
+      if (!dataMain) console.log(`🌱 Initializing data state on ${remote}/${CONFIG.BASE_BRANCH}...`);
+      const add = dataMain
+        ? await GitManager.run(["git", "worktree", "add", "--detach", wtDir, tip])
+        : await GitManager.run(["git", "worktree", "add", "--detach", wtDir]);
+      if (add.exitCode !== 0) {
+        console.warn("⚠️ Data worktree setup failed:", (add.stdout + add.stderr).slice(0, 300));
+        return;
+      }
+      try {
+        const show = await GitManager.run(["git", "show", `${tip}:${CONFIG.ROADMAP_FILE}`]);
         const remoteRm = JSON.parse(show.stdout) as Roadmap;
         Object.assign(roadmap, StateManager.mergeRoadmaps(roadmap, remoteRm));
       } catch {
-        // keep local copy
+        // No remote state yet — persist local copy as-is.
       }
+      // State files every persist must carry (force-added, gitignored).
+      const carry = [...files, "inputs/skills"];
+      const mirrorIntoWorktree = () => {
+        for (const f of carry) {
+          const src = join(".", f);
+          const dst = join(wtDir, f);
+          let st: ReturnType<typeof statSync> | null = null;
+          try {
+            st = statSync(src);
+          } catch {
+            continue; // Missing optional inputs (e.g. no skills yet).
+          }
+          try {
+            if (st.isDirectory()) {
+              rmSync(dst, { recursive: true, force: true });
+              cpSync(src, dst, { recursive: true });
+            } else {
+              mkdirSync(dirname(dst), { recursive: true });
+              copyFileSync(src, dst);
+            }
+          } catch {
+            // Best-effort mirror; the push below reports real failures.
+          }
+        }
+      };
+      const botIdentity = [
+        "-c",
+        "user.name=github-actions[bot]",
+        "-c",
+        "user.email=github-actions[bot]@users.noreply.github.com",
+      ];
+      for (let attempt = 1; attempt <= 5; attempt++) {
+        await StateManager.saveRoadmap(roadmap);
+        mirrorIntoWorktree();
+        await wt(["add", "-f", ...carry]);
+        const commit = await wt([...botIdentity, "commit", "-m", message]);
+        if (commit.exitCode !== 0 && !/nothing to commit/i.test(commit.stdout + commit.stderr)) {
+          console.warn(`⚠️ Data state commit failed: ${(commit.stdout + commit.stderr).slice(0, 300)}`);
+        }
+        const push = await GitManager.remoteGit(remote, ["push", remote, `HEAD:${CONFIG.BASE_BRANCH}`], wtDir);
+        if (push.exitCode === 0) return;
+        console.warn(`⚠️ Data state push rejected (attempt ${attempt}/5). Re-syncing...`);
+        console.warn(`   ↳ push stderr: ${(push.stdout + push.stderr).slice(0, 500)}`);
+        // Back off: the competing writer is usually another tick still
+        // working; immediate retries just collide again.
+        await new Promise((r) => setTimeout(r, 15000 * attempt));
+        await GitManager.remoteGit(remote, ["fetch", remote, CONFIG.BASE_BRANCH], wtDir);
+        // Reset only the SCRATCH worktree (never the main checkout) onto
+        // the new tip, then re-merge remote state below on next iteration.
+        await wt(["reset", "--hard", tip]);
+        try {
+          const show = await GitManager.run(["git", "show", `${tip}:${CONFIG.ROADMAP_FILE}`]);
+          const remoteRm = JSON.parse(show.stdout) as Roadmap;
+          Object.assign(roadmap, StateManager.mergeRoadmaps(roadmap, remoteRm));
+        } catch {
+          // keep local copy
+        }
+      }
+      console.error("❌ persistRoadmapToData: push failed after 5 attempts; changes remain local.");
+    } finally {
+      await cleanup();
     }
-    console.error("❌ persistRoadmapToData: push failed after 5 attempts; changes remain local.");
   }
 
   /**
