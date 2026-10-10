@@ -91,7 +91,9 @@ describe("State Manager Module", () => {
     });
 
     it("handles undefined updatedAt causing NaN Date.parse", () => {
-      const local = createMockRoadmap([createMockTask("t1", "IN_PROGRESS", undefined)]);
+      const task = createMockTask("t1", "IN_PROGRESS");
+      delete (task as any).updatedAt;
+      const local = createMockRoadmap([task]);
       const remote = createMockRoadmap([createMockTask("t1", "COMPLETED", "2026-10-10T09:00:00Z")]);
       
       const merged = StateManager.mergeRoadmaps(local, remote);
