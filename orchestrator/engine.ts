@@ -160,7 +160,10 @@ export class OrchestratorEngine {
     try {
       const forgerTemplate = await Bun.file("orchestrator/prompts/skill_forger.md").text();
       const forgerContext = compiledSpecContent
-        ? `## Synthesized Project Specification:\n${compiledSpecContent.slice(0, 12000)}`
+        ? // Full spec: truncating here would waste the quality the Stage-1
+          // gate just bought. The 12K guard stays only for the raw-inputs
+          // fallback (unbounded ingestion can overflow small contexts).
+          `## Synthesized Project Specification:\n${compiledSpecContent}`
         : fullInputContext.slice(0, 12000);
       const forgerPrompt = `${systemPrompt}\n\n${forgerTemplate}\n\n${forgerContext}\n\nWrite the skill files now (reply with a one-line summary per file written, or "NO_NEW_SKILLS"):`;
       const forgerRes = await OpenCodeClient.runWithFallback(forgerPrompt, { timeoutMs: 10 * 60 * 1000 });
@@ -624,15 +627,25 @@ export class OrchestratorEngine {
         continue;
       }
 
+      // Review context caps (raised for quality) + truncation transparency:
+      // the reviewer must KNOW when it sees a partial picture.
+      const shownFiles = gate.fileList.slice(0, 100);
+      const filesTruncated = gate.fileList.length > shownFiles.length;
+      const MAX_REVIEW_DIFF_CHARS = 30000;
+      const diffTruncated = diff.length > MAX_REVIEW_DIFF_CHARS;
       const reviewPrompt =
         `${reviewerPromptTemplate}\n\n` +
         `### Task: [${task.id}] - ${task.title}\n` +
         `**Expected Deliverables:**\n${task.description}\n\n` +
         `### Subagent Progress Report (TASK_PROGRESS.md):\n${taskProgress}\n\n` +
-        `### Changed files (${gate.fileList.length}):\n${gate.fileList.slice(0, 50).join("\n")}\n\n` +
+        `### Changed files (${gate.fileList.length}):\n${shownFiles.join("\n")}` +
+        (filesTruncated ? `\n⚠️ File list truncated: showing first ${shownFiles.length} of ${gate.fileList.length}.` : "") +
+        `\n\n` +
         `### Diff stat:\n\`\`\`\n${gate.diffStat}\n\`\`\`\n\n` +
         `### Gate warnings (already checked, informational):\n${gate.warnings.length > 0 ? gate.warnings.join("\n") : "none"}\n\n` +
-        `### Git Diff:\n\`\`\`diff\n${diff.slice(0, 10000)}\n\`\`\`\n\n` +
+        `### Git Diff:\n\`\`\`diff\n${diff.slice(0, MAX_REVIEW_DIFF_CHARS)}\n\`\`\`` +
+        (diffTruncated ? `\n⚠️ Diff truncated: showing first ${MAX_REVIEW_DIFF_CHARS} of ${diff.length} chars.` : "") +
+        `\n\n` +
         `Evaluate whether to approve or reject this work:`;
 
       const res = await OpenCodeClient.runWithFallback(reviewPrompt, { timeoutMs: 8 * 60 * 1000 });
@@ -1181,7 +1194,7 @@ export class OrchestratorEngine {
       task.lastReviewSha = undefined;
       task.lastGateVersion = undefined;
       task.updatedAt = new Date().toISOString();
-      task.reviewNotes = `Auto-resurrect #${res + 1}/${CONFIG.FAILED_AUTO_RESURRECT_MAX} after ${CONFIG.FAILED_RESURRECT_COOLDOWN_MIN}m cooldown (was FAILED). Previous: ${(task.reviewNotes || "-").slice(0, 200)}`;
+      task.reviewNotes = `Auto-resurrect #${res + 1}/${CONFIG.FAILED_AUTO_RESURRECT_MAX} after ${CONFIG.FAILED_RESURRECT_COOLDOWN_MIN}m cooldown (was FAILED). Previous: ${(task.reviewNotes || "-").slice(0, 1000)}`;
       console.log(`🌅 [${task.id}] auto-resurrected to PENDING (${task.resurrections}/${CONFIG.FAILED_AUTO_RESURRECT_MAX}).`);
       if (roadmap.projectNumber) {
         await ProjectManager.updateItemStatus(roadmap.projectNumber, task, "Todo");
