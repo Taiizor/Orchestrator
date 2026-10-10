@@ -16,7 +16,7 @@ Use when auditing, reviewing, or writing auth, session, upload, webhook, or paym
 ## Checklist
 
 1. **Never commit secrets:** reject AWS keys, `ghp_*`/`gho_*`, `sk-*`, `sk-ant-*`, private key blocks, `.env`/`.pem`/`.key` files in changesets.
-2. **Safe SQLite:** parameterized statements only (see `sqlite-hardening` skill).
+2. **Safe SQL:** parameterized statements only — never interpolate user input into query strings.
 3. **Safe file operations:** resolve paths and verify the target stays under the allowed workspace root (`path.startsWith(workspaceDir)`); block `../` traversal.
 4. **Uploads:** MIME/extension allowlist + size cap; store under a dedicated directory, never executable paths.
 5. **Web serving:** set `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`; minimal CORS.

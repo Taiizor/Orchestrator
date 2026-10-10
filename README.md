@@ -136,8 +136,8 @@ flowchart LR
 Before any branch is merged into `develop`:
 - **Security Auditor ([`subagents/prompts/roles/security.md`](subagents/prompts/roles/security.md)):**  
   Scans code for SQL injection (enforcing prepared statements), secret/token leaks, path traversal, command injection, and resource exhaustion. Generates `workspace/SECURITY_AUDIT.md`.
-- **SQLite Hardening (skill `sqlite-hardening`):**
-  Enforces WAL mode (`PRAGMA journal_mode = WAL;`), 5000ms busy timeouts, and foreign keys for high CI concurrency.
+- **Container services (skill `container-services`):**
+  Docker is always available (local + CI): declared services (Postgres, Redis, Mongo, S3, or any custom image) are provisioned as ephemeral containers with fixed env endpoints. No SQLite/InMemory fallback paths.
 - **API Contracts (skill `api-contracts`), UI Conventions (skill `ui-conventions`), Test Evidence (skill `test-evidence`):**
   Role-specific native skills under [`.opencode/skills/`](.opencode/skills/) — deterministically injected per role and reloadable on demand via the `skill` tool.
 - **Universal craft skills:** `systematic-debugging`, `test-driven-development`, `api-design`, `sql-review`, `web-accessibility`, `auth-review`, `i18n`, `design-system`, `error-handling`, `backend-structure`, `mobile-essentials`, `deployment-readiness`, `observability-basics`, `performance-budgets`, `external-integrations`, `documentation-discipline`, `frontend-stack` — injected for the most relevant roles, natively discoverable by every agent.

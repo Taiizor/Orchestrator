@@ -167,14 +167,13 @@ async function main() {
   // skills are natively discoverable via the `skill` tool from
   // .opencode/skills/<name>/SKILL.md — reload them on demand by name).
   const ROLE_SKILLS: Record<string, string[]> = {
-    architect: ["sqlite-hardening", "api-contracts", "sql-review"],
+    architect: ["api-contracts", "sql-review"],
     backend: [
       "api-contracts",
       "error-handling",
       "backend-structure",
       "security-scan",
       "container-services",
-      "sqlite-hardening",
       "observability-basics",
       "external-integrations",
     ],
@@ -187,15 +186,13 @@ async function main() {
     fullstack: ["api-contracts", "ui-conventions", "systematic-debugging", "code-review"],
     launch: ["container-services", "systematic-debugging", "test-evidence", "observability-basics"],
   };
-  // Stack-aware skill filter: bun:sqlite / Bun-only hardening guidance must
-  // not pollute Go/Rust/.NET/Python prompts (wrong snippets, wrong toolchain).
-  // Precedence: --stack CLI (dispatch input) → roadmap.stack → workspace markers.
+  // Product stack precedence: --stack CLI (dispatch input) → roadmap.stack →
+  // workspace markers. Docker is always available, so no skill filtering.
   const cliStack = typeof values.stack === "string" ? values.stack : undefined;
   const productStack = normalizeStackId(cliStack ?? (roadmap as { stack?: unknown }).stack, await detectWorkspaceStack("."));
   console.log(`🧱 Product stack: ${productStack} (${STACKS[productStack].label}).`);
-  const BUN_ONLY_SKILLS = new Set(["sqlite-hardening"]);
   let skillsText = "";
-  const skillNames = (ROLE_SKILLS[role] || []).filter((n) => productStack === "bun" || !BUN_ONLY_SKILLS.has(n));
+  const skillNames = ROLE_SKILLS[role] || [];
   for (const name of skillNames) {
     const p = `.opencode/skills/${name}/SKILL.md`;
     if (existsSync(p)) {

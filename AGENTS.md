@@ -10,7 +10,7 @@ This document defines the rules, roles, constraints, quality gates, and inter-ag
 | :--- | :--- | :--- | :--- | :--- |
 | **Orchestrator** | `orchestrator` | Plans roadmap DAG, decomposes tasks, monitors execution, reviews diffs, merges branches. | `state/roadmap.json`, `state/PROGRESS.md`, PR Merges, Releases | Does not write application code; oversees subagents. |
 | **System Architect** | `architect` | Initializes project foundation, sets up service-backed data layer, shared TypeScript contracts. | `workspace/package.json`, `workspace/src/db/schema.ts`, `workspace/CONTRACTS.md` | Focuses on foundation, types, and database initialization. |
-| **Backend Developer** | `backend` | Implements API endpoints, controllers, business services, and database queries. | `workspace/src/api/**`, `workspace/src/services/**`, unit tests | Uses CI services via env (fallbacks retained) & updates `CONTRACTS.md`. |
+| **Backend Developer** | `backend` | Implements API endpoints, controllers, business services, and database queries. | `workspace/src/api/**`, `workspace/src/services/**`, unit tests | Uses Docker services via env & updates `CONTRACTS.md`. |
 | **Frontend Developer**| `frontend` | Builds responsive UI, components, styling, and client-side state. | `workspace/src/ui/**`, client bundler configs, assets | Connects exclusively to documented backend contracts. |
 | **Mobile Developer**| `mobile` | Builds mobile features: offline-first, permissions, push, store readiness. | `workspace/src/mobile/**`, platform configs | Follows contracts; no hardcoded copy or secrets on device. |
 | **QA Engineer** | `qa` | Writes automated unit and integration tests with the product stack's runner. | `workspace/tests/**`, test execution logs | Focuses on test coverage, edge cases, and verification. |
@@ -26,10 +26,10 @@ This document defines the rules, roles, constraints, quality gates, and inter-ag
 
 Every subagent MUST adhere to these environmental rules:
 1. **Engine vs product runtimes:** the orchestrator ENGINE always runs on **Bun** (`bun run orchestrator/engine.ts`, `bun run subagents/runner.ts`). The PRODUCT in `workspace/` uses the roadmap-declared `stack` (`bun | go | rust | dotnet | python`, default `bun`) — product build/test commands use that toolchain (`bun test` | `go test ./...` | `cargo test` | `dotnet test` | `python -m pytest -q`). NEVER invoke `node`, `npm`, `npx`, `pnpm`, or `yarn` for JS/TS work.
-2. **Services-First CI Execution (Docker-backed) with Adapter Fallback:**
-   - **Real Services in CI:** GitHub runners provide Docker. When the roadmap declares `services` (presets `postgres`/`redis`/`mongo`/`s3`, or full custom `{name, image, env?, ports?}` definitions), the workflow starts them from the generated `workspace/docker-compose.services.yml` before any agent runs. Connect via env endpoints (`DATABASE_URL`, `REDIS_URL`, `MONGO_URL`, `S3_*`, plus custom `env` — see `container-services` skill).
+2. **Docker-Always Execution (no fallback paths):**
+   - **Real Services Everywhere:** Docker runs locally AND on CI runners. When the roadmap declares `services` (presets `postgres`/`redis`/`mongo`/`s3`, or ANY custom `{name, image, env?, ports?}` image), the orchestrator renders `workspace/docker-compose.services.yml` and the workflow starts it (`--wait`) before any agent runs. Need a broker, search engine, or vector DB? Declare the image — it will exist. Connect via env endpoints (`DATABASE_URL`, `REDIS_URL`, `MONGO_URL`, `S3_*`, plus custom `env` — see `container-services` skill).
    - **Data Is Ephemeral:** containers reset every run. Seed fixtures inside tasks/tests; never assume pre-existing rows, buckets, or keys.
-   - **Adapter Fallback Retained:** keep SQLite/InMemory fallback paths for runs without Docker (local dev). CI targets real services first.
+   - **No Fallbacks:** SQLite/InMemory adapter paths are forbidden. A missing service fails fast with a clear error.
    - **Production:** same env names, secret-managed values; S3 speaks S3 everywhere (Adobe S3Mock in CI, R2/AWS in production), so code runs unchanged.
 3. **Timeouts & Execution:** Every subagent workflow has a strict **35-minute timeout**.
    - Tasks must be atomic, focused, and completed well within this window.

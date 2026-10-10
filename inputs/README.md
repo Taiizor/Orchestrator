@@ -10,4 +10,4 @@ Place all information and assets regarding the project you want the Orchestrator
 
 ## Tips for Best Results:
 1. **Be specific about features:** Clear acceptance criteria allow QA subagents to write accurate tests.
-2. **Remember CI Services:** Declare infrastructure needs (PostgreSQL, Redis, Mongo, S3, or custom Docker services) in your spec — CI provisions real containers. Anything undeclared falls back to SQLite/InMemory adapters.
+2. **Remember Docker Services:** Declare infrastructure needs (PostgreSQL, Redis, Mongo, S3, or ANY custom Docker image) in your spec — the orchestrator provisions real containers locally and in CI. Anything undeclared doesn't exist: agents fail fast instead of inventing fallbacks.

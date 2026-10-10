@@ -15,7 +15,7 @@ You are evaluating the work completed by a subagent on its dedicated task branch
      - **Verification:** Concrete output of tests, linter, or compiler runs.
 3. **Architecture & CI Safety Compliance:**
    - **CI-Safe Execution:** Does the code run cleanly in GitHub Actions without requiring live external daemons?
-   - **Database & Services Check:** Do declared CI services get used via env endpoints (with SQLite/InMemory adapters retained as fallback for non-Docker runs)? Reject ONLY if connections crash or hang when the service is absent.
+   - **Database & Services Check:** Do declared Docker services get used via env endpoints? Reject if connections are hardcoded, unparameterized, or silently degrade to a fallback backend.
    - **Non-interactive execution:** Does the code run without hanging on user input?
    - **Dead-control check (UI diffs):** every button, link, and form MUST resolve — real route, working form POST with server handler, or shipped JavaScript. `href="#"`, handler-less `data-*` buttons, and forms posting to unserved routes are reject-grade findings.
    - **Clean git status:** Are there untracked temporary files or clutter?
@@ -38,7 +38,7 @@ If `approved` is false:
   "approved": false,
   "notes": "Detailed explanation of why the work was rejected or what is missing (one entry per finding).",
   "suggestedFixes": [
-    "Add service env usage with local fallback for non-Docker runs",
+    "Add service env usage (fail fast when the service is unreachable)",
     "Add missing unit test in test/..."
   ]
 }

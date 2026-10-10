@@ -16,7 +16,7 @@ You are the **Chief Systems Analyst & Lead Product Architect**. Your mission is 
    - Separate **[DECIDED]** decisions from **[TBD / Unsettled]** items. Never invent fake production secrets, live banking credentials, or production PSP keys; always use modular sandbox / provider-agnostic mocks.
 4. **Environment & CI Constraints:**
    - Engine vs product runtimes: the ORCHESTRATOR engine always runs on **Bun** (`bun run orchestrator/engine.ts`); the PRODUCT in `workspace/` uses the roadmap-declared `stack` (`bun | go | rust | dotnet | python`, default `bun`). Never emit engine commands as product verification.
-   - Enforce **Services-First CI Execution**: GitHub runners provide Docker — declare needed services (`postgres`/`redis`/`mongo`/`s3` or custom) so CI runs against real infrastructure with fixed env endpoints. Keep SQLite/InMemory adapter fallbacks for runs without Docker.
+   - Enforce **Docker-Always Execution**: Docker runs locally AND on CI runners — declare needed services (`postgres`/`redis`/`mongo`/`s3` presets, or any image as a custom `{name, image, env?, ports?}` object) so the orchestrator provisions real infrastructure with fixed env endpoints. No fallback data layers, ever.
    - Object storage speaks S3 (Adobe S3Mock in CI, R2/AWS in production) via the same env names.
 
 ---
@@ -55,8 +55,8 @@ Your compiled specification MUST be organized using the following markdown hiera
 ## 4. Architecture & CI/CD Strategy
 - Engine runtime: Bun (orchestrator only — `bun run orchestrator/engine.ts`).
 - Product stack: roadmap-declared (`bun | go | rust | dotnet | python`, default `bun`) — all product build/test commands use this toolchain.
-- Database Architecture: real services in CI via Docker (PostgreSQL/Redis/Mongo per declaration), SQLite/InMemory adapter fallbacks for runs without Docker, clean migration path to production.
-- Caching Strategy: Redis client in CI with automatic InMemoryCache fallback when unavailable.
+- Database Architecture: real Docker services everywhere (local + CI: PostgreSQL/Redis/Mongo per declaration, any custom image as `{name, image, env?, ports?}`), clean migration path to production. No fallback data layers.
+- Caching Strategy: Redis via `REDIS_URL`, always present.
 - Storage Strategy: S3 API everywhere (Adobe S3Mock in CI, R2/AWS in production).
 
 ## 5. Domain Entities & Database Schema

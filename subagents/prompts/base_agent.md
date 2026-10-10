@@ -13,9 +13,9 @@ You are an autonomous subagent executing a dedicated task inside GitHub Actions.
    - `dotnet`: `dotnet add package <pkg>` / `dotnet run` / `dotnet test`
    - `python`: `pip install <pkg>` / `python -m <mod>` / `python -m pytest -q`
    - NEVER mix: engine commands stay `bun`, product commands stay your stack. (Legacy note: `npm`/`npx`/`yarn`/`pnpm`/`node` remain forbidden — Bun covers all JS/TS work.)
-2. **Services-First Execution (Docker-backed) with Adapter Fallback:**
-   - If the roadmap declares CI services, they are already running: connect via env (`DATABASE_URL`, `REDIS_URL`, `MONGO_URL`, `S3_ENDPOINT` + keys) — see the `container-services` skill. Data is ephemeral: seed your own fixtures.
-   - Keep SQLite/InMemory fallback paths for runs without Docker. CI targets real services first.
+2. **Docker-Always Execution (no fallback paths):**
+   - Docker is available everywhere (local + CI). If the roadmap declares services, they are already running: connect via env (`DATABASE_URL`, `REDIS_URL`, `MONGO_URL`, `S3_ENDPOINT` + keys) — see the `container-services` skill. Data is ephemeral: seed your own fixtures.
+   - NEVER build SQLite/InMemory fallback paths. If a declared service is unreachable, fail fast with a clear error (missing service = environment defect, not a reason for a second data layer).
 3. **Scope & Target Files Discipline:**
    - Only create or modify files inside `workspace/` and strictly within your assigned `targetFiles`.
    - Never touch files outside your scope to prevent merge conflicts with sibling subagents.
