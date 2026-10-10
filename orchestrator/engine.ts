@@ -750,6 +750,7 @@ export class OrchestratorEngine {
       if (push.exitCode === 0) return;
       const delayMs = attempt * 2000 + Math.floor(Math.random() * 1000);
       console.warn(`⚠️ Push rejected (attempt ${attempt}/3). Backing off for ${delayMs}ms before rebase...`);
+      console.warn(`   ↳ push stderr: ${(push.stdout + push.stderr).slice(0, 500)}`);
       await Bun.sleep(delayMs);
       await GitManager.run(["git", "fetch", "origin"]);
       const rebase = await GitManager.run(["git", "pull", "--rebase"]);
@@ -800,6 +801,7 @@ export class OrchestratorEngine {
       const push = await GitManager.remoteGit(remote, ["push", remote, `HEAD:${CONFIG.BASE_BRANCH}`]);
       if (push.exitCode === 0) return;
       console.warn(`⚠️ Data state push rejected (attempt ${attempt}/5). Re-syncing...`);
+      console.warn(`   ↳ push stderr: ${(push.stdout + push.stderr).slice(0, 500)}`);
       // Back off: the competing writer is usually another tick still
       // working; immediate retries just collide again.
       await new Promise((r) => setTimeout(r, 15000 * attempt));
@@ -814,7 +816,7 @@ export class OrchestratorEngine {
         // keep local copy
       }
     }
-    console.error("❌ persistRoadmapToData: push failed after 3 attempts; changes remain local.");
+    console.error("❌ persistRoadmapToData: push failed after 5 attempts; changes remain local.");
   }
 
   /**
