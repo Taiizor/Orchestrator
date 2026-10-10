@@ -602,6 +602,238 @@ export class OrchestratorEngine {
     return changed;
   }
 
+  /**
+   * Action: Adopt an existing workspace into management (brownfield bootstrap).
+   * Triggered manually (Actions → action=adopt), NOT from ChatOps — there is
+   * no dashboard issue yet. Surveys workspace/, backfills a roadmap of
+   * COMPLETED baseline tasks (one per area), reverse-engineers CONTRACTS.md
+   * when missing, then wires board + dashboard. Refuses when a roadmap
+   * already exists (use /add or /revise instead) and when workspace/ is
+   * empty (use plan instead). Never creates issues for adopted tasks.
+   */
+  public static async adopt(): Promise<void> {
+    console.log("🧭 Adopting existing workspace/ into management...");
+
+    await GitManager.setupGitAuthor();
+    await GitManager.run(["git", "fetch", "--all"]);
+    if (GitManager.isDataMode()) {
+      await GitManager.ensureDataRemote();
+      await GitManager.syncDataIn(CONFIG.INTEGRATION_BRANCH);
+      // Refuse to overwrite a live roadmap (history lives in data branches).
+      try {
+        const show = await GitManager.run(["git", "show", `${CONFIG.DATA_REMOTE}/${CONFIG.BASE_BRANCH}:${CONFIG.ROADMAP_FILE}`]);
+        const remote = JSON.parse(show.stdout) as Roadmap;
+        if (remote && Array.isArray(remote.tasks) && remote.tasks.length > 0) {
+          console.error(
+            `❌ Roadmap already exists on ${CONFIG.DATA_REMOTE}/${CONFIG.BASE_BRANCH} (${remote.tasks.length} tasks). Adopt refuses to overwrite it — use /add or /revise for changes, or delete it to re-adopt.`
+          );
+          process.exit(1);
+        }
+      } catch {
+        // No remote state — safe to adopt.
+      }
+    } else {
+      const local = await StateManager.loadRoadmap();
+      if (local && local.tasks.length > 0) {
+        console.error(`❌ Local roadmap already exists (${local.tasks.length} tasks). Adopt refuses to overwrite it.`);
+        process.exit(1);
+      }
+    }
+
+    // Survey: what actually exists in workspace/ (no LLM yet — facts first).
+    const survey: string[] = [];
+    try {
+      const glob = new Bun.Glob("workspace/**/*");
+      let files = 0;
+      const dirs = new Set<string>();
+      const topFiles: string[] = [];
+      for await (const rel of glob.scan({ cwd: ".", onlyFiles: true })) {
+        files++;
+        const norm = rel.replace(/\\/g, "/");
+        const parts = norm.split("/");
+        if (parts.length > 2) dirs.add(parts.slice(0, 3).join("/"));
+        if (parts.length <= 3 && topFiles.length < 40) topFiles.push(norm);
+      }
+      survey.push(`workspace files: ${files}`);
+      survey.push(`key dirs: ${[...dirs].sort().slice(0, 40).join(", ") || "(none)"}`);
+      survey.push(`top-level files: ${topFiles.join(", ") || "(none)"}`);
+      if (files === 0) {
+        console.error("❌ workspace/ is empty — nothing to adopt. Run plan instead.");
+        process.exit(1);
+      }
+    } catch {
+      console.error("❌ workspace/ is missing or unreadable — nothing to adopt. Run plan instead.");
+      process.exit(1);
+    }
+    try {
+      const pkg = JSON.parse(await Bun.file("workspace/package.json").text());
+      survey.push(
+        `package: ${pkg.name || "?"}@${pkg.version || "?"} scripts=[${Object.keys(pkg.scripts || {}).join(",")}] deps=[${Object.keys(
+          { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) }
+        )
+          .slice(0, 20)
+          .join(",")}]`
+      );
+    } catch {
+      survey.push("package.json: absent/unparseable");
+    }
+    try {
+      const contracts = await Bun.file("workspace/CONTRACTS.md").text();
+      survey.push(`CONTRACTS.md present (${contracts.length} chars)`);
+    } catch {
+      survey.push("CONTRACTS.md: MISSING (will reverse-engineer)");
+    }
+    console.log(`📋 Workspace survey:\n- ${survey.join("\n- ")}`);
+
+    const systemPrompt = await Bun.file("orchestrator/prompts/system.md").text();
+    const adoptPrompt =
+      `${systemPrompt}\n\nYou are adopting an EXISTING codebase into management. Do NOT propose scaffolding, rewrites, or new features. ` +
+      `Survey facts:\n- ${survey.join("\n- ")}\n\n` +
+      `Return ONLY a JSON block enclosed in \`\`\`json \`\`\` with this structure (no prose outside the block):\n` +
+      `\`\`\`json\n{\n  "projectName": "string",\n  "version": 1,\n  "summary": "what exists today (stack, areas, maturity)",\n` +
+      `  "milestones": [{ "title": "v1.0.0 - Adopted Baseline", "description": "as-built state at adoption" }],\n` +
+      `  "services": [],\n` +
+      `  "tasks": [{\n    "id": "TASK-001",\n    "title": "Area name (as-built)",\n    "milestone": "v1.0.0 - Adopted Baseline",\n` +
+      `    "description": "REQUIRED, min ~80 words: what EXISTS (files, interfaces, behaviors), exact paths",\n` +
+      `    "role": "architect | backend | frontend | mobile | qa | security",\n` +
+      `    "dependencies": [],\n    "targetFiles": ["workspace/src/..."],\n` +
+      `    "branch": "task/TASK-001-adopted-area",\n` +
+      `    "deliverables": ["existing file 1", "existing behavior 2"],\n` +
+      `    "verificationCommand": "bun test"\n  }]\n}\`\`\`\n` +
+      `Rules: one task per coherent area (api slices, services, ui areas, db/schema, tests, contracts). Every task documents AS-BUILT reality, never aspirations. Min 3 tasks for a real codebase.`;
+    const res = await OpenCodeClient.runWithFallback(adoptPrompt, { timeoutMs: 10 * 60 * 1000 });
+    const jsonMatch = res.stdout.match(/```json([\s\S]*?)```/) || res.stdout.match(/(\{[\s\S]*\})/);
+    if (!jsonMatch) {
+      console.error("❌ Adopt failed: no roadmap JSON in model output.");
+      process.exit(1);
+    }
+    let raw: any;
+    try {
+      raw = JSON.parse(jsonMatch[1].trim());
+    } catch (e) {
+      console.error("Failed to parse adopted roadmap JSON:", e);
+      process.exit(1);
+    }
+    const now = new Date().toISOString();
+    const roadmap: Roadmap = {
+      projectName: raw.projectName || "Adopted Project",
+      version: raw.version || 1,
+      summary: raw.summary || "",
+      globalStatus: "IN_PROGRESS",
+      milestones:
+        Array.isArray(raw.milestones) && raw.milestones.length > 0
+          ? raw.milestones
+          : [{ title: "v1.0.0 - Adopted Baseline", description: "as-built state at adoption" }],
+      services: [],
+      updatedAt: now,
+      tasks: ((raw.tasks || []) as any[]).map((t: any, idx: number) => ({
+        id: t.id || `TASK-${String(idx + 1).padStart(3, "0")}`,
+        title: t.title || "Adopted area",
+        description: t.description || "",
+        role: t.role || "backend",
+        dependencies: [],
+        targetFiles: t.targetFiles || [],
+        status: "COMPLETED",
+        branch: t.branch || `task/${t.id || `TASK-${String(idx + 1).padStart(3, "0")}`}-adopted`,
+        milestone: t.milestone || "v1.0.0 - Adopted Baseline",
+        attempts: 0,
+        maxAttempts: CONFIG.MAX_TASK_ATTEMPTS,
+        deliverables: Array.isArray(t.deliverables) ? t.deliverables.filter((d: any) => typeof d === "string") : [],
+        verificationCommand: typeof t.verificationCommand === "string" ? t.verificationCommand : "",
+        reviewNotes: "[ADOPTED] Backfilled from as-built survey; not agent-executed.",
+        createdAt: now,
+        updatedAt: now,
+      })),
+    };
+    if (roadmap.tasks.length === 0) {
+      console.error("❌ Adopt produced zero tasks — refusing to persist an empty roadmap.");
+      process.exit(1);
+    }
+    const validation = validateRoadmap({
+      tasks: roadmap.tasks.map((t) => ({
+        id: t.id,
+        role: t.role,
+        dependencies: t.dependencies,
+        targetFiles: t.targetFiles,
+        milestone: t.milestone,
+        description: t.description,
+        deliverables: t.deliverables,
+        verificationCommand: t.verificationCommand,
+      })),
+      milestones: roadmap.milestones,
+      services: roadmap.services,
+    });
+    if (validation.errors.length > 0) {
+      console.error(`❌ Adopted roadmap invalid:\n${formatValidation(validation)}`);
+      process.exit(1);
+    }
+    if (validation.warnings.length > 0) {
+      console.warn("⚠️ Adopt validation warnings:\n" + formatValidation({ errors: [], warnings: validation.warnings }));
+    }
+
+    // Reverse-engineer CONTRACTS.md when the codebase lacks one.
+    try {
+      await Bun.file("workspace/CONTRACTS.md").text();
+    } catch {
+      console.log("📜 No CONTRACTS.md — reverse-engineering from code...");
+      const contractsPrompt =
+        `${systemPrompt}\n\nSurvey facts:\n- ${survey.join("\n- ")}\n\n` +
+        `Write workspace/CONTRACTS.md for this EXISTING codebase: every API route + method actually present in workspace/src (read the route files), request/response shapes, and domain entities. ` +
+        `Document ONLY what exists — no aspirations, no TODOs. Return ONLY the markdown document, no wrapper.`;
+      const contractsRes = await OpenCodeClient.runWithFallback(contractsPrompt, { timeoutMs: 10 * 60 * 1000 });
+      const doc = (contractsRes.stdout || "").trim();
+      if (contractsRes.exitCode === 0 && doc.length > 500) {
+        if (GitManager.isDataMode()) {
+          const ok = await GitManager.publishFileToData(
+            "workspace/CONTRACTS.md",
+            doc,
+            "docs(adopt): reverse-engineered CONTRACTS.md from as-built code"
+          );
+          console.log(
+            ok
+              ? `✅ CONTRACTS.md reverse-engineered (${doc.length} chars) and published.`
+              : "⚠️ CONTRACTS.md generated but publish failed; content logged below for manual commit."
+          );
+          if (!ok) console.log(doc.slice(0, 2000));
+        } else {
+          // Single-repo: the checkout IS the product repo (humans own main,
+          // but adopt is an explicit bootstrap like the initial state commit).
+          await Bun.write("workspace/CONTRACTS.md", doc);
+          await GitManager.run(["git", "add", "-f", "workspace/CONTRACTS.md"]);
+          await GitManager.run([
+            "git",
+            "-c",
+            "user.name=github-actions[bot]",
+            "-c",
+            "user.email=github-actions[bot]@users.noreply.github.com",
+            "commit",
+            "-m",
+            "docs(adopt): reverse-engineered CONTRACTS.md from as-built code",
+          ]);
+          await GitManager.run(["git", "push", "origin", CONFIG.BASE_BRANCH]);
+          console.log(`✅ CONTRACTS.md reverse-engineered (${doc.length} chars) and committed.`);
+        }
+      } else {
+        console.warn("⚠️ CONTRACTS reverse-engineering produced no usable document; skipping.");
+      }
+    }
+
+    await this.persistRoadmap(roadmap, "chore(orchestrator): adopt existing workspace");
+    if (roadmap.milestones && roadmap.milestones.length > 0) {
+      await ProjectManager.ensureMilestones(roadmap.milestones, (t) => OrchestratorEngine.isMilestoneComplete(roadmap, t));
+    }
+    const projectNum = await ProjectManager.ensureProject(roadmap);
+    if (projectNum) roadmap.projectNumber = projectNum;
+    // Deliberately NO per-task issues: adopted tasks are history, not work.
+    // Issues (and board cards) appear for future PENDING tasks only.
+    await IssueManager.syncDashboardIssue(roadmap);
+    await this.persistRoadmap(roadmap, "chore(orchestrator): adopt project linkage");
+    console.log(
+      `✅ Adopted ${roadmap.tasks.length} areas as COMPLETED into ${projectNum ? `board #${projectNum}` : "roadmap (board unavailable)"}. ` +
+        `Add new work via /add, fix existing via /revise.`
+    );
+  }
+
   public static async reviewTasks(roadmap: Roadmap): Promise<boolean> {
     let hasChanges = false;
 
@@ -1534,6 +1766,9 @@ async function main() {
   switch (action) {
     case "plan":
       await OrchestratorEngine.plan();
+      break;
+    case "adopt":
+      await OrchestratorEngine.adopt();
       break;
     case "review": {
       const roadmap = await StateManager.loadRoadmap();

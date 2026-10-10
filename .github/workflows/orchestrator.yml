@@ -7,13 +7,14 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: 'Action to execute (tick, plan, review, project, setup, chatops)'
+        description: 'Action to execute (tick, plan, adopt, review, project, setup, chatops)'
         required: false
         default: 'tick'
         type: choice
         options:
           - tick
           - plan
+          - adopt
           - review
           - project
           - setup

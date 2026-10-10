@@ -1,4 +1,7 @@
 import { CONFIG } from "./config.ts";
+import { tmpdir } from "node:os";
+import { join, dirname } from "node:path";
+import { rmSync, mkdirSync } from "node:fs";
 
 export class GitManager {
   /**
@@ -485,6 +488,79 @@ export class GitManager {
   public static async remoteHasBranch(remote: string, branch: string): Promise<boolean> {
     const res = await this.remoteGit(remote, ["ls-remote", "--heads", remote, branch]);
     return res.exitCode === 0 && res.stdout.trim().length > 0;
+  }
+
+  /**
+   * Write one file's content onto a data-remote branch (default: integration
+   * branch) via an isolated linked worktree — the main checkout is never
+   * switched. Creates the content from the remote default branch when the
+   * target branch is missing. Returns false on failure (never throws).
+   */
+  public static async publishFileToData(
+    relPath: string,
+    content: string,
+    commitMsg: string,
+    branch = CONFIG.INTEGRATION_BRANCH
+  ): Promise<boolean> {
+    const remote = CONFIG.DATA_REMOTE;
+    const botIdentity = ["-c", "user.name=github-actions[bot]", "-c", "user.email=github-actions[bot]@users.noreply.github.com"];
+    const wtDir = join(tmpdir(), `data-file-${process.pid}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`);
+    const wt = async (args: string[]) => this.run(["git", "-C", wtDir, ...args]);
+    const stageAndCommit = async (): Promise<boolean> => {
+      const dst = join(wtDir, relPath);
+      try {
+        mkdirSync(dirname(dst), { recursive: true });
+        await Bun.write(dst, content);
+      } catch {
+        return false;
+      }
+      await wt(["add", "-f", relPath]);
+      const commit = await wt([...botIdentity, "commit", "-m", commitMsg]);
+      return commit.exitCode === 0 || /nothing to commit/i.test(commit.stdout + commit.stderr);
+    };
+    const cleanup = async () => {
+      try {
+        await this.run(["git", "worktree", "remove", "--force", wtDir]);
+      } catch {
+        // Ephemeral runner; leftovers die with the VM (matters only locally).
+      }
+      try {
+        await this.run(["git", "worktree", "prune"]);
+      } catch {
+        // Best-effort.
+      }
+    };
+    try {
+      await this.run(["git", "worktree", "prune"]);
+      rmSync(wtDir, { recursive: true, force: true });
+      const hasBranch = await this.remoteHasBranch(remote, branch);
+      const startPoint = hasBranch ? `${remote}/${branch}` : `${remote}/${CONFIG.BASE_BRANCH}`;
+      const add = await this.run(["git", "worktree", "add", "--detach", wtDir, startPoint]);
+      if (add.exitCode !== 0) {
+        console.warn(`⚠️ Data file worktree setup failed for ${relPath}:`, (add.stdout + add.stderr).slice(0, 300));
+        return false;
+      }
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        if (!(await stageAndCommit())) {
+          console.warn(`⚠️ Data file stage/commit failed for ${relPath} (attempt ${attempt}/3).`);
+          return false;
+        }
+        const push = await this.remoteGit(remote, ["push", remote, `HEAD:${branch}`], wtDir);
+        if (push.exitCode === 0) return true;
+        console.warn(`⚠️ Data file push rejected for ${relPath} (attempt ${attempt}/3). Re-syncing...`);
+        if (attempt < 3) {
+          await Bun.sleep(attempt * 2000);
+          await this.remoteGit(remote, ["fetch", remote, branch], wtDir);
+          // Reset only the SCRATCH worktree, then loop re-applies the file.
+          await wt(["reset", "--hard", `${remote}/${branch}`]);
+        } else {
+          console.warn(`   ↳ push stderr: ${(push.stdout + push.stderr).slice(0, 300)}`);
+        }
+      }
+      return false;
+    } finally {
+      await cleanup();
+    }
   }
 
   /**
