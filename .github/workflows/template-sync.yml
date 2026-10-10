@@ -2,10 +2,9 @@ name: 🔄 Template Sync
 
 # Pulls engine updates from the template repo (Taiizor/Orchestrator) as a
 # reviewable PR. Never auto-merges: the operator merges when calm.
-# Configure once per product repo: Actions Variables ->
-#   TEMPLATE_UPSTREAM = <template-owner>/<template-repo>
-# Runs weekly + on demand. No-ops when the variable is unset (e.g. on the
-# template repo itself).
+# By default syncs from Taiizor/Orchestrator. Can be customized via:
+# Actions Variables -> TEMPLATE_UPSTREAM = <template-owner>/<template-repo>
+# Runs weekly + on demand. Automatically skips on the template repo itself.
 
 on:
   schedule:
@@ -19,9 +18,12 @@ permissions:
 
 jobs:
   sync:
-    if: vars.TEMPLATE_UPSTREAM != ''
+    if: vars.TEMPLATE_UPSTREAM != '' || github.repository != 'Taiizor/Orchestrator'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      UPSTREAM: ${{ vars.TEMPLATE_UPSTREAM || 'Taiizor/Orchestrator' }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: 📥 Checkout product repo
         uses: actions/checkout@v7
@@ -32,8 +34,8 @@ jobs:
       - name: 🔍 Check template for updates
         id: check
         run: |
-          git remote add upstream "https://github.com/${{ vars.TEMPLATE_UPSTREAM }}.git" 2>/dev/null || \
-            git remote set-url upstream "https://github.com/${{ vars.TEMPLATE_UPSTREAM }}.git"
+          git remote add upstream "https://github.com/${UPSTREAM}.git" 2>/dev/null || \
+            git remote set-url upstream "https://github.com/${UPSTREAM}.git"
           git fetch upstream main
           BEHIND=$(git rev-list --count HEAD..upstream/main)
           echo "behind=$BEHIND" >> "$GITHUB_OUTPUT"
@@ -47,7 +49,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH"
-          if git merge "upstream/main" -m "chore(sync): merge template ${{ vars.TEMPLATE_UPSTREAM }}"; then
+          if git merge "upstream/main" -m "chore(sync): merge template ${UPSTREAM}"; then
             echo "merge=clean" >> "$GITHUB_ENV"
           else
             git merge --abort
@@ -59,8 +61,8 @@ jobs:
         if: steps.check.outputs.behind != '0' && env.merge == 'clean'
         run: |
           gh pr create --base main --head "$branch" \
-            --title "🔄 Template sync: ${{ vars.TEMPLATE_UPSTREAM }}" \
-            --body "Engine updates from the template repo. Review, then merge when calm — never during an active milestone push." \
+            --title "🔄 Template sync: ${UPSTREAM}" \
+            --body "Engine updates from the template repo (\`${UPSTREAM}\`). Review, then merge when calm — never during an active milestone push." \
           || echo "Sync PR already exists."
 
       - name: 🚨 Open issue (conflicted merge)
@@ -68,6 +70,6 @@ jobs:
         run: |
           gh issue create \
             --title "🚨 Template sync needs manual resolution" \
-            --body "Automatic merge of \`${{ vars.TEMPLATE_UPSTREAM }}\` conflicted with product divergences. Resolve locally: \`git fetch upstream && git merge upstream/main\`." \
+            --body "Automatic merge of \`${UPSTREAM}\` conflicted with product divergences. Resolve locally: \`git fetch upstream && git merge upstream/main\`." \
             --label agents \
           || echo "Conflict issue already exists."
