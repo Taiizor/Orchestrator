@@ -10,13 +10,13 @@ export interface AppTokenResult {
 let cachedToken: AppTokenResult | null = null;
 
 /**
- * Check if GitHub App credentials (App ID and Private Key) are present
+ * Check if GitHub App credentials (Client ID and Private Key) are present
  * either in environment variables or passed parameters.
  */
 export function isGitHubAppConfigured(): boolean {
-  const appId = process.env.GH_APP_ID || process.env.APP_ID;
+  const clientId = process.env.GH_CLIENT_ID || process.env.CLIENT_ID;
   const privateKey = process.env.GH_APP_PRIVATE_KEY || process.env.APP_PRIVATE_KEY || process.env.GH_APP_PRIVATE_KEY_PATH;
-  return Boolean(appId && privateKey);
+  return Boolean(clientId && privateKey);
 }
 
 /**
@@ -54,14 +54,14 @@ export function normalizePrivateKey(input: string): string {
  * Generate a RS256 JSON Web Token (JWT) valid for up to 10 minutes,
  * as required by GitHub App authentication.
  */
-export function generateAppJwt(appId: string, privateKeyPem: string): string {
+export function generateAppJwt(clientId: string, privateKeyPem: string): string {
   const now = Math.floor(Date.now() / 1000);
   const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
   const payload = Buffer.from(
     JSON.stringify({
       iat: now - 60, // 60 seconds clock drift allowance
       exp: now + 600, // 10 minutes maximum allowed by GitHub
-      iss: appId,
+      iss: clientId,
     })
   ).toString("base64url");
 
@@ -76,7 +76,7 @@ export function generateAppJwt(appId: string, privateKeyPem: string): string {
  * Results are cached in-memory until near expiry.
  */
 export async function getInstallationToken(options?: {
-  appId?: string;
+  clientId?: string;
   privateKey?: string;
   installationId?: string;
   owner?: string;
@@ -90,7 +90,7 @@ export async function getInstallationToken(options?: {
     }
   }
 
-  const appId = options?.appId || process.env.GH_APP_ID || process.env.APP_ID || "";
+  const clientId = options?.clientId || process.env.GH_CLIENT_ID || process.env.CLIENT_ID || "";
   const rawKey =
     options?.privateKey ||
     process.env.GH_APP_PRIVATE_KEY ||
@@ -98,10 +98,10 @@ export async function getInstallationToken(options?: {
     process.env.GH_APP_PRIVATE_KEY_PATH ||
     "";
 
-  if (!appId || !rawKey) return null;
+  if (!clientId || !rawKey) return null;
 
   const privateKey = normalizePrivateKey(rawKey);
-  const jwt = generateAppJwt(appId, privateKey);
+  const jwt = generateAppJwt(clientId, privateKey);
 
   let installationId = options?.installationId || process.env.GH_APP_INSTALLATION_ID || process.env.APP_INSTALLATION_ID || "";
 
@@ -217,8 +217,8 @@ export async function initializeGitHubAppAuth(): Promise<boolean> {
   try {
     const token = await getInstallationToken();
     if (token) {
-      const appId = process.env.GH_APP_ID || process.env.APP_ID;
-      console.log(`🤖 Authenticated via GitHub App (App ID: ${appId}).`);
+      const clientId = process.env.GH_CLIENT_ID || process.env.CLIENT_ID;
+      console.log(`🤖 Authenticated via GitHub App (Client ID: ${clientId}).`);
 
       // Populate ambient tokens if not explicitly set
       if (!process.env.GH_TOKEN && !process.env.GITHUB_TOKEN) {

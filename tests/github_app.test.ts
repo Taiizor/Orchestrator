@@ -12,8 +12,8 @@ describe("GitHub App Module", () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
-    delete process.env.GH_APP_ID;
-    delete process.env.APP_ID;
+    delete process.env.GH_CLIENT_ID;
+    delete process.env.CLIENT_ID;
     delete process.env.GH_APP_PRIVATE_KEY;
     delete process.env.APP_PRIVATE_KEY;
     delete process.env.GH_APP_INSTALLATION_ID;
@@ -27,8 +27,8 @@ describe("GitHub App Module", () => {
     expect(isGitHubAppConfigured()).toBe(false);
   });
 
-  it("isGitHubAppConfigured should return true when APP_ID and private key are present", () => {
-    process.env.GH_APP_ID = "123456";
+  it("isGitHubAppConfigured should return true when CLIENT_ID and private key are present", () => {
+    process.env.GH_CLIENT_ID = "test-client-id-0000";
     process.env.GH_APP_PRIVATE_KEY = "-----BEGIN RSA PRIVATE KEY-----\nMIIE...\n-----END RSA PRIVATE KEY-----";
     expect(isGitHubAppConfigured()).toBe(true);
   });
@@ -50,7 +50,7 @@ describe("GitHub App Module", () => {
       privateKeyEncoding: { type: "pkcs1", format: "pem" },
     });
 
-    const jwt = generateAppJwt("987654", privateKey);
+    const jwt = generateAppJwt("test-client-id-0000", privateKey);
     const parts = jwt.split(".");
     expect(parts.length).toBe(3);
 
@@ -59,7 +59,7 @@ describe("GitHub App Module", () => {
     expect(header.typ).toBe("JWT");
 
     const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf-8"));
-    expect(payload.iss).toBe("987654");
+    expect(payload.iss).toBe("test-client-id-0000");
     expect(typeof payload.iat).toBe("number");
     expect(typeof payload.exp).toBe("number");
     expect(payload.exp - payload.iat).toBe(660); // 10 min + 60s skew allowance

@@ -27,7 +27,7 @@ jobs:
     name: "Subagent: ${{ inputs.taskId }} (${{ inputs.role }})"
     runs-on: ubuntu-latest
     env:
-      APP_ID: ${{ secrets.GH_APP_ID || secrets.APP_ID }}
+      CLIENT_ID: ${{ vars.GH_CLIENT_ID || vars.CLIENT_ID || secrets.GH_CLIENT_ID || secrets.CLIENT_ID }}
       APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY || secrets.APP_PRIVATE_KEY }}
     timeout-minutes: 35
     permissions:
@@ -40,10 +40,10 @@ jobs:
     steps:
       - name: 🔑 Generate GitHub App Token (optional)
         id: app-token
-        if: ${{ env.APP_ID != '' && env.APP_PRIVATE_KEY != '' }}
+        if: ${{ env.CLIENT_ID != '' && env.APP_PRIVATE_KEY != '' }}
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ env.APP_ID }}
+          client-id: ${{ env.CLIENT_ID }}
           private-key: ${{ env.APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
 
@@ -191,7 +191,7 @@ jobs:
           DATA_PAT: ${{ steps.app-token.outputs.token || secrets.DATA_PAT }}
           PUBLIC_FEATURES: ${{ vars.PUBLIC_FEATURES }}
           DATA_FEATURES: ${{ vars.DATA_FEATURES }}
-          GH_APP_ID: ${{ secrets.GH_APP_ID || secrets.APP_ID }}
+          GH_CLIENT_ID: ${{ vars.GH_CLIENT_ID || vars.CLIENT_ID || secrets.GH_CLIENT_ID || secrets.CLIENT_ID }}
           GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY || secrets.APP_PRIVATE_KEY }}
         run: |
           bun run subagents/runner.ts \

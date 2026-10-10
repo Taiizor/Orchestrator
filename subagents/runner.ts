@@ -29,7 +29,7 @@ async function main() {
 
   console.log(`🤖 Starting Subagent runner for Task: ${taskId}...`);
 
-  // Optional: Authenticate via GitHub App if APP_ID / APP_PRIVATE_KEY are provided
+  // Optional: Authenticate via GitHub App if CLIENT_ID / APP_PRIVATE_KEY are provided
   await initializeGitHubAppAuth();
 
   await GitManager.setupGitAuthor();
