@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { GitManager } from "./git_manager.ts";
 
-export type StackId = "bun" | "go" | "rust" | "dotnet" | "python";
+export type StackId = "bun" | "go" | "rust" | "dotnet" | "python" | "php";
 
 export interface StackDef {
   id: StackId;
@@ -55,13 +55,104 @@ export const STACKS: Record<StackId, StackDef> = {
     markers: ["workspace/pyproject.toml", "workspace/requirements.txt", "workspace/setup.py"],
     evidence: ["pytest", "passed", "PASSED"],
   },
+  php: {
+    id: "php",
+    label: "PHP (PHPUnit)",
+    testCommand: "vendor/bin/phpunit",
+    buildCommand: "composer install --no-interaction --prefer-dist",
+    markers: ["workspace/composer.json"],
+    evidence: ["phpunit", "OK (", "FAILURES", "Tests: "],
+  },
 };
 
 export const STACK_IDS = Object.keys(STACKS) as StackId[];
 
+/** Essentials skill injected for every agent on a stack (toolchain + idioms). */
+export const STACK_ESSENTIAL_SKILLS: Record<StackId, string> = {
+  bun: "bun-essentials",
+  go: "go-essentials",
+  rust: "rust-essentials",
+  dotnet: "dotnet-essentials",
+  python: "python-essentials",
+  php: "php-essentials",
+};
+
+/**
+ * Staged ECC skill IDs (prefix `ecc-`, see scripts/stage-ecc-skills.ts)
+ * offered as on-demand reloads per stack. Never auto-injected (context
+ * budget) — the runner lists the present ones in the reload hint.
+ */
+export const STACK_ECC_SKILL_IDS: Record<StackId, string[]> = {
+  bun: ["ecc-bun-runtime"],
+  go: ["ecc-golang-patterns", "ecc-golang-testing"],
+  rust: ["ecc-rust-patterns", "ecc-rust-testing"],
+  dotnet: ["ecc-dotnet-patterns", "ecc-csharp-testing"],
+  python: ["ecc-python-patterns", "ecc-python-testing"],
+  php: ["ecc-laravel-patterns", "ecc-laravel-tdd"],
+};
+
+/**
+ * Vendored ECC reference depth (MIT, © 2026 Affaan Mustafa) per stack.
+ * NOT auto-injected (context budget) — agents read these on demand when the
+ * essentials skill points at them. Covered by existence tests.
+ */
+export const STACK_ECC_REFS: Record<StackId, string[]> = {
+  bun: [
+    "vendor/ecc/skills/bun-runtime/SKILL.md",
+    "vendor/ecc/agents/typescript-reviewer.md",
+    "vendor/ecc/agents/react-reviewer.md",
+  ],
+  go: [
+    "vendor/ecc/rules/golang/coding-style.md",
+    "vendor/ecc/rules/golang/patterns.md",
+    "vendor/ecc/rules/golang/security.md",
+    "vendor/ecc/rules/golang/testing.md",
+    "vendor/ecc/skills/golang-patterns/SKILL.md",
+    "vendor/ecc/skills/golang-testing/SKILL.md",
+    "vendor/ecc/agents/go-reviewer.md",
+  ],
+  rust: [
+    "vendor/ecc/rules/rust/coding-style.md",
+    "vendor/ecc/rules/rust/patterns.md",
+    "vendor/ecc/rules/rust/security.md",
+    "vendor/ecc/rules/rust/testing.md",
+    "vendor/ecc/skills/rust-patterns/SKILL.md",
+    "vendor/ecc/skills/rust-testing/SKILL.md",
+    "vendor/ecc/agents/rust-reviewer.md",
+  ],
+  dotnet: [
+    "vendor/ecc/rules/csharp/coding-style.md",
+    "vendor/ecc/rules/csharp/patterns.md",
+    "vendor/ecc/rules/csharp/security.md",
+    "vendor/ecc/rules/csharp/testing.md",
+    "vendor/ecc/skills/dotnet-patterns/SKILL.md",
+    "vendor/ecc/skills/csharp-testing/SKILL.md",
+    "vendor/ecc/agents/csharp-reviewer.md",
+  ],
+  python: [
+    "vendor/ecc/rules/python/coding-style.md",
+    "vendor/ecc/rules/python/patterns.md",
+    "vendor/ecc/rules/python/security.md",
+    "vendor/ecc/rules/python/testing.md",
+    "vendor/ecc/rules/python/fastapi.md",
+    "vendor/ecc/skills/python-patterns/SKILL.md",
+    "vendor/ecc/skills/python-testing/SKILL.md",
+    "vendor/ecc/agents/python-reviewer.md",
+  ],
+  php: [
+    "vendor/ecc/rules/php/coding-style.md",
+    "vendor/ecc/rules/php/patterns.md",
+    "vendor/ecc/rules/php/security.md",
+    "vendor/ecc/rules/php/testing.md",
+    "vendor/ecc/skills/laravel-patterns/SKILL.md",
+    "vendor/ecc/skills/laravel-tdd/SKILL.md",
+    "vendor/ecc/agents/php-reviewer.md",
+  ],
+};
+
 /** Combined evidence pattern: any supported toolchain output counts as proof. */
 export const TEST_EVIDENCE_RX =
-  /bun test|bun run|go test|cargo test|test result:|dotnet (test|build)|pytest|passed!|passing|passed/i;
+  /bun test|bun run|go test|cargo test|test result:|dotnet (test|build)|pytest|phpunit|pest|OK \(|FAILURES|passed!|passing|passed/i;
 
 /** Does a verificationCommand belong to a known stack toolchain? */
 export function isKnownStackCommand(cmd: string): boolean {
@@ -75,6 +166,10 @@ export function isKnownStackCommand(cmd: string): boolean {
     c.includes("cargo build") ||
     c.includes("dotnet test") ||
     c.includes("dotnet build") ||
+    c.includes("phpunit") ||
+    c.includes("pest") ||
+    c.includes("composer") ||
+    c.includes("artisan") ||
     c.includes("pytest") ||
     c.includes("python -m")
   );
@@ -88,6 +183,7 @@ export async function detectWorkspaceStack(cwd = "."): Promise<StackId> {
   if (existsSync(join("workspace/pyproject.toml"))) return "python";
   if (existsSync(join("workspace/requirements.txt"))) return "python";
   if (existsSync(join("workspace/setup.py"))) return "python";
+  if (existsSync(join("workspace/composer.json"))) return "php";
   try {
     const glob = new Bun.Glob("workspace/*.sln");
     for await (const _ of glob.scan({ cwd, onlyFiles: true })) return "dotnet";

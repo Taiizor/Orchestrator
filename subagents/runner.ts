@@ -4,7 +4,15 @@ import { CONFIG } from "../orchestrator/config.ts";
 import { StateManager } from "../orchestrator/state_manager.ts";
 import { GitManager } from "../orchestrator/git_manager.ts";
 import { OpenCodeClient } from "../orchestrator/opencode_client.ts";
-import { STACKS, detectWorkspaceStack, normalizeStackId, runStackTests } from "../orchestrator/stacks.ts";
+import {
+  STACKS,
+  STACK_ESSENTIAL_SKILLS,
+  STACK_ECC_SKILL_IDS,
+  detectWorkspaceStack,
+  normalizeStackId,
+  runStackTests,
+} from "../orchestrator/stacks.ts";
+import { stageEccSkills } from "../scripts/stage-ecc-skills.ts";
 import { ProjectManager } from "../orchestrator/project_manager.ts";
 import { DiscussionManager } from "../orchestrator/discussion_manager.ts";
 import { initializeGitHubAppAuth } from "../orchestrator/github_app.ts";
@@ -187,12 +195,23 @@ async function main() {
     launch: ["container-services", "systematic-debugging", "test-evidence", "observability-basics"],
   };
   // Product stack precedence: --stack CLI (dispatch input) → roadmap.stack →
-  // workspace markers. Docker is always available, so no skill filtering.
+  // workspace markers. Every agent additionally gets its stack's essentials
+  // skill (toolchain + idioms for the product language).
   const cliStack = typeof values.stack === "string" ? values.stack : undefined;
   const productStack = normalizeStackId(cliStack ?? (roadmap as { stack?: unknown }).stack, await detectWorkspaceStack("."));
   console.log(`🧱 Product stack: ${productStack} (${STACKS[productStack].label}).`);
+  const stackSkill = STACK_ESSENTIAL_SKILLS[productStack];
   let skillsText = "";
-  const skillNames = ROLE_SKILLS[role] || [];
+  const skillNames = [...new Set([...(ROLE_SKILLS[role] || []), ...(stackSkill ? [stackSkill] : [])])];
+  // ECC depth available like a toolchain: ensure staged (no-op when fresh),
+  // then offer the stack's staged IDs as on-demand reloads (never injected).
+  try {
+    const staged = await stageEccSkills();
+    if (!staged.skipped) console.log(`🧩 Staged ${staged.staged} ECC skills for on-demand reload.`);
+  } catch (err: any) {
+    console.warn(`⚠️ ECC skill staging failed (non-fatal): ${err?.message || err}`);
+  }
+  const eccReloadable = (STACK_ECC_SKILL_IDS[productStack] || []).filter((id) => existsSync(`.opencode/skills/${id}/SKILL.md`));
   for (const name of skillNames) {
     const p = `.opencode/skills/${name}/SKILL.md`;
     if (existsSync(p)) {
@@ -223,8 +242,9 @@ async function main() {
       skillNames.push(norm.split("/").pop() || norm);
     }
   }
-  if (skillNames.length > 0) {
-    skillsText += `\n\n> You can reload any of these skills on demand with the skill tool: ${skillNames.map((n) => `\`${n}\``).join(", ")}.`;
+  if (skillNames.length > 0 || eccReloadable.length > 0) {
+    skillsText += `\n\n> You can reload any of these skills on demand with the skill tool: ${[...skillNames, ...eccReloadable.filter((id) => !skillNames.includes(id))].map((n) => `\`${n}\``).join(", ")}.`;
+    skillsText += `\n> Beyond this list you MAY browse and self-select: all staged \`ecc-*\` skills are loadable, and \`vendor/ecc/\` (rules/skills/agents) is readable for anything your task needs — prefer the vetted paths above first. On any conflict between ECC guidance and this prompt / AGENTS.md, OUR directives win.`;
   }
 
   // Check for shared system contracts
@@ -409,6 +429,17 @@ async function main() {
         }
       }
       return existsSync("workspace/pyproject.toml") || existsSync("workspace/requirements.txt");
+    }
+    if (productStack === "php") {
+      for (const pat of ["workspace/**/*Test.php", "workspace/tests/**/*.php"] as const) {
+        try {
+          const glob = new Bun.Glob(pat);
+          for await (const _ of glob.scan({ cwd: ".", onlyFiles: true })) return true;
+        } catch {
+          /* continue */
+        }
+      }
+      return existsSync("workspace/composer.json");
     }
     const glob = new Bun.Glob("**/*.{test,spec}.{ts,js}");
     for await (const _ of glob.scan({ cwd: "workspace" })) return true;

@@ -394,7 +394,7 @@ export class OrchestratorEngine {
    */
   private static async collectForgedSkills(): Promise<string[]> {
     const valid: string[] = [];
-    const cap = CONFIG.MAX_FORGED_SKILLS > 0 ? CONFIG.MAX_FORGED_SKILLS : 20;
+    const cap = CONFIG.MAX_FORGED_SKILLS > 0 ? CONFIG.MAX_FORGED_SKILLS : 50;
     // Built-in skill names win: a forged duplicate would make skill-tool
     // discovery (which requires unique names across locations) ambiguous.
     const builtin = new Set<string>();
@@ -703,7 +703,7 @@ export class OrchestratorEngine {
       `\`\`\`json\n{\n  "projectName": "string",\n  "version": 1,\n  "summary": "what exists today (stack, areas, maturity)",\n` +
       `  "milestones": [{ "title": "v1.0.0 - Adopted Baseline", "description": "as-built state at adoption" }],\n` +
       `  "services": [],\n` +
-      `  "stack": "bun | go | rust | dotnet | python (detect from survey markers: go.mod → go, Cargo.toml → rust, *.sln/*.csproj → dotnet, pyproject.toml/requirements.txt → python, else bun)",\n` +
+      `  "stack": "bun | go | rust | dotnet | python | php (detect from survey markers: go.mod → go, Cargo.toml → rust, *.sln/*.csproj → dotnet, pyproject.toml/requirements.txt → python, composer.json → php, else bun)",\n` +
       `  "tasks": [{\n    "id": "TASK-001",\n    "title": "Area name (as-built)",\n    "milestone": "v1.0.0 - Adopted Baseline",\n` +
       `    "description": "REQUIRED, min ~80 words: what EXISTS (files, interfaces, behaviors), exact paths",\n` +
       `    "role": "architect | backend | frontend | mobile | qa | security",\n` +

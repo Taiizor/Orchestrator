@@ -7,7 +7,7 @@ You are the **final gate before a milestone ships**: boot the composed applicati
 ## 1. Boot the Application
 
 1. **Services first (Docker-always):** declared roadmap services MUST already be running (env endpoints). If absent and Docker exists, start them yourself (`docker compose -f workspace/docker-compose.services.yml up -d --wait`); a missing service is an environment defect — fail fast, never invent a fallback data layer. Note the backend in use in the verdict.
-2. **Start the app:** run the composition root with your stack (`bun run src/index.ts` | `go run ./...` | `cargo run` | `dotnet run` | `python -m <app>` — or the repo's documented dev command) in the background, wait for the listening log, then probe. Never leave stray servers: your verdict notes the exact command so anyone can reproduce.
+2. **Start the app:** run the composition root with your stack (`bun run src/index.ts` | `go run ./...` | `cargo run` | `dotnet run` | `python -m <app>` | `php artisan serve` — or the repo's documented dev command) in the background, wait for the listening log, then probe. Never leave stray servers: your verdict notes the exact command so anyone can reproduce.
 3. **Infra failure ≠ app failure:** if the BROWSER cannot launch (missing OS deps), Docker itself is unavailable, or the port is blocked by another process — verdict is `skipped` with the reason. NEVER report `fail` for environment problems.
 
 ---

@@ -25,7 +25,7 @@ This document defines the rules, roles, constraints, quality gates, and inter-ag
 ## 2. Universal CI/CD Constraints (STRICT & UNCOMPROMISING)
 
 Every subagent MUST adhere to these environmental rules:
-1. **Engine vs product runtimes:** the orchestrator ENGINE always runs on **Bun** (`bun run orchestrator/engine.ts`, `bun run subagents/runner.ts`). The PRODUCT in `workspace/` uses the roadmap-declared `stack` (`bun | go | rust | dotnet | python`, default `bun`) — product build/test commands use that toolchain (`bun test` | `go test ./...` | `cargo test` | `dotnet test` | `python -m pytest -q`). NEVER invoke `node`, `npm`, `npx`, `pnpm`, or `yarn` for JS/TS work.
+1. **Engine vs product runtimes:** the orchestrator ENGINE always runs on **Bun** (`bun run orchestrator/engine.ts`, `bun run subagents/runner.ts`). The PRODUCT in `workspace/` uses the roadmap-declared `stack` (`bun | go | rust | dotnet | python | php`, default `bun`) — product build/test commands use that toolchain (`bun test` | `go test ./...` | `cargo test` | `dotnet test` | `python -m pytest -q` | `vendor/bin/phpunit`). NEVER invoke `node`, `npm`, `npx`, `pnpm`, or `yarn` for JS/TS work.
 2. **Docker-Always Execution (no fallback paths):**
    - **Real Services Everywhere:** Docker runs locally AND on CI runners. When the roadmap declares `services` (presets `postgres`/`redis`/`mongo`/`s3`, or ANY custom `{name, image, env?, ports?}` image), the orchestrator renders `workspace/docker-compose.services.yml` and the workflow starts it (`--wait`) before any agent runs. Need a broker, search engine, or vector DB? Declare the image — it will exist. Connect via env endpoints (`DATABASE_URL`, `REDIS_URL`, `MONGO_URL`, `S3_*`, plus custom `env` — see `container-services` skill).
    - **Data Is Ephemeral:** containers reset every run. Seed fixtures inside tasks/tests; never assume pre-existing rows, buckets, or keys.
@@ -132,3 +132,26 @@ Workflows mint a short-lived installation token via `actions/create-github-app-t
 - **Installation scope:** the App must be installed with **All repositories** (or explicitly include every engine + data repo), or data access silently 404s.
 - **Engine parity:** `orchestrator/github_app.ts` mints the same token locally when `GH_CLIENT_ID` + private key are present (`initializeGitHubAppAuth()` at startup, `CONFIG` refreshed after mint). All auth paths fall back to `GITHUB_TOKEN`/PATs when App credentials are absent — never hard-fail.
 - **Dual-repo push mechanics:** state persists run in an isolated linked worktree — never `checkout` data branches in the main worktree (a dirty checkout aborts the switch and every push is then rejected as non-fast-forward forever).
+
+---
+
+## 9. Product Stack Directives (one stack per roadmap)
+
+The ENGINE always runs on Bun. The PRODUCT in `workspace/` uses exactly one of these stacks (`roadmap.stack`, default `bun`). Every subagent additionally gets its stack's essentials skill injected (see `STACK_ESSENTIAL_SKILLS` in `orchestrator/stacks.ts`); role skills still apply on top.
+
+| Stack | Test (proof) | Build / gate | Lint / format | Skill |
+| :--- | :--- | :--- | :--- | :--- |
+| `bun` | `bun test` | `bun run build` | strict `tsconfig`, no `any` drift | `bun-essentials` |
+| `go` | `go test ./...` | `go build ./...` + `go vet ./...` clean | `gofmt` + `goimports`, `go mod tidy` | `go-essentials` |
+| `rust` | `cargo test` | `cargo build` | `cargo fmt --check`, `cargo clippy -- -D warnings` | `rust-essentials` |
+| `dotnet` | `dotnet test` | `dotnet build` (warnings-as-errors) | `dotnet format` | `dotnet-essentials` |
+| `python` | `python -m pytest -q` | `python -m compileall .` | `ruff check`, `ruff format --check`, pinned deps | `python-essentials` |
+| `php` | `vendor/bin/phpunit` | `composer install` | Pint/CS-Fixer, PHPStan/Psalm, `strict_types` | `php-essentials` |
+
+Stack laws (all stacks):
+- Product commands use ONLY the declared stack's toolchain; engine commands (`orchestrator/engine.ts`, `subagents/runner.ts`) stay `bun`.
+- Docker-always: connect via env to declared services; no SQLite/InMemory fallback layers; fail fast when a service is unreachable.
+- Parameterized data access always (placeholders / ORM expressions — never string-built SQL).
+- Tests prove behavior: stack test command with 0 failures, real output pasted in `workspace/TASK_PROGRESS.md`. No live background servers inside tests (in-memory/transport-level harnesses per stack).
+- Never commit dependency trees (`node_modules/`, `target/`, `bin/`+`obj/`, `.venv/`+`__pycache__/`) or per-run files (`workspace/.services.env`).
+- **Depth on demand (vendored ECC reference, MIT © 2026 Affaan Mustafa):** essentials skills are the always-injected core; for language depth read `STACK_ECC_REFS` paths in `orchestrator/stacks.ts` (`vendor/ecc/rules/<lang>/{coding-style,patterns,security,testing}.md`, `vendor/ecc/skills/<lang>-{patterns,testing}/SKILL.md`, `vendor/ecc/agents/<lang>-reviewer.md`). Only the manifest is committed — content arrives per-run (Actions cache keyed by manifest, pinned-release download on miss), so prompts reference paths that the workflow guarantees present. Deliberately NOT wired: `rules/*/hooks.md` (interactive-harness triggers, inert in headless runs) and `rules/common/AGENTS.md` (invokes `ecc:*` plugin agents that aren't installed here — this orchestrator is the multi-agent authority). The same skills are staged per-run as `ecc-*` into `.opencode/skills/` (workflow step + runner ensure, toolchain-style — reloadable via the skill tool, never auto-injected). Reviewer agents MUST consult the matching `<lang>-reviewer.md` checklist when reviewing that stack's diff (`go` → `go-reviewer`, `rust` → `rust-reviewer`, `dotnet` → `csharp-reviewer`, `python` → `python-reviewer`, `php` → `php-reviewer`, TS → `typescript-reviewer`).

@@ -95,6 +95,13 @@ jobs:
           python-version: "3.12"
           cache: pip
 
+      - name: 🐘 Setup PHP + Composer (PHP products)
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          coverage: pcov
+          tools: composer
+
       - name: ⚡ Cache Bun Modules & OpenCode Binary
         uses: actions/cache@v6
         with:
@@ -119,6 +126,18 @@ jobs:
 
       - name: 📦 Install Project Dependencies
         run: bun install
+
+      - name: 📦 Restore ECC vendor content (cached, keyed by manifest)
+        uses: actions/cache@v6
+        with:
+          path: vendor/ecc
+          key: ecc-vendor-${{ hashFiles('vendor/ecc/.manifest.json') }}
+
+      - name: 🧩 Ensure ECC vendor (release download on cache miss)
+        run: bun run scripts/install-ecc.ts
+
+      - name: 🧩 Stage ECC skills (toolchain-style, on-demand depth)
+        run: bun run scripts/stage-ecc-skills.ts
 
       - name: 🌿 Ensure State and Integration Branches Exist
         env:

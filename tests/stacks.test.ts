@@ -1,10 +1,10 @@
 import { describe, it, expect } from "bun:test";
-import { STACKS, STACK_IDS, TEST_EVIDENCE_RX, isKnownStackCommand, normalizeStackId } from "../orchestrator/stacks.ts";
+import { STACKS, STACK_IDS, STACK_ECC_REFS, STACK_ESSENTIAL_SKILLS, TEST_EVIDENCE_RX, isKnownStackCommand, normalizeStackId } from "../orchestrator/stacks.ts";
 import { validateRoadmap } from "../orchestrator/roadmap_validator.ts";
 
 describe("stacks registry", () => {
-  it("covers bun, go, rust, dotnet, python", () => {
-    expect([...STACK_IDS].sort()).toEqual(["bun", "dotnet", "go", "python", "rust"]);
+  it("covers bun, go, rust, dotnet, python, php", () => {
+    expect([...STACK_IDS].sort()).toEqual(["bun", "dotnet", "go", "php", "python", "rust"]);
     for (const id of STACK_IDS) {
       expect(STACKS[id].testCommand.length).toBeGreaterThan(0);
       expect(STACKS[id].buildCommand.length).toBeGreaterThan(0);
@@ -12,7 +12,7 @@ describe("stacks registry", () => {
   });
 
   it("accepts every toolchain as test evidence", () => {
-    for (const s of ["bun test 5 pass", "go test ok", "cargo test test result: ok", "dotnet test Passed!", "pytest 3 passed"]) {
+    for (const s of ["bun test 5 pass", "go test ok", "cargo test test result: ok", "dotnet test Passed!", "pytest 3 passed", "phpunit OK (5 tests)", "FAILURES! Tests: 3"]) {
       expect(TEST_EVIDENCE_RX.test(s)).toBe(true);
     }
   });
@@ -29,7 +29,37 @@ describe("stacks registry", () => {
     expect(isKnownStackCommand("cargo test")).toBe(true);
     expect(isKnownStackCommand("dotnet test")).toBe(true);
     expect(isKnownStackCommand("python -m pytest -q")).toBe(true);
+    expect(isKnownStackCommand("vendor/bin/phpunit")).toBe(true);
+    expect(isKnownStackCommand("php artisan test")).toBe(true);
     expect(isKnownStackCommand("echo hello")).toBe(false);
+  });
+
+  it("maps every stack to an existing essentials skill", async () => {
+    for (const id of STACK_IDS) {
+      const skill = STACK_ESSENTIAL_SKILLS[id];
+      expect(typeof skill).toBe("string");
+      const f = Bun.file(`.opencode/skills/${skill}/SKILL.md`);
+      expect(await f.exists()).toBe(true);
+      const text = await f.text();
+      expect(text.includes(STACKS[id].testCommand)).toBe(true);
+    }
+  });
+
+  it("references only manifest-pinned ECC depth files", async () => {
+    // The manifest (committed) is the pin: fetched content is verified
+    // against it, so refs must resolve inside it — no disk content needed.
+    const manifest = (await Bun.file("vendor/ecc/.manifest.json").json()) as {
+      eccVersion: string;
+      files: Record<string, string>;
+    };
+    expect(manifest.eccVersion).toMatch(/^\d+\.\d+/);
+    expect(Object.keys(manifest.files).length).toBeGreaterThan(30);
+    for (const id of STACK_IDS) {
+      expect(STACK_ECC_REFS[id].length).toBeGreaterThan(0);
+      for (const ref of STACK_ECC_REFS[id]) {
+        expect(Object.hasOwn(manifest.files, ref)).toBe(true);
+      }
+    }
   });
 });
 

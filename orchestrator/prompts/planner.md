@@ -65,7 +65,7 @@ Return ONLY a JSON block enclosed in ```json ``` with the following structure �
 }
 ```
 
-> `stack` is REQUIRED: one of `bun | go | rust | dotnet | python`. The engine itself always runs on Bun; `stack` selects the PRODUCT toolchain only.
+> `stack` is REQUIRED: one of `bun | go | rust | dotnet | python | php`. The engine itself always runs on Bun; `stack` selects the PRODUCT toolchain only.
 
 ---
 
@@ -80,7 +80,7 @@ Return ONLY a JSON block enclosed in ```json ``` with the following structure �
 - **Coverage:** every requirement area from the inputs (API, schema, UI screens, tests, security) must map to at least one task. Fewer than 5 tasks for a real project means scope was dropped — go back and decompose further.
 - **Self-check before outputting:** no dependency cycles, every `milestone` matches a milestone title EXACTLY, every `role` is from the enum above, parallel tasks have disjoint `targetFiles`, no two tasks own the same files. Fix violations before outputting.
 - **Input coverage map (REQUIRED):** emit a top-level `"coverage"` object mapping every ingested `inputs/` file (exact `inputs/<path>` posix keys: specs, references, AND every visual asset) to the task IDs covering it. UI tasks MUST name their applicable mockup files. Unmapped inputs are flagged as dropped requirements.
-- **Product stack (polyglot):** the ENGINE always runs on Bun, but the PRODUCT in `workspace/` may use any supported stack. Resolve it in this order: (1) explicit `stack:` (or language) declaration in `inputs/spec.md` wins; (2) stack implied by input manifests (`go.mod` → go, `Cargo.toml` → rust, `*.sln`/`*.csproj` → dotnet, `pyproject.toml`/`requirements.txt` → python); (3) default `bun`. Emit the chosen stack as top-level `"stack"` and use ONLY its toolchain for every task's `verificationCommand`. Mixing toolchains inside one roadmap is a planning defect.
+- **Product stack (polyglot):** the ENGINE always runs on Bun, but the PRODUCT in `workspace/` may use any supported stack. Resolve it in this order: (1) explicit `stack:` (or language) declaration in `inputs/spec.md` wins; (2) stack implied by input manifests (`go.mod` → go, `Cargo.toml` → rust, `*.sln`/`*.csproj` → dotnet, `pyproject.toml`/`requirements.txt` → python, `composer.json` → php); (3) default `bun`. Emit the chosen stack as top-level `"stack"` and use ONLY its toolchain for every task's `verificationCommand`. Mixing toolchains inside one roadmap is a planning defect.
   | Stack | Test command | Build command |
   |---|---|---|
   | `bun` | `bun test` | `bun run build` |
@@ -88,6 +88,7 @@ Return ONLY a JSON block enclosed in ```json ``` with the following structure �
   | `rust` | `cargo test` | `cargo build` |
   | `dotnet` | `dotnet test` | `dotnet build` |
   | `python` | `python -m pytest -q` | `python -m compileall .` |
+  | `php` | `vendor/bin/phpunit` | `composer install` |
 - **Task sizing:** each task must be completable by one subagent in a single run (5–15 minutes of work). Split anything bigger into smaller tasks with explicit dependencies.
 
 ## 🐳 Docker Service Declaration (Docker always available — declare freely)

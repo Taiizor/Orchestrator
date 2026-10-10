@@ -20,11 +20,13 @@ export const CONFIG = {
   FAILED_RESURRECT_COOLDOWN_MIN: safeInt(process.env.FAILED_RESURRECT_COOLDOWN_MIN, 60),
   FAILED_AUTO_RESURRECT_MAX: safeInt(process.env.FAILED_AUTO_RESURRECT_MAX, 2),
   // Skill Forger: cap on collected project skills per run (context-budget
-  // guard for downstream agent prompts). Override via MAX_FORGED_SKILLS.
-  MAX_FORGED_SKILLS: safeInt(process.env.MAX_FORGED_SKILLS, 20),
+  // guard for downstream agent prompts — only role-matching subsets inject,
+  // so this is a backstop, not a target. Override via MAX_FORGED_SKILLS.
+  MAX_FORGED_SKILLS: safeInt(process.env.MAX_FORGED_SKILLS, 50),
   // Service auto-adopt: cap on total roadmap.services (presets + customs).
-  // Bounds cold-runner pull/start time against request spam. Override via MAX_SERVICES.
-  MAX_SERVICES: safeInt(process.env.MAX_SERVICES, 10),
+  // Bounds cold-runner pull/start time against request spam; microservice
+  // roadmaps legitimately need headroom. Override via MAX_SERVICES.
+  MAX_SERVICES: safeInt(process.env.MAX_SERVICES, 20),
 
   // Git & Branching
   BASE_BRANCH: process.env.BASE_BRANCH || "main",

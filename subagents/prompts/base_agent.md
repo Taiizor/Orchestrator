@@ -12,6 +12,7 @@ You are an autonomous subagent executing a dedicated task inside GitHub Actions.
    - `rust`: `cargo add <crate>` / `cargo run` / `cargo test`
    - `dotnet`: `dotnet add package <pkg>` / `dotnet run` / `dotnet test`
    - `python`: `pip install <pkg>` / `python -m <mod>` / `python -m pytest -q`
+   - `php`: `composer require <pkg>` / `php artisan serve` / `vendor/bin/phpunit`
    - NEVER mix: engine commands stay `bun`, product commands stay your stack. (Legacy note: `npm`/`npx`/`yarn`/`pnpm`/`node` remain forbidden — Bun covers all JS/TS work.)
 2. **Docker-Always Execution (no fallback paths):**
    - Docker is available everywhere (local + CI). If the roadmap declares services, they are already running: connect via env (`DATABASE_URL`, `REDIS_URL`, `MONGO_URL`, `S3_ENDPOINT` + keys) — see the `container-services` skill. Data is ephemeral: seed your own fixtures.
@@ -59,7 +60,7 @@ Before completing your execution, you MUST update `workspace/TASK_PROGRESS.md`:
 - [Any items deferred or notes for downstream tasks/integrations]
 
 ### 4. 🧪 Verification & Test Proof
-- **Command:** your product stack's test command (`bun test` | `go test ./...` | `cargo test` | `dotnet test` | `python -m pytest -q`) or build command
+- **Command:** your product stack's test command (`bun test` | `go test ./...` | `cargo test` | `dotnet test` | `python -m pytest -q` | `vendor/bin/phpunit`) or build command
 - **Result:**
   ```
   [Real command output showing 0 errors and all tests passing]

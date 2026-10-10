@@ -207,7 +207,7 @@ function touchesApiOrSchema(files: string[]): boolean {
  * under a previous version must be re-evaluated, never skipped by the
  * unchanged-tip optimization.
  */
-export const GATE_VERSION = 5;
+export const GATE_VERSION = 6;
 
 /**
  * Deterministic pre-LLM gate. Fails fast on empty diff, missing progress
@@ -255,7 +255,7 @@ export async function runReviewGate(task: TaskItem, diff: string, progressConten
     }
     if (!TEST_EVIDENCE_RX.test(progressContent)) {
       warnings.push(
-        "Verification section has no recognizable test evidence (bun test | go test | cargo test | dotnet test | pytest output)."
+        "Verification section has no recognizable test evidence (bun test | go test | cargo test | dotnet test | pytest | phpunit output)."
       );
     }
   }

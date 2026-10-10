@@ -28,7 +28,14 @@ workspace/*
 # dual-repo mode, never committed to the public skeleton.
 state/*
 !state/.gitkeep
-# Local reference copies (never commit)
-ECC-main/
+# Staged ECC skills (regenerable via bun run ecc:stage; never commit)
+.opencode/skills/ecc-*/
+.opencode/skills/.ecc-staged.json
+# ECC vendor content (fetched per-run from cache/release; never commit blobs).
+# ONLY the manifest + attribution travel: the manifest pins every file hash,
+# so fetched content is verified against it. See README (ECC section).
+vendor/ecc/*
+!vendor/ecc/.manifest.json
+!vendor/ecc/ATTRIBUTION.md
 # Local build cache (never commit)
 tsconfig.tsbuildinfo
