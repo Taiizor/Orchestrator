@@ -403,8 +403,8 @@ async function main() {
     console.warn(`⚠️ [${task.id}] model run failed, but uncommitted work exists — publishing partial progress for review.`);
   }
 
-  // 1. Run automated test proof with the product stack's toolchain.
-  // Detection order: roadmap.stack (planner-declared) → workspace markers.
+  // 1. Run automated test proof with the task's EFFECTIVE stack toolchain.
+  // Detection order: --stack CLI → task.stack → roadmap.stack → workspace markers.
   let testProof = "No unit tests found in workspace yet.";
   const stackHasTests = async (): Promise<boolean> => {
     if (productStack === "go") {

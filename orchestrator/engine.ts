@@ -732,12 +732,22 @@ export class OrchestratorEngine {
     const now = new Date().toISOString();
     const adoptedStack = normalizeStackId((raw as Record<string, unknown>).stack, "bun");
     // Cross-check against workspace markers (LLM mislabels happen): markers win.
+    // Mixed trees (go API + bun UI) have no single truthful default — keep the
+    // survey's stack as default and warn: future tasks must pin task.stack.
     let detectedStack: StackId = "bun";
+    let detectedStacks: StackId[] = [];
     try {
-      const { detectWorkspaceStack } = await import("./stacks.ts");
+      const { detectWorkspaceStack, detectWorkspaceStacks } = await import("./stacks.ts");
       detectedStack = await detectWorkspaceStack(".");
+      detectedStacks = await detectWorkspaceStacks(".");
     } catch {
       /* survey-only fallback */
+    }
+    if (detectedStacks.length > 1) {
+      console.warn(
+        `⚠️ Mixed workspace detected (${detectedStacks.join(" + ")}): keeping survey stack '${adoptedStack}' as roadmap default. ` +
+          `Future tasks MUST pin their layer via task.stack (planner) or /add stack:X — unset tasks inherit '${adoptedStack}'.`
+      );
     }
     const roadmap: Roadmap = {
       projectName: raw.projectName || "Adopted Project",
@@ -751,7 +761,7 @@ export class OrchestratorEngine {
           ? raw.milestones
           : [{ title: "v1.0.0 - Adopted Baseline", description: "as-built state at adoption" }],
       services: [],
-      stack: detectedStack !== "bun" ? detectedStack : adoptedStack,
+      stack: detectedStacks.length > 1 ? adoptedStack : detectedStack !== "bun" ? detectedStack : adoptedStack,
       updatedAt: now,
       tasks: ((raw.tasks || []) as any[]).map((t: any, idx: number) => ({
         id: t.id || `TASK-${String(idx + 1).padStart(3, "0")}`,
@@ -1833,11 +1843,13 @@ export class OrchestratorEngine {
       // failed, and the announcement goes out ONLY on a fresh creation.
       // A repeat tick after a failed persist must stay quiet instead of
       // celebrating twice.
-      const stackTest = STACKS[normalizeStackId((roadmap as Roadmap).stack, "bun")].testCommand;
+      const layerStacks = [...new Set(roadmap.tasks.map((t) => effectiveTaskStack(t, (roadmap as Roadmap).stack, "bun")))];
+      const stackTest = layerStacks.map((s) => STACKS[s].testCommand).join(" + ");
+      const stackLabel = layerStacks.join(" + ");
       const outcome = await IssueManager.createMilestoneRelease(
         "v1.0.0",
         `Release v1.0.0 - ${roadmap.projectName}`,
-        `## 🚀 Project Completed: ${roadmap.projectName}\n\nAll tasks implemented, reviewed, audited, and tested.\n\n### Deliverables:\n- Core workspace built in \`workspace/\` (${(roadmap as Roadmap).stack || "bun"} stack)\n- 0 test failures on \`${stackTest}\`\n- Security audit clean`
+        `## 🚀 Project Completed: ${roadmap.projectName}\n\nAll tasks implemented, reviewed, audited, and tested.\n\n### Deliverables:\n- Core workspace built in \`workspace/\` (${stackLabel} stack${layerStacks.length > 1 ? "s" : ""})\n- 0 test failures on \`${stackTest}\`\n- Security audit clean`
       );
       if (outcome !== "failed") {
         roadmap.globalStatus = "COMPLETED";

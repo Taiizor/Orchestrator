@@ -227,10 +227,27 @@ export async function detectWorkspaceStacks(cwd = "."): Promise<StackId[]> {
 
 /** Normalize a declared stack value; unknown/empty falls back to detected/default. */
 export function normalizeStackId(raw: unknown, fallback: StackId = "bun"): StackId {
-  if (typeof raw === "string" && (STACK_IDS as string[]).includes(raw.toLowerCase())) {
-    return raw.toLowerCase() as StackId;
+  if (typeof raw === "string" && (STACK_IDS as string[]).includes(raw.trim().toLowerCase())) {
+    return raw.trim().toLowerCase() as StackId;
   }
   return fallback;
+}
+
+/**
+ * Which stack's toolchain does a verificationCommand belong to?
+ * Null = no recognizable toolchain (the unknown-command warning owns it).
+ */
+export function commandStack(cmd: string): StackId | null {
+  const c = (cmd || "").toLowerCase();
+  // NOTE: "cargo …" contains "go …" as a substring ("carGO test"), so rust
+  // must be checked before go.
+  if (c.includes("cargo test") || c.includes("cargo build")) return "rust";
+  if (c.includes("go test") || c.includes("go build")) return "go";
+  if (c.includes("dotnet test") || c.includes("dotnet build")) return "dotnet";
+  if (c.includes("phpunit") || c.includes("pest") || c.includes("composer") || c.includes("artisan")) return "php";
+  if (c.includes("pytest") || c.includes("python -m")) return "python";
+  if (c.includes("bun test") || c.includes("bun run")) return "bun";
+  return null;
 }
 
 /**

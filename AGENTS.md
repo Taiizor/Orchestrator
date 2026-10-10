@@ -93,7 +93,7 @@ Human operators can steer, pause, or direct the autonomous team via GitHub Issue
 - `/discuss <TASK-ID> "message"`: Relays a message to the task's agent discussion thread (`DiscussionManager`); the agent reads recent replies on its next attempt.
 - `/setup [public|data|all]`: Audits & repairs repo features (issues/wiki/projects/discussions/pull-requests) on the public and/or data repo.
 - `/ask <question>`: Answers from live roadmap state (one LLM call, cited task IDs).
-- `/add <role> "title" -- "description" [deps:A,B] [milestone:M]`: Queues a DAG-validated PENDING task (issue/board sync next tick; no targetFiles scoping — planner normally assigns it).
+- `/add <role> "title" -- "description" [deps:A,B] [milestone:M] [stack:X]`: Queues a DAG-validated PENDING task (issue/board sync next tick; no targetFiles scoping — planner normally assigns it; `stack:X` pins the layer, omitted = roadmap default).
 - `/log <TASK-ID>`: Tails recent subagent run logs for that task.
 - `/revise <TASK-ID> "change"`: Queues a surgical revision task depending on the target (originals stay COMPLETED; downstream listed FYI).
 

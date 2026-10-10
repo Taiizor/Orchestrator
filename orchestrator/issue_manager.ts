@@ -137,7 +137,7 @@ export class IssueManager {
       `- \`/discuss <TASK-ID> "message"\`: Relay a message to the task's agent discussion thread\n` +
       `- \`/setup [public|data|all]\`: Audit & repair repo features (issues/wiki/projects/discussions/pull-requests)\n` +
       `- \`/ask <question>\`: Answer from live roadmap state\n` +
-      `- \`/add <role> "title" -- "description" [deps:A,B] [milestone:M]\`: Queue a validated PENDING task\n` +
+      `- \`/add <role> "title" -- "description" [deps:A,B] [milestone:M] [stack:X]\`: Queue a validated PENDING task (stack pins the layer; omitted = roadmap default)\n` +
       `- \`/log <TASK-ID>\`: Tail of recent subagent run logs\n` +
       `- \`/revise <TASK-ID> "change"\`: Rework a finished task + cascade-rebuild dependents\n` +
       `\n> 🔒 Operator commands are honored only from repo collaborators (push access). Other comments are ignored.\n` +
@@ -425,10 +425,19 @@ export class IssueManager {
                   dependencies: t.dependencies,
                   targetFiles: t.targetFiles,
                   milestone: t.milestone,
+                  stack: (t as any).stack,
                 })),
-                { id: nextId, role: task.role, dependencies: [taskId], targetFiles: [], milestone: task.milestone },
+                {
+                  id: nextId,
+                  role: task.role,
+                  dependencies: [taskId],
+                  targetFiles: [],
+                  milestone: task.milestone,
+                  stack: (task as any).stack,
+                },
               ],
               milestones: roadmap.milestones,
+              stack: (roadmap as any).stack,
             });
             if (check.errors.length > 0) {
               await this.acknowledgeComment(
@@ -454,6 +463,9 @@ export class IssueManager {
                 status: "PENDING",
                 branch: `task/${nextId}`,
                 milestone: task.milestone,
+                // Inherit the target's layer: a revise of a go task must run
+                // the go toolchain, not the roadmap default.
+                stack: (task as any).stack,
                 attempts: 0,
                 maxAttempts: CONFIG.MAX_TASK_ATTEMPTS,
                 reviewNotes: `[REVISION of ${taskId}] Unscoped task — reviewer judges file relevance. Original [${taskId}] stays COMPLETED.`,
@@ -571,89 +583,105 @@ export class IssueManager {
           await this.acknowledgeComment(dashboardNumber, commentId, `❓ **Answer:**\n\n${text}`);
         }
       } else if (body.startsWith("/add")) {
-        // /add <role> "title" -- "description" [deps:A,B] [milestone:M]
+        // /add <role> "title" -- "description" [deps:A,B] [milestone:M] [stack:X]
         // Appends a PENDING task after DAG validation. Issues/board sync on next tick.
+        // stack:X pins the task's layer (go API vs bun UI); omitted = roadmap default.
         console.log("➕ ChatOps command received: /add");
         const parsed = body.match(
-          /^\/add\s+([A-Za-z]+)\s+"([^"]+)"\s+--\s+"([^"]+)"(?:\s+deps:([A-Za-z0-9_,-]+))?(?:\s+milestone:(.+))?/
+          /^\/add\s+([A-Za-z]+)\s+"([^"]+)"\s+--\s+"([^"]+)"(?:\s+deps:([A-Za-z0-9_,-]+))?(?:\s+milestone:(.+?))?(?:\s+stack:([A-Za-z]+))?\s*$/
         );
         if (!parsed) {
           await this.acknowledgeComment(
             dashboardNumber,
             commentId,
-            `⚠️ Usage: \`/add <role> "title" -- "description" [deps:TASK-001,TASK-002] [milestone:v1.0.0]\`\nRoles: architect|backend|frontend|qa|security|tracker|reviewer|fullstack.`
+            `⚠️ Usage: \`/add <role> "title" -- "description" [deps:TASK-001,TASK-002] [milestone:v1.0.0] [stack:go]\`\nRoles: architect|backend|frontend|qa|security|tracker|reviewer|fullstack. Stacks: bun|go|rust|dotnet|python|php (omitted = roadmap default).`
           );
         } else {
-          const [, role, title, description, depStr, milestone] = parsed;
+          const [, role, title, description, depStr, milestone, stackParam] = parsed;
           const { validateRoadmap, formatValidation } = await import("./roadmap_validator.ts");
           const { CONFIG } = await import("./config.ts");
-          const nums = roadmap.tasks.map((t) => parseInt((t.id.match(/(\d+)/) || ["0", "0"])[1], 10) || 0);
-          const nextId = `TASK-${String(Math.max(0, ...nums) + 1).padStart(3, "0")}`;
-          const deps = depStr
-            ? depStr
-                .split(",")
-                .map((d: string) => d.trim())
-                .filter(Boolean)
-            : [];
-          const candidate = {
-            id: nextId,
-            role,
-            dependencies: deps,
-            targetFiles: [] as string[],
-            milestone: (milestone || "").trim() || undefined,
-          };
-          const check = validateRoadmap({
-            tasks: [
-              ...roadmap.tasks.map((t) => ({
-                id: t.id,
-                role: t.role,
-                dependencies: t.dependencies,
-                targetFiles: t.targetFiles,
-                milestone: t.milestone,
-              })),
-              candidate,
-            ],
-            milestones: roadmap.milestones,
-          });
-          if (check.errors.length > 0) {
+          const { STACK_IDS } = await import("./stacks.ts");
+          const stack = stackParam ? stackParam.trim().toLowerCase() : undefined;
+          if (stack && !(STACK_IDS as string[]).includes(stack)) {
             await this.acknowledgeComment(
               dashboardNumber,
               commentId,
-              `⚠️ **Task rejected by DAG validation:**\n${formatValidation(check)}`
+              `⚠️ **Unknown stack "${stackParam}".** Known: ${(STACK_IDS as string[]).join(", ")}. Omit \`stack:\` to inherit the roadmap default.`
             );
           } else {
-            const now = new Date().toISOString();
-            roadmap.tasks.push({
+            const nums = roadmap.tasks.map((t) => parseInt((t.id.match(/(\d+)/) || ["0", "0"])[1], 10) || 0);
+            const nextId = `TASK-${String(Math.max(0, ...nums) + 1).padStart(3, "0")}`;
+            const deps = depStr
+              ? depStr
+                  .split(",")
+                  .map((d: string) => d.trim())
+                  .filter(Boolean)
+              : [];
+            const candidate = {
               id: nextId,
-              title,
-              description,
-              role: role as any,
+              role,
               dependencies: deps,
-              targetFiles: [],
-              status: "PENDING",
-              branch: `task/${nextId}`,
-              milestone: candidate.milestone || roadmap.milestones?.[0]?.title,
-              attempts: 0,
-              maxAttempts: CONFIG.MAX_TASK_ATTEMPTS,
-              reviewNotes:
-                "[OPERATOR ADDED] via /add. NOTE: no targetFiles scoping — planner normally assigns disjoint paths; watch for conflicts.",
-              createdAt: now,
-              updatedAt: now,
+              targetFiles: [] as string[],
+              milestone: (milestone || "").trim() || undefined,
+              stack,
+            };
+            const check = validateRoadmap({
+              tasks: [
+                ...roadmap.tasks.map((t) => ({
+                  id: t.id,
+                  role: t.role,
+                  dependencies: t.dependencies,
+                  targetFiles: t.targetFiles,
+                  milestone: t.milestone,
+                  stack: (t as any).stack,
+                })),
+                candidate,
+              ],
+              milestones: roadmap.milestones,
+              stack: (roadmap as any).stack,
             });
-            hasChanges = true;
-            // Only the new task's warnings are actionable, plus roadmap-level
-            // warnings (no task ID — e.g. input coverage); completed tasks'
-            // thin plans are history. Summarize the rest instead of spamming.
-            const ownWarns = check.warnings.filter((w) => w.includes(`[${nextId}]`) || !/\[[A-Z]+-\d+\]/.test(w));
-            const histCount = check.warnings.length - ownWarns.length;
-            let warn = "";
-            if (ownWarns.length > 0) warn += `\n\n${formatValidation({ errors: [], warnings: ownWarns })}`;
-            if (histCount > 0) warn += `\n\n_(${histCount} historical warnings on already-completed tasks omitted.)_`;
-            await this.acknowledgeComment(
-              dashboardNumber,
-              commentId,
-              `➕ **Task [${nextId}] queued as PENDING.** Issue + board sync on next tick.${warn}`
-            );
+            if (check.errors.length > 0) {
+              await this.acknowledgeComment(
+                dashboardNumber,
+                commentId,
+                `⚠️ **Task rejected by DAG validation:**\n${formatValidation(check)}`
+              );
+            } else {
+              const now = new Date().toISOString();
+              roadmap.tasks.push({
+                id: nextId,
+                title,
+                description,
+                role: role as any,
+                dependencies: deps,
+                targetFiles: [],
+                status: "PENDING",
+                branch: `task/${nextId}`,
+                milestone: candidate.milestone || roadmap.milestones?.[0]?.title,
+                // Explicit layer pin (stack:X) or inherit roadmap default.
+                stack: stack as any,
+                attempts: 0,
+                maxAttempts: CONFIG.MAX_TASK_ATTEMPTS,
+                reviewNotes:
+                  "[OPERATOR ADDED] via /add. NOTE: no targetFiles scoping — planner normally assigns disjoint paths; watch for conflicts.",
+                createdAt: now,
+                updatedAt: now,
+              });
+              hasChanges = true;
+              // Only the new task's warnings are actionable, plus roadmap-level
+              // warnings (no task ID — e.g. input coverage); completed tasks'
+              // thin plans are history. Summarize the rest instead of spamming.
+              const ownWarns = check.warnings.filter((w) => w.includes(`[${nextId}]`) || !/\[[A-Z]+-\d+\]/.test(w));
+              const histCount = check.warnings.length - ownWarns.length;
+              let warn = "";
+              if (ownWarns.length > 0) warn += `\n\n${formatValidation({ errors: [], warnings: ownWarns })}`;
+              if (histCount > 0) warn += `\n\n_(${histCount} historical warnings on already-completed tasks omitted.)_`;
+              await this.acknowledgeComment(
+                dashboardNumber,
+                commentId,
+                `➕ **Task [${nextId}] queued as PENDING.** Issue + board sync on next tick.${warn}`
+              );
+            }
           }
         }
       } else if (body.startsWith("/log")) {

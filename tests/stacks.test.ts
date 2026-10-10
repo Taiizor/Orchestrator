@@ -1,5 +1,8 @@
 import { describe, it, expect } from "bun:test";
-import { STACKS, STACK_IDS, STACK_ECC_REFS, STACK_ESSENTIAL_SKILLS, STACK_ECC_SKILL_IDS, TEST_EVIDENCE_RX, isKnownStackCommand, normalizeStackId, effectiveTaskStack, detectWorkspaceStacks } from "../orchestrator/stacks.ts";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { mkdirSync } from "node:fs";
+import { STACKS, STACK_IDS, STACK_ECC_REFS, STACK_ESSENTIAL_SKILLS, STACK_ECC_SKILL_IDS, TEST_EVIDENCE_RX, isKnownStackCommand, normalizeStackId, commandStack, effectiveTaskStack, detectWorkspaceStacks } from "../orchestrator/stacks.ts";
 import { validateRoadmap } from "../orchestrator/roadmap_validator.ts";
 
 describe("stacks registry", () => {
@@ -20,8 +23,19 @@ describe("stacks registry", () => {
   it("normalizes unknown stacks to fallback", () => {
     expect(normalizeStackId("go")).toBe("go");
     expect(normalizeStackId("Go")).toBe("go");
+    expect(normalizeStackId("  go  ")).toBe("go");
     expect(normalizeStackId("cobol", "bun")).toBe("bun");
     expect(normalizeStackId(undefined)).toBe("bun");
+  });
+
+  it("maps verification commands to their stack", () => {
+    expect(commandStack("go test ./...")).toBe("go");
+    expect(commandStack("cargo test")).toBe("rust");
+    expect(commandStack("dotnet test")).toBe("dotnet");
+    expect(commandStack("python -m pytest -q")).toBe("python");
+    expect(commandStack("vendor/bin/phpunit")).toBe("php");
+    expect(commandStack("bun test")).toBe("bun");
+    expect(commandStack("echo hello")).toBe(null);
   });
 
   it("recognizes known stack commands", () => {
@@ -60,12 +74,11 @@ describe("stacks registry", () => {
   });
 
   it("detects every stack present in mixed trees", async () => {
-    const root = `C:/Users/Taiizor/AppData/Local/Temp/opencode/stackdetect-${process.pid}-${Date.now()}`.replace(/\\/g, "/");
+    const root = join(tmpdir(), `orch-stackdetect-${process.pid}-${Date.now()}`).replace(/\\/g, "/");
     await Bun.write(`${root}/workspace/go.mod`, "module example.com/x\n");
     await Bun.write(`${root}/workspace/package.json`, '{"name":"ui"}\n');
     expect(await detectWorkspaceStacks(root)).toEqual(["go", "bun"]);
     const empty = `${root}-empty`;
-    const { mkdirSync } = await import("node:fs");
     mkdirSync(`${empty}/workspace`, { recursive: true });
     expect(await detectWorkspaceStacks(empty)).toEqual([]);
   });

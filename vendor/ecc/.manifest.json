@@ -1,7 +1,7 @@
 {
   "eccVersion": "2.2.3",
   "eccCommit": "",
-  "installedAt": "2026-10-10T21:55:22.392Z",
+  "installedAt": "2026-10-10T22:26:08.978Z",
   "files": {
     "vendor/ecc/skills/bun-runtime/SKILL.md": "8015a977827ddd8536e89c4693a575b8deb5b04073b8a483c320c5419abc35da",
     "vendor/ecc/agents/typescript-reviewer.md": "6b012db1a9039870c4f040975144a0d4e3592510d6332e2d260f02859ec66da1",

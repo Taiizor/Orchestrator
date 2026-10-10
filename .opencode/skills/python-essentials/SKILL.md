@@ -11,7 +11,7 @@ compatibility: opencode
 
 ## When to use me
 
-Use on every task when `roadmap.stack` (or `workspace/pyproject.toml` / `requirements.txt`) says `python`.
+Use on every task whose effective stack (`task.stack` ?? `roadmap.stack`, or `workspace/pyproject.toml` / `requirements.txt`) is `python`.
 
 ## Rules
 

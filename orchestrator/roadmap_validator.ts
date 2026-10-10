@@ -1,5 +1,5 @@
 import type { Roadmap } from "./types.ts";
-import { STACK_IDS, isKnownStackCommand } from "./stacks.ts";
+import { STACK_IDS, commandStack, effectiveTaskStack, isKnownStackCommand } from "./stacks.ts";
 
 export interface ValidationResult {
   errors: string[];
@@ -65,7 +65,10 @@ export function validateRoadmap(raw: {
 
   if (tasks.length === 0) errors.push("Roadmap has zero tasks.");
 
-  if (raw.stack !== undefined && !(typeof raw.stack === "string" && (STACK_IDS as string[]).includes(raw.stack))) {
+  if (
+    raw.stack !== undefined &&
+    !(typeof raw.stack === "string" && (STACK_IDS as string[]).includes(raw.stack.trim().toLowerCase()))
+  ) {
     errors.push(`Unknown stack "${String(raw.stack).slice(0, 40)}". Known: ${STACK_IDS.join(", ")}.`);
   }
 
@@ -94,10 +97,12 @@ export function validateRoadmap(raw: {
     if (
       t.stack !== undefined &&
       t.stack !== null &&
-      t.stack !== "" &&
-      !(typeof t.stack === "string" && (STACK_IDS as string[]).includes(t.stack))
+      !(typeof t.stack === "string" && t.stack.trim() !== "" && (STACK_IDS as string[]).includes(t.stack.trim().toLowerCase()))
     ) {
-      errors.push(`[${t.id}] unknown task stack "${String(t.stack).slice(0, 40)}". Known: ${STACK_IDS.join(", ")}.`);
+      // Empty string = inherit roadmap default (same as unset); anything else must be known.
+      if (!(typeof t.stack === "string" && t.stack.trim() === "")) {
+        errors.push(`[${t.id}] unknown task stack "${String(t.stack).slice(0, 40)}". Known: ${STACK_IDS.join(", ")}.`);
+      }
     }
     const desc = t.description || "";
     if (desc.trim().split(/\s+/).filter(Boolean).length < 20) {
@@ -112,6 +117,16 @@ export function validateRoadmap(raw: {
       warnings.push(
         `[${t.id}] verificationCommand "${t.verificationCommand.slice(0, 60)}" matches no known stack toolchain (bun/go/cargo/dotnet/pytest/phpunit); proof may be unverifiable in CI.`
       );
+    } else {
+      // The proof must come from the task's OWN layer: a go task proving
+      // itself with `bun test` silently tests the wrong tree.
+      const cmdStack = commandStack(t.verificationCommand);
+      const effStack = effectiveTaskStack({ stack: t.stack }, raw.stack);
+      if (cmdStack && cmdStack !== effStack) {
+        warnings.push(
+          `[${t.id}] verificationCommand looks like ${cmdStack} ("${t.verificationCommand.slice(0, 50)}") but the task's effective stack is ${effStack}; proof would exercise the wrong layer.`
+        );
+      }
     }
     if (!t.targetFiles || t.targetFiles.length === 0) {
       warnings.push(`[${t.id}] has no targetFiles; parallel safety cannot be verified.`);
@@ -119,6 +134,21 @@ export function validateRoadmap(raw: {
     for (const dep of t.dependencies || []) {
       if (!idSet.has(dep)) errors.push(`[${t.id}] depends on unknown task "${dep}".`);
       if (dep === t.id) errors.push(`[${t.id}] depends on itself.`);
+    }
+  }
+
+  // Split layers must meet at a contract: with 2+ effective stacks, at
+  // least one task must own workspace/CONTRACTS.md (the planner's contract
+  // task). Otherwise the layers evolve against an undocumented boundary.
+  const effStacks = new Set(tasks.map((t) => effectiveTaskStack({ stack: t.stack }, raw.stack)));
+  if (effStacks.size > 1) {
+    const hasContractTask = tasks.some((t) =>
+      (t.targetFiles || []).some((f) => f.replace(/\\/g, "/").includes("workspace/CONTRACTS.md"))
+    );
+    if (!hasContractTask) {
+      warnings.push(
+        `Split-stack roadmap (${[...effStacks].join(" + ")}) has no task owning workspace/CONTRACTS.md; add a contract task (OpenAPI/typed clients) that cross-layer tasks depend on.`
+      );
     }
   }
 

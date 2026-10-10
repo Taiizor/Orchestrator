@@ -11,7 +11,7 @@ compatibility: opencode
 
 ## When to use me
 
-Use on every task when `roadmap.stack` (or `workspace/Cargo.toml`) says `rust`.
+Use on every task whose effective stack (`task.stack` ?? `roadmap.stack`, or `workspace/Cargo.toml`) is `rust`.
 
 ## Rules
 

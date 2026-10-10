@@ -11,7 +11,7 @@ compatibility: opencode
 
 ## When to use me
 
-Use on every task when `roadmap.stack` (or `workspace/composer.json`) says `php`.
+Use on every task whose effective stack (`task.stack` ?? `roadmap.stack`, or `workspace/composer.json`) is `php`.
 
 ## Rules
 

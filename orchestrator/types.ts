@@ -1,3 +1,5 @@
+import type { StackId } from "./stacks.ts";
+
 export type TaskStatus =
   | "PENDING" // Waiting for dependencies to complete
   | "IN_PROGRESS" // Subagent currently executing
@@ -47,8 +49,6 @@ export interface ServiceDefinition {
   command?: string; // container command override
   healthcheck?: string[]; // CMD array for readiness probe
 }
-
-import type { StackId } from "./stacks.ts";
 
 export interface Roadmap {
   projectName: string;

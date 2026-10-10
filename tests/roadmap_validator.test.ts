@@ -156,6 +156,53 @@ describe("Roadmap Validator Module", () => {
       expect(inherited.errors).toEqual([]);
     });
 
+    it("should accept case/whitespace variants of known stacks", () => {
+      const base = {
+        id: "t1", role: "backend", dependencies: [], targetFiles: ["a"],
+        description: "word ".repeat(25).trim(),
+        deliverables: ["Create a.ts", "Test a.ts"],
+        verificationCommand: "go test ./..."
+      };
+      expect(validateRoadmap({ stack: " Go ", tasks: [{ ...base }] }).errors).toEqual([]);
+      expect(validateRoadmap({ stack: "bun", tasks: [{ ...base, stack: "GO" }] }).errors).toEqual([]);
+    });
+
+    it("should warn when verificationCommand belongs to another layer", () => {
+      const base = {
+        id: "t1", role: "backend", dependencies: [], targetFiles: ["a"],
+        description: "word ".repeat(25).trim(),
+        deliverables: ["Create a.ts", "Test a.ts"],
+        verificationCommand: "bun test"
+      };
+      const r = validateRoadmap({ stack: "bun", tasks: [{ ...base, stack: "go" }] });
+      expect(r.warnings.some((w) => w.includes("effective stack is go"))).toBe(true);
+      const ok = validateRoadmap({ stack: "bun", tasks: [{ ...base, stack: "go", verificationCommand: "go test ./..." }] });
+      expect(ok.warnings.some((w) => w.includes("effective stack"))).toBe(false);
+    });
+
+    it("should warn on split stacks without a contract task", () => {
+      const mk = (id: string, stack: string, targetFiles: string[], cmd: string) => ({
+        id, role: "backend", dependencies: [], targetFiles,
+        description: "word ".repeat(25).trim(),
+        deliverables: ["Create x", "Test x"],
+        verificationCommand: cmd, stack,
+      });
+      const split = validateRoadmap({
+        stack: "go",
+        tasks: [mk("t1", "go", ["workspace/api"], "go test ./..."), mk("t2", "bun", ["workspace/ui"], "bun test")],
+      });
+      expect(split.warnings.some((w) => w.includes("no task owning workspace/CONTRACTS.md"))).toBe(true);
+      const contracted = validateRoadmap({
+        stack: "go",
+        tasks: [
+          mk("t0", "go", ["workspace/CONTRACTS.md"], "go test ./..."),
+          mk("t1", "go", ["workspace/api"], "go test ./..."),
+          mk("t2", "bun", ["workspace/ui"], "bun test"),
+        ],
+      });
+      expect(contracted.warnings.some((w) => w.includes("CONTRACTS.md"))).toBe(false);
+    });
+
     it("should warn on uncovered input files", () => {
       const tasks = [{
         id: "t1", role: "backend", dependencies: [], targetFiles: ["a"],
