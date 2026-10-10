@@ -1,0 +1,51 @@
+# Centralized GitHub Labels Configuration for Orchestrator
+# Synchronized automatically by .github/workflows/sync-labels.yml
+# (labels created there keep these colors/descriptions; sync never deletes).
+
+- name: "area:engine"
+  color: "0E8A16"
+  description: "Orchestrator engine (tick, review, dispatch, gates)"
+
+- name: "area:prompts"
+  color: "1D76DB"
+  description: "Agent prompts and role files"
+
+- name: "area:workflows"
+  color: "5319E7"
+  description: "GitHub Actions workflows"
+
+- name: "area:skills"
+  color: "FBCA04"
+  description: "Skill packs (craft, stack essentials, ECC)"
+
+- name: "area:docs"
+  color: "006B75"
+  description: "AGENTS.md, README, runbooks"
+
+- name: "area:tests"
+  color: "D93F0B"
+  description: "Test suite and verification"
+
+- name: "stack:bun"
+  color: "F5792A"
+  description: "Bun + TypeScript product stack"
+
+- name: "stack:go"
+  color: "00ADD8"
+  description: "Go product stack"
+
+- name: "stack:rust"
+  color: "CE422B"
+  description: "Rust product stack"
+
+- name: "stack:dotnet"
+  color: "512BD4"
+  description: ".NET product stack"
+
+- name: "stack:python"
+  color: "3776AB"
+  description: "Python product stack"
+
+- name: "stack:php"
+  color: "777BB4"
+  description: "PHP/Laravel product stack"

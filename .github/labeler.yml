@@ -1,0 +1,36 @@
+# Configuration for actions/labeler
+# Automatically applies labels to Pull Requests based on changed files.
+# Label names must match .github/labels.yml (synced by sync-labels.yml).
+
+"area:engine":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "orchestrator/**"
+
+"area:prompts":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "orchestrator/prompts/**"
+          - "subagents/prompts/**"
+
+"area:workflows":
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/workflows/**"
+
+"area:skills":
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".opencode/skills/**"
+          - "inputs/skills/**"
+
+"area:docs":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "*.md"
+          - "inputs/README.md"
+
+"area:tests":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "tests/**"
