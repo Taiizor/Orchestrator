@@ -617,7 +617,11 @@ export class OrchestratorEngine {
     await GitManager.setupGitAuthor();
     await GitManager.run(["git", "fetch", "--all"]);
     if (GitManager.isDataMode()) {
-      await GitManager.ensureDataRemote();
+      const remoteOk = await GitManager.ensureDataRemote();
+      if (!remoteOk) {
+        console.error("❌ Data remote unreachable — adopt cannot read workspace or persist state. Aborting.");
+        process.exit(1);
+      }
       await GitManager.syncDataIn(CONFIG.INTEGRATION_BRANCH);
       // Refuse to overwrite a live roadmap (history lives in data branches).
       try {
@@ -648,8 +652,10 @@ export class OrchestratorEngine {
       const dirs = new Set<string>();
       const topFiles: string[] = [];
       for await (const rel of glob.scan({ cwd: ".", onlyFiles: true })) {
-        files++;
         const norm = rel.replace(/\\/g, "/");
+        const base = norm.split("/").pop() || "";
+        if (base === ".gitkeep" || base === ".gitignore") continue;
+        files++;
         const parts = norm.split("/");
         if (parts.length > 2) dirs.add(parts.slice(0, 3).join("/"));
         if (parts.length <= 3 && topFiles.length < 40) topFiles.push(norm);
@@ -719,7 +725,9 @@ export class OrchestratorEngine {
       projectName: raw.projectName || "Adopted Project",
       version: raw.version || 1,
       summary: raw.summary || "",
-      globalStatus: "IN_PROGRESS",
+      // COMPLETED from birth: adopted history must never trigger the final
+      // celebration or milestone releases on subsequent ticks (steady-state).
+      globalStatus: "COMPLETED",
       milestones:
         Array.isArray(raw.milestones) && raw.milestones.length > 0
           ? raw.milestones
@@ -782,7 +790,11 @@ export class OrchestratorEngine {
         `Document ONLY what exists — no aspirations, no TODOs. Return ONLY the markdown document, no wrapper.`;
       const contractsRes = await OpenCodeClient.runWithFallback(contractsPrompt, { timeoutMs: 10 * 60 * 1000 });
       const doc = (contractsRes.stdout || "").trim();
-      if (contractsRes.exitCode === 0 && doc.length > 500) {
+      // Hallucination tripwire: a real contracts doc references workspace
+      // paths and has section structure — a fluent generic essay has neither.
+      const headings = (doc.match(/^##\s+.+$/gm) || []).length;
+      const grounded = doc.includes("workspace/");
+      if (contractsRes.exitCode === 0 && doc.length > 500 && headings >= 2 && grounded) {
         if (GitManager.isDataMode()) {
           const ok = await GitManager.publishFileToData(
             "workspace/CONTRACTS.md",
@@ -810,12 +822,44 @@ export class OrchestratorEngine {
             "-m",
             "docs(adopt): reverse-engineered CONTRACTS.md from as-built code",
           ]);
-          await GitManager.run(["git", "push", "origin", CONFIG.BASE_BRANCH]);
-          console.log(`✅ CONTRACTS.md reverse-engineered (${doc.length} chars) and committed.`);
+          let pushed = false;
+          for (let attempt = 1; attempt <= 3; attempt++) {
+            const push = await GitManager.run(["git", "push", "origin", CONFIG.BASE_BRANCH]);
+            if (push.exitCode === 0) {
+              pushed = true;
+              break;
+            }
+            if (attempt < 3) {
+              await Bun.sleep(attempt * 2000);
+              await GitManager.run(["git", "fetch", "origin"]);
+              await GitManager.run(["git", "pull", "--rebase"]);
+            } else {
+              console.warn("⚠️ CONTRACTS push failed after 3 attempts:", push.stderr.slice(0, 300));
+            }
+          }
+          console.log(
+            pushed
+              ? `✅ CONTRACTS.md reverse-engineered (${doc.length} chars) and committed.`
+              : "⚠️ CONTRACTS.md written locally but push failed; commit it manually."
+          );
         }
       } else {
         console.warn("⚠️ CONTRACTS reverse-engineering produced no usable document; skipping.");
       }
+    }
+
+    // Seed the content branch (plan parity): future task branches fork from
+    // data/develop, so the adopted tree must live there — not just state.
+    if (GitManager.isDataMode()) {
+      const seeded = await GitManager.publishWorkspaceTree(
+        CONFIG.INTEGRATION_BRANCH,
+        "chore(adopt): seed adopted workspace content"
+      );
+      console.log(
+        seeded
+          ? `🌱 Adopted workspace content published to data/${CONFIG.INTEGRATION_BRANCH}.`
+          : "⚠️ Workspace content publish failed; task branches may lack a fork point."
+      );
     }
 
     await this.persistRoadmap(roadmap, "chore(orchestrator): adopt existing workspace");
@@ -1526,12 +1570,13 @@ export class OrchestratorEngine {
     if (roadmap.milestones && roadmap.milestones.length > 0) {
       await ProjectManager.ensureMilestones(roadmap.milestones, (t) => this.isMilestoneComplete(roadmap, t));
     }
-    const hasUnsyncedIssues = roadmap.tasks.some((t) => !t.issueNumber);
+    const needsIssue = (t: (typeof roadmap.tasks)[number]) => !t.issueNumber && !t.reviewNotes?.includes("[ADOPTED]");
+    const hasUnsyncedIssues = roadmap.tasks.some(needsIssue);
     if (hasUnsyncedIssues) {
       console.log("📌 Ensuring GitHub Issues exist for all tasks and are attached to Milestones...");
       const projectNum = await ProjectManager.ensureProject(roadmap);
       for (const task of roadmap.tasks) {
-        if (!task.issueNumber) {
+        if (needsIssue(task)) {
           await ProjectManager.ensureTaskIssue(task, task.milestone);
         }
       }
@@ -1671,6 +1716,10 @@ export class OrchestratorEngine {
       for (let i = 0; i < roadmap.milestones.length; i++) {
         const m = roadmap.milestones[i];
         const milestoneTasks = roadmap.tasks.filter((t) => t.milestone === m.title);
+        // Adopted baselines are history, not achievements: closing them would
+        // spend real version tags (v0.N.0) and publish releases for work the
+        // orchestrator never did.
+        if (milestoneTasks.length > 0 && milestoneTasks.every((t) => t.reviewNotes?.includes("[ADOPTED]"))) continue;
         if (milestoneTasks.length > 0 && milestoneTasks.every((t) => t.status === "COMPLETED")) {
           const closed = await IssueManager.closeMilestoneIfCompleted(m.title);
           if (closed) {

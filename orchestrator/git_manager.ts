@@ -1,7 +1,7 @@
 import { CONFIG } from "./config.ts";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
-import { rmSync, mkdirSync } from "node:fs";
+import { rmSync, mkdirSync, cpSync } from "node:fs";
 
 export class GitManager {
   /**
@@ -480,6 +480,90 @@ export class GitManager {
     }
     await this.run(["git", "checkout", startRef]);
     return pushSuccess;
+  }
+
+  /**
+   * Publish adopted workspace content (inputs/ + workspace/, minus dependency
+   * trees and regenerable CI files — same exclusions as publishTaskBranch)
+   * onto a data-remote branch via an isolated linked worktree. Used by adopt
+   * to seed data/develop so future task branches have a fork point.
+   * Returns false on failure (never throws).
+   */
+  public static async publishWorkspaceTree(
+    branch = CONFIG.INTEGRATION_BRANCH,
+    commitMsg = "chore(adopt): seed adopted workspace content"
+  ): Promise<boolean> {
+    const remote = CONFIG.DATA_REMOTE;
+    const botIdentity = ["-c", "user.name=github-actions[bot]", "-c", "user.email=github-actions[bot]@users.noreply.github.com"];
+    const wtDir = join(tmpdir(), `data-tree-${process.pid}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`);
+    const wt = async (args: string[]) => this.run(["git", "-C", wtDir, ...args]);
+    const cleanup = async () => {
+      try {
+        await this.run(["git", "worktree", "remove", "--force", wtDir]);
+      } catch {
+        // Ephemeral runner; leftovers die with the VM (matters only locally).
+      }
+      try {
+        await this.run(["git", "worktree", "prune"]);
+      } catch {
+        // Best-effort.
+      }
+    };
+    // Mirror sources: force-add overrides gitignore; node_modules and the
+    // per-run services env must never travel (thousands of files / diff noise).
+    const mirrorFromWorkdir = async (dst: string) => {
+      for (const srcDir of [CONFIG.INPUTS_DIR, CONFIG.WORKSPACE_DIR]) {
+        const src = join(".", srcDir);
+        const target = join(dst, srcDir);
+        try {
+          rmSync(target, { recursive: true, force: true });
+          cpSync(src, target, {
+            recursive: true,
+            filter: (s) => !s.includes("node_modules") && !s.endsWith(".services.env"),
+          });
+        } catch {
+          return false;
+        }
+      }
+      return true;
+    };
+    try {
+      await this.run(["git", "worktree", "prune"]);
+      rmSync(wtDir, { recursive: true, force: true });
+      const hasBranch = await this.remoteHasBranch(remote, branch);
+      const startPoint = hasBranch ? `${remote}/${branch}` : `${remote}/${CONFIG.BASE_BRANCH}`;
+      const add = await this.run(["git", "worktree", "add", "--detach", wtDir, startPoint]);
+      if (add.exitCode !== 0) {
+        console.warn("⚠️ Data tree worktree setup failed:", (add.stdout + add.stderr).slice(0, 300));
+        return false;
+      }
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        if (!(await mirrorFromWorkdir(wtDir))) {
+          console.warn("⚠️ Data tree mirror failed (attempt ${attempt}/3).");
+          return false;
+        }
+        await wt(["add", "-f", CONFIG.INPUTS_DIR, CONFIG.WORKSPACE_DIR]);
+        await wt(["reset", "-q", `${CONFIG.WORKSPACE_DIR}/node_modules`, `${CONFIG.WORKSPACE_DIR}/.services.env`]);
+        const commit = await wt([...botIdentity, "commit", "-m", commitMsg]);
+        if (commit.exitCode !== 0 && !/nothing to commit/i.test(commit.stdout + commit.stderr)) {
+          console.warn(`⚠️ Data tree commit failed:`, (commit.stdout + commit.stderr).slice(0, 300));
+          return false;
+        }
+        const push = await this.remoteGit(remote, ["push", remote, `HEAD:${branch}`], wtDir);
+        if (push.exitCode === 0) return true;
+        console.warn(`⚠️ Data tree push rejected (attempt ${attempt}/3). Re-syncing...`);
+        if (attempt < 3) {
+          await Bun.sleep(attempt * 2000);
+          await this.remoteGit(remote, ["fetch", remote, branch], wtDir);
+          await wt(["reset", "--hard", `${remote}/${branch}`]);
+        } else {
+          console.warn(`   ↳ push stderr: ${(push.stdout + push.stderr).slice(0, 300)}`);
+        }
+      }
+      return false;
+    } finally {
+      await cleanup();
+    }
   }
 
   /**

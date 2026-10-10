@@ -323,7 +323,7 @@ Leave `DATA_REPO` empty for classic single-repo mode (everything in one repo).
 
 The Orchestrator will decompose the project, launch the first batch of subagents, and shut down. From that point forward, the subagents will build the application, trigger the review gates, resolve any conflicts, and assemble the working software into `workspace/`!
 
-**Already have code?** Run workflow with Action: **`adopt`** instead of `plan`. Adopt surveys `workspace/`, backfills a roadmap of COMPLETED baseline tasks (one per area), reverse-engineers `workspace/CONTRACTS.md` when missing, and wires the board + dashboard — then `/add` and `/revise` work normally. Adopt refuses when a roadmap already exists (never overwrites history) or when `workspace/` is empty (use `plan`).
+**Already have code?** Run workflow with Action: **`adopt`** instead of `plan`. Adopt surveys `workspace/`, backfills a roadmap of COMPLETED baseline tasks (one per area), reverse-engineers `workspace/CONTRACTS.md` when missing, seeds the content branch, and wires milestones + board project + dashboard — with NO per-task issues or board cards for adopted history (those appear for future work only). Refuses when a roadmap already exists (never overwrites history) or when `workspace/` holds only scaffolding (use `plan`). Re-running adopt is safe: already-adopted state is detected, never duplicated.
 
 ---
 
