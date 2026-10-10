@@ -39,4 +39,16 @@ describe("ECC skill staging", () => {
     expect(res.skipped).toBe(true);
     expect(res.skills).toEqual([]);
   });
+
+  it("denylists skills that route at pruned commands/", async () => {
+    const src = join(tmpdir(), `ecc-stage-deny-${process.pid}-${Date.now()}`).replace(/\\/g, "/");
+    await Bun.write(`${src}/recipes/SKILL.md`, "---\nname: recipes\n---\n\n# Recipes\n");
+    await Bun.write(`${src}/alpha/SKILL.md`, "---\nname: alpha\n---\n\n# Alpha\n");
+    const dest = join(tmpdir(), `ecc-stage-denydst-${process.pid}-${Date.now()}`).replace(/\\/g, "/");
+    const res = await stageEccSkills({ src, dest, prefix: "t-", force: true });
+    expect(res.skipped).toBe(false);
+    expect(res.skills).toEqual(["t-alpha"]);
+    expect(await Bun.file(`${dest}/t-recipes/SKILL.md`).exists()).toBe(false);
+    expect(await Bun.file(`${dest}/t-alpha/SKILL.md`).exists()).toBe(true);
+  });
 });

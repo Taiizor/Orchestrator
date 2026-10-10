@@ -19,6 +19,17 @@ import { join, basename } from "node:path";
 
 const MARKER = ".ecc-staged.json";
 
+/**
+ * Source skill dirs NEVER staged: their docs route agents at a pruned
+ * surface. ECC `commands/` is deliberately excluded (774 files — the
+ * orchestrator is the multi-agent authority), so `recipes` would advertise
+ * dead ends ("route to the command itself", live `commands/` reads).
+ */
+const STAGE_DENYLIST = new Set(["recipes"]);
+
+/** Bump when staging rules change so existing checkouts restage once. */
+const STAGE_RULES_VERSION = 1;
+
 function sha256(text: string): string {
   return new Bun.CryptoHasher("sha256").update(text).digest("hex");
 }
@@ -73,7 +84,7 @@ export async function stageEccSkills(opts: {
 
   let vendorHash = "";
   try {
-    vendorHash = sha256(await Bun.file("vendor/ecc/.manifest.json").text());
+    vendorHash = sha256((await Bun.file("vendor/ecc/.manifest.json").text()) + `|rules:${STAGE_RULES_VERSION}`);
   } catch {
     vendorHash = "no-manifest";
   }
@@ -107,6 +118,10 @@ export async function stageEccSkills(opts: {
   let files = 0;
   const skills: string[] = [];
   for (const name of names.sort()) {
+    if (STAGE_DENYLIST.has(name)) {
+      console.log(`⏭️ Skipping denylisted skill '${name}' (routes at pruned commands/).`);
+      continue;
+    }
     // Skip our own essentials-style names if ever vendored without prefix.
     const stagedId = name.startsWith(prefix) ? name : `${prefix}${name}`;
     if (!opts.dryRun) rmSync(join(dest, stagedId), { recursive: true, force: true });
