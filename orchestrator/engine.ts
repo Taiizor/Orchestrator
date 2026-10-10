@@ -602,6 +602,32 @@ export class OrchestratorEngine {
           continue;
         }
         console.log(`⏭️ [${task.id}] branch unchanged since last review (${tipSha.slice(0, 7)}); skipping re-review.`);
+        // Rejected-but-unmoved: the redispatch pushed nothing new, so the
+        // rejection notes were never addressed. Sitting silent until the idle
+        // timeout wastes cycles — re-queue promptly (bounded by attempts) so
+        // the agent retries WITH the feedback already in its prompt. Approval
+        // notes are excluded: those tasks were completed, not rejected.
+        const wasRejected =
+          !!task.reviewNotes &&
+          !task.reviewNotes.startsWith("Approved and integrated.") &&
+          task.reviewNotes !== "Branch diff vs develop is empty; deliverables already integrated.";
+        if (wasRejected) {
+          console.log(`🔁 [${task.id}] prior rejection unaddressed (same tip); re-queuing for a feedback-guided attempt.`);
+          task.attempts += 1;
+          if (task.attempts >= task.maxAttempts) {
+            task.status = "FAILED";
+            task.failedAt = new Date().toISOString();
+          } else {
+            task.status = "PENDING";
+          }
+          task.lastReviewSha = undefined;
+          task.lastGateVersion = undefined;
+          task.updatedAt = new Date().toISOString();
+          if (roadmap.projectNumber) {
+            await ProjectManager.updateItemStatus(roadmap.projectNumber, task, task.status === "FAILED" ? "Failed" : "Todo");
+          }
+          hasChanges = true;
+        }
         continue;
       }
 
