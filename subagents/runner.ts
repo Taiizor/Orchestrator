@@ -333,7 +333,31 @@ async function main() {
 
   console.log(`⚡ Running OpenCode CLI for ${task.id} with fallback chain...`);
 
-  const res = await OpenCodeClient.runWithFallback(prompt, { timeoutMs: 30 * 60 * 1000 });
+  // Attach referenced project files (mockups, docs) so the agent SEES them
+  // instead of bare filenames (multimodal --file; server-side resized).
+  // Sources: task description + prior review notes. Best-effort, capped.
+  const referencedFiles: string[] = [];
+  try {
+    const hay = `${task.description}\n${task.reviewNotes || ""}`;
+    const seen = new Set<string>();
+    for (const m of hay.matchAll(/inputs\/[^\s)"']+/g)) {
+      const p = m[0].replace(/[.,;:!?]+$/, "");
+      if (p && !seen.has(p) && referencedFiles.length < 12 && existsSync(p)) {
+        seen.add(p);
+        referencedFiles.push(p);
+      }
+    }
+    if (referencedFiles.length > 0) {
+      console.log(`🖼️ Attaching ${referencedFiles.length} referenced file(s) to the agent call.`);
+    }
+  } catch {
+    // Attachment is optional; the prompt carries filenames regardless.
+  }
+
+  const res = await OpenCodeClient.runWithFallback(prompt, {
+    timeoutMs: 30 * 60 * 1000,
+    files: referencedFiles.length > 0 ? referencedFiles : undefined,
+  });
   console.log("OpenCode Output Summary:", res.stdout ? res.stdout.slice(-1000) : "No stdout");
   if (res.exitCode !== 0) {
     console.error("OpenCode process exited with error:", res.stderr);
