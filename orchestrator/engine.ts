@@ -319,6 +319,11 @@ export class OrchestratorEngine {
     await StateManager.saveRoadmap(roadmapData);
     console.log(`✅ Roadmap created with ${roadmapData.tasks.length} tasks.`);
 
+    // Dashboard FIRST: operators watch planning live and ChatOps (/tick,
+    // /directive, /ask) needs the issue to exist. Upsert is idempotent —
+    // the end-of-plan sync below refreshes the body with issue/board links.
+    await IssueManager.syncDashboardIssue(roadmapData);
+
     // Initialize GitHub Project (v2), Milestones, and Issues
     if (roadmapData.milestones && roadmapData.milestones.length > 0) {
       await ProjectManager.ensureMilestones(roadmapData.milestones, (t) => this.isMilestoneComplete(roadmapData, t));
