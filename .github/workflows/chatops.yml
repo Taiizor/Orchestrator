@@ -9,11 +9,14 @@ jobs:
     name: 💬 ChatOps Fast Lane
     # Standalone fast lane: answers operator commands in ~1 min without
     # running the heavy tick (slash comments no longer trigger
-    # orchestrator.yml). Only fires on slash comments.
+    # orchestrator.yml). Only fires on human slash comments on issues:
+    # bot-authored comments (dispatch notices, reviews — the bot is the most
+    # prolific commenter) and PR comments (engine only reads the dashboard
+    # issue) are skipped before any runner spins up.
     concurrency:
       group: chatops-singleton
       cancel-in-progress: false
-    if: github.event_name == 'issue_comment' && startsWith(github.event.comment.body, '/')
+    if: github.event_name == 'issue_comment' && startsWith(github.event.comment.body, '/') && github.event.comment.user.type != 'Bot' && !github.event.issue.pull_request
     runs-on: ubuntu-latest
     env:
       CLIENT_ID: ${{ vars.GH_CLIENT_ID || vars.CLIENT_ID || secrets.GH_CLIENT_ID || secrets.CLIENT_ID }}
