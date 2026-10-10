@@ -16,7 +16,7 @@
  *     [--skills golang-patterns,...] [--agents go-reviewer,...]
  *     [--rules golang/coding-style.md,...]
  *
- * Default file set = STACK_ECC_REFS (curated 31). --all installs the full
+ * Default file set = STACK_ECC_REFS (curated 39). --all installs the full
  * agent-facing surface (skills/, rules/, agents/) instead.
  * ECC's own dev infrastructure (scripts/, tests/, CI, docs) is never vendored.
  *

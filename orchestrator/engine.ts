@@ -11,6 +11,7 @@ import { ProjectManager } from "./project_manager.ts";
 import { GATE_VERSION, hasStructuredProgress, isDefaultProgress, runReviewGate } from "./review_gate.ts";
 import { validateRoadmap, formatValidation, sanitizeCoverage } from "./roadmap_validator.ts";
 import { STACKS, normalizeStackId } from "./stacks.ts";
+import type { StackId } from "./stacks.ts";
 import { initializeGitHubAppAuth } from "./github_app.ts";
 import type { Roadmap, TaskItem, ReviewResult } from "./types.ts";
 
@@ -710,7 +711,7 @@ export class OrchestratorEngine {
       `    "dependencies": [],\n    "targetFiles": ["workspace/src/..."],\n` +
       `    "branch": "task/TASK-001-adopted-area",\n` +
       `    "deliverables": ["existing file 1", "existing behavior 2"],\n` +
-      `    "verificationCommand": "the adopted stack's test command (bun test | go test ./... | cargo test | dotnet test | python -m pytest -q)"\n  }]\n}\`\`\`\n` +
+      `    "verificationCommand": "the adopted stack's test command (bun test | go test ./... | cargo test | dotnet test | python -m pytest -q | php vendor/bin/phpunit)"\n  }]\n}\`\`\`\n` +
       `Rules: one task per coherent area (api slices, services, ui areas, db/schema, tests, contracts). Every task documents AS-BUILT reality, never aspirations. Min 3 tasks for a real codebase.`;
     const res = await OpenCodeClient.runWithFallback(adoptPrompt, { timeoutMs: 10 * 60 * 1000 });
     const jsonMatch = res.stdout.match(/```json([\s\S]*?)```/) || res.stdout.match(/(\{[\s\S]*\})/);
@@ -728,7 +729,7 @@ export class OrchestratorEngine {
     const now = new Date().toISOString();
     const adoptedStack = normalizeStackId((raw as Record<string, unknown>).stack, "bun");
     // Cross-check against workspace markers (LLM mislabels happen): markers win.
-    let detectedStack: "bun" | "go" | "rust" | "dotnet" | "python" = "bun";
+    let detectedStack: StackId = "bun";
     try {
       const { detectWorkspaceStack } = await import("./stacks.ts");
       detectedStack = await detectWorkspaceStack(".");

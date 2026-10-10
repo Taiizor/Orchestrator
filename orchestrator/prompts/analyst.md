@@ -86,7 +86,7 @@ For each user interface / dashboard:
 ## 9. QA Acceptance Criteria & Test Evidence
 - Unit test coverage targets.
 - Integration test scenarios (mocking PSP, multi-currency conversions).
-- Commands required to verify deliverables (the product stack's test command: `bun test`, `go test ./...`, `cargo test`, `dotnet test`, or `python -m pytest -q`).
+- Commands required to verify deliverables (the product stack's test command: `bun test`, `go test ./...`, `cargo test`, `dotnet test`, `python -m pytest -q`, or `php vendor/bin/phpunit`).
 ```
 
 ---

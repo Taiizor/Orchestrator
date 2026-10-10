@@ -15,8 +15,8 @@ Use on every task when `roadmap.stack` (or `workspace/composer.json`) says `php`
 
 ## Rules
 
-1. **Toolchain only:** `composer install/require` / `php artisan <cmd>` / `vendor/bin/phpunit` (or `vendor/bin/pest` when the project uses Pest — never mix frameworks in one suite). Keep Composer scripts checked in so CI runs the same commands.
-2. **Verify:** `vendor/bin/phpunit` (0 failures, `--coverage-text` with pcov where available) before exit; paste real output into `workspace/TASK_PROGRESS.md`. Separate fast unit tests from framework/DB integration tests; factories/builders over hand-written arrays; HTTP tests assert transport + validation, business rules live in service tests.
+1. **Toolchain only:** `composer install/require` / `php artisan <cmd>` / `php vendor/bin/phpunit` (or `vendor/bin/pest` when the project uses Pest — never mix frameworks in one suite). Keep Composer scripts checked in so CI runs the same commands.
+2. **Verify:** `php vendor/bin/phpunit` (0 failures, `--coverage-text` with pcov where available) before exit; paste real output into `workspace/TASK_PROGRESS.md`. Separate fast unit tests from framework/DB integration tests; factories/builders over hand-written arrays; HTTP tests assert transport + validation, business rules live in service tests.
 3. **Style:** PSR-12; `declare(strict_types=1)`; scalar + return type hints and typed properties everywhere; `use` imports for all classes (no global-namespace reliance); Laravel Pint or PHP-CS-Fixer + PHPStan/Psalm gate clean before exit. Immutable DTOs/value objects across service boundaries; exceptions for exceptional states (never `false`/`null` as hidden error channels); validated DTOs at the request boundary.
 4. **Laravel:** `php artisan test` OK as the runner; Eloquent/query-builder with bindings always (never concatenated SQL); forward-only migrations; factories + seeders for fixtures (never hand-rolled rows in tests).
 5. **Data access:** config via env (`.env` never committed); connect to declared Docker services. No SQLite fallback layers — fail fast when a service is unreachable.

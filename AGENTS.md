@@ -25,7 +25,7 @@ This document defines the rules, roles, constraints, quality gates, and inter-ag
 ## 2. Universal CI/CD Constraints (STRICT & UNCOMPROMISING)
 
 Every subagent MUST adhere to these environmental rules:
-1. **Engine vs product runtimes:** the orchestrator ENGINE always runs on **Bun** (`bun run orchestrator/engine.ts`, `bun run subagents/runner.ts`). The PRODUCT in `workspace/` uses the roadmap-declared `stack` (`bun | go | rust | dotnet | python | php`, default `bun`) — product build/test commands use that toolchain (`bun test` | `go test ./...` | `cargo test` | `dotnet test` | `python -m pytest -q` | `vendor/bin/phpunit`). NEVER invoke `node`, `npm`, `npx`, `pnpm`, or `yarn` for JS/TS work.
+1. **Engine vs product runtimes:** the orchestrator ENGINE always runs on **Bun** (`bun run orchestrator/engine.ts`, `bun run subagents/runner.ts`). The PRODUCT in `workspace/` uses the roadmap-declared `stack` (`bun | go | rust | dotnet | python | php`, default `bun`) — product build/test commands use that toolchain (`bun test` | `go test ./...` | `cargo test` | `dotnet test` | `python -m pytest -q` | `php vendor/bin/phpunit`). NEVER invoke `node`, `npm`, `npx`, `pnpm`, or `yarn` for JS/TS work.
 2. **Docker-Always Execution (no fallback paths):**
    - **Real Services Everywhere:** Docker runs locally AND on CI runners. When the roadmap declares `services` (presets `postgres`/`redis`/`mongo`/`s3`, or ANY custom `{name, image, env?, ports?}` image), the orchestrator renders `workspace/docker-compose.services.yml` and the workflow starts it (`--wait`) before any agent runs. Need a broker, search engine, or vector DB? Declare the image — it will exist. Connect via env endpoints (`DATABASE_URL`, `REDIS_URL`, `MONGO_URL`, `S3_*`, plus custom `env` — see `container-services` skill).
    - **Data Is Ephemeral:** containers reset every run. Seed fixtures inside tasks/tests; never assume pre-existing rows, buckets, or keys.
@@ -146,7 +146,7 @@ The ENGINE always runs on Bun. The PRODUCT in `workspace/` uses exactly one of t
 | `rust` | `cargo test` | `cargo build` | `cargo fmt --check`, `cargo clippy -- -D warnings` | `rust-essentials` |
 | `dotnet` | `dotnet test` | `dotnet build` (warnings-as-errors) | `dotnet format` | `dotnet-essentials` |
 | `python` | `python -m pytest -q` | `python -m compileall .` | `ruff check`, `ruff format --check`, pinned deps | `python-essentials` |
-| `php` | `vendor/bin/phpunit` | `composer install` | Pint/CS-Fixer, PHPStan/Psalm, `strict_types` | `php-essentials` |
+| `php` | `php vendor/bin/phpunit` | `composer install` | Pint/CS-Fixer, PHPStan/Psalm, `strict_types` | `php-essentials` |
 
 Stack laws (all stacks):
 - Product commands use ONLY the declared stack's toolchain; engine commands (`orchestrator/engine.ts`, `subagents/runner.ts`) stay `bun`.

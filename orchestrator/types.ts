@@ -16,7 +16,7 @@ export interface TaskItem {
   dependencies: string[]; // IDs of tasks that must be COMPLETED first
   targetFiles: string[]; // Files/directories allocated to this task to prevent conflicts
   deliverables?: string[]; // Concrete acceptance items (files, functions, contracts, tests)
-  verificationCommand?: string; // Exact proof command for the product stack (bun test | go test ./... | cargo test | dotnet test | python -m pytest -q | ...)
+  verificationCommand?: string; // Exact proof command for the product stack (bun test | go test ./... | cargo test | dotnet test | python -m pytest -q | php vendor/bin/phpunit | ...)
   status: TaskStatus; // Current lifecycle status
   branch: string; // Dedicated branch for this task
   runId?: number; // GitHub Actions workflow run ID if triggered

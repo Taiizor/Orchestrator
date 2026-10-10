@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { STACKS, STACK_IDS, STACK_ECC_REFS, STACK_ESSENTIAL_SKILLS, TEST_EVIDENCE_RX, isKnownStackCommand, normalizeStackId } from "../orchestrator/stacks.ts";
+import { STACKS, STACK_IDS, STACK_ECC_REFS, STACK_ESSENTIAL_SKILLS, STACK_ECC_SKILL_IDS, TEST_EVIDENCE_RX, isKnownStackCommand, normalizeStackId } from "../orchestrator/stacks.ts";
 import { validateRoadmap } from "../orchestrator/roadmap_validator.ts";
 
 describe("stacks registry", () => {
@@ -42,6 +42,12 @@ describe("stacks registry", () => {
       expect(await f.exists()).toBe(true);
       const text = await f.text();
       expect(text.includes(STACKS[id].testCommand)).toBe(true);
+    }
+  });
+
+  it("offers on-demand ECC skill IDs for every stack", () => {
+    for (const id of STACK_IDS) {
+      expect(STACK_ECC_SKILL_IDS[id].length).toBeGreaterThan(0);
     }
   });
 

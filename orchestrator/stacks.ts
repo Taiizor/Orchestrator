@@ -58,7 +58,7 @@ export const STACKS: Record<StackId, StackDef> = {
   php: {
     id: "php",
     label: "PHP (PHPUnit)",
-    testCommand: "vendor/bin/phpunit",
+    testCommand: "php vendor/bin/phpunit",
     buildCommand: "composer install --no-interaction --prefer-dist",
     markers: ["workspace/composer.json"],
     evidence: ["phpunit", "OK (", "FAILURES", "Tests: "],
