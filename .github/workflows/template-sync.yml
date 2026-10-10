@@ -23,16 +23,28 @@ jobs:
     timeout-minutes: 10
     env:
       UPSTREAM: ${{ vars.TEMPLATE_UPSTREAM || 'Taiizor/Orchestrator' }}
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      CLIENT_ID: ${{ vars.GH_CLIENT_ID || vars.CLIENT_ID || secrets.GH_CLIENT_ID || secrets.CLIENT_ID }}
+      APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY || secrets.APP_PRIVATE_KEY }}
     steps:
+      - name: 🔑 Generate GitHub App Token (optional)
+        id: app-token
+        if: ${{ env.CLIENT_ID != '' && env.APP_PRIVATE_KEY != '' }}
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ env.CLIENT_ID }}
+          private-key: ${{ env.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
       - name: 📥 Checkout product repo
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
 
       - name: 🔍 Check template for updates
         id: check
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
         run: |
           git remote add upstream "https://github.com/${UPSTREAM}.git" 2>/dev/null || \
             git remote set-url upstream "https://github.com/${UPSTREAM}.git"
@@ -43,6 +55,8 @@ jobs:
 
       - name: 🌿 Merge template into sync branch
         if: steps.check.outputs.behind != '0'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
         run: |
           BRANCH="chore/template-sync-$(date -u +%Y%m%d)"
           echo "branch=$BRANCH" >> "$GITHUB_ENV"
@@ -59,6 +73,8 @@ jobs:
 
       - name: 📝 Open sync PR (clean merge)
         if: steps.check.outputs.behind != '0' && env.merge == 'clean'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
         run: |
           gh pr create --base main --head "$BRANCH" \
             --title "🔄 Template sync: ${UPSTREAM}" \
@@ -67,6 +83,8 @@ jobs:
 
       - name: 🚨 Open issue (conflicted merge)
         if: steps.check.outputs.behind != '0' && env.merge == 'conflict'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
         run: |
           gh label create agents --description "Autonomous agent tasks" --color "0E8A16" --force 2>/dev/null || true
           gh issue create \
