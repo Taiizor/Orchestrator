@@ -68,6 +68,7 @@ jobs:
       - name: 🚨 Open issue (conflicted merge)
         if: steps.check.outputs.behind != '0' && env.merge == 'conflict'
         run: |
+          gh label create agents --description "Autonomous agent tasks" --color "0E8A16" --force 2>/dev/null || true
           gh issue create \
             --title "🚨 Template sync needs manual resolution" \
             --body "Automatic merge of \`${UPSTREAM}\` conflicted with product divergences. Resolve locally: \`git fetch upstream && git merge upstream/main\`." \
