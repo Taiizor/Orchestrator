@@ -30,6 +30,7 @@ Every subagent MUST adhere to these environmental rules:
    - **Real Services Everywhere:** Docker runs locally AND on CI runners. When the roadmap declares `services` (presets `postgres`/`redis`/`mongo`/`s3`, or ANY custom `{name, image, env?, ports?}` image), the orchestrator renders `workspace/docker-compose.services.yml` and the workflow starts it (`--wait`) before any agent runs. Need a broker, search engine, or vector DB? Declare the image — it will exist. Connect via env endpoints (`DATABASE_URL`, `REDIS_URL`, `MONGO_URL`, `S3_*`, plus custom `env` — see `container-services` skill).
    - **Data Is Ephemeral:** containers reset every run. Seed fixtures inside tasks/tests; never assume pre-existing rows, buckets, or keys.
    - **No Fallbacks:** SQLite/InMemory adapter paths are forbidden. A missing service fails fast with a clear error.
+   - **Auto-adopt:** an agent needing an undeclared container starts it for its own run and appends `{name, image, env?, ports?}` to `workspace/services.request.json`; the next tick validates (pinned image required) and merges it into `roadmap.services` — durable from run #2, reported on the dashboard.
    - **Production:** same env names, secret-managed values; S3 speaks S3 everywhere (Adobe S3Mock in CI, R2/AWS in production), so code runs unchanged.
 3. **Timeouts & Execution:** Every subagent workflow has a strict **35-minute timeout**.
    - Tasks must be atomic, focused, and completed well within this window.

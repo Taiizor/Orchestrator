@@ -22,6 +22,9 @@ export const CONFIG = {
   // Skill Forger: cap on collected project skills per run (context-budget
   // guard for downstream agent prompts). Override via MAX_FORGED_SKILLS.
   MAX_FORGED_SKILLS: safeInt(process.env.MAX_FORGED_SKILLS, 20),
+  // Service auto-adopt: cap on total roadmap.services (presets + customs).
+  // Bounds cold-runner pull/start time against request spam. Override via MAX_SERVICES.
+  MAX_SERVICES: safeInt(process.env.MAX_SERVICES, 10),
 
   // Git & Branching
   BASE_BRANCH: process.env.BASE_BRANCH || "main",

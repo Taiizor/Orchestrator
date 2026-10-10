@@ -79,6 +79,9 @@ function isAllowedFile(task: TaskItem, file: string): boolean {
   // violations, even when legacy publishes committed them onto old branches.
   if (file === "workspace/.services.env") return true;
   if (file === "workspace/docker-compose.services.yml") return true;
+  // Service auto-adopt requests: the tick validates and merges them into
+  // roadmap.services (durable from the next run).
+  if (file === "workspace/services.request.json") return true;
   // Empty directory placeholders are legitimate scaffolding, not scope creep
   if (file.endsWith("/.gitkeep") || file === ".gitkeep") return true;
   if (file.startsWith("state/")) return false; // state files must only change via orchestrator
@@ -204,7 +207,7 @@ function touchesApiOrSchema(files: string[]): boolean {
  * under a previous version must be re-evaluated, never skipped by the
  * unchanged-tip optimization.
  */
-export const GATE_VERSION = 4;
+export const GATE_VERSION = 5;
 
 /**
  * Deterministic pre-LLM gate. Fails fast on empty diff, missing progress
@@ -280,6 +283,9 @@ export async function runReviewGate(task: TaskItem, diff: string, progressConten
 
   if (!lineageBroken && touchesApiOrSchema(fileList) && !fileList.includes("workspace/CONTRACTS.md")) {
     warnings.push("API/schema/services changed but workspace/CONTRACTS.md not updated (contract drift).");
+  }
+  if (!lineageBroken && fileList.includes("workspace/services.request.json") && !fileList.includes("workspace/CONTRACTS.md")) {
+    warnings.push("New Docker service requested but workspace/CONTRACTS.md not updated (env endpoints undocumented).");
   }
 
   return { passed: failures.length === 0, failures, warnings, fileList, diffStat };

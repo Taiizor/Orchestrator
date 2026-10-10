@@ -58,6 +58,7 @@ export interface Roadmap {
   milestones?: { title: string; description?: string }[];
   services?: (string | ServiceDefinition)[]; // preset names or full custom defs
   stack?: StackId; // Product stack (bun | go | rust | dotnet | python). Engine itself always runs on Bun.
+  consumedServiceRequests?: string[]; // Hashes of processed workspace/services.request.json payloads (auto-adopt ledger; prevents re-processing)
   globalStatus: "PLANNING" | "IN_PROGRESS" | "COMPLETED" | "PAUSED" | "FAILED";
   tasks: TaskItem[];
   updatedAt: string;

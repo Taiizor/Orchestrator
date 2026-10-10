@@ -57,6 +57,97 @@ export const SERVICE_DEFS: Record<string, { image: string; env: Record<string, s
 
 export const KNOWN_SERVICES = Object.keys(SERVICE_DEFS);
 
+/** Agent-authored service request file (workspace-relative). Agents append
+ * entries when they need an undeclared container; the orchestrator tick
+ * validates and merges them into roadmap.services (durable from run #2). */
+export const SERVICE_REQUEST_FILE = "workspace/services.request.json";
+
+/** Image must be pinned: explicit non-`latest` tag or a sha256 digest.
+ * Floating tags defeat layer caching and burn pull quota on cold runners. */
+export function isPinnedImage(image: string): boolean {
+  if (image.includes("@sha256:")) return true;
+  const lastSlash = image.lastIndexOf("/");
+  const lastColon = image.lastIndexOf(":");
+  if (lastColon <= lastSlash) return false;
+  const tag = image.slice(lastColon + 1).trim();
+  return tag.length > 0 && tag.toLowerCase() !== "latest";
+}
+
+function normalizeServiceName(raw: unknown): string {
+  return String(raw || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+export interface ServiceRequestResult {
+  valid: ServiceDefinition[];
+  rejected: { name: string; reason: string }[];
+}
+
+/**
+ * Validate agent-authored service requests (parsed JSON). Pure — unit-testable.
+ * Rejects: missing/empty name or image, floating (`:latest`) or missing tags,
+ * malformed ports/env. Does NOT dedupe against the roadmap (caller does).
+ */
+export function parseServiceRequests(raw: unknown): ServiceRequestResult {
+  const valid: ServiceDefinition[] = [];
+  const rejected: { name: string; reason: string }[] = [];
+  const list = Array.isArray(raw) ? raw : (raw as Record<string, unknown>)?.services;
+  if (!Array.isArray(list)) {
+    return { valid, rejected: [{ name: "?", reason: 'request file must be a JSON array (or {"services": [...]})' }] };
+  }
+  for (const entry of list) {
+    const name = normalizeServiceName((entry as Record<string, unknown>)?.name);
+    if (!name) {
+      rejected.push({ name: "?", reason: "missing service name" });
+      continue;
+    }
+    const image =
+      typeof (entry as Record<string, unknown>)?.image === "string"
+        ? ((entry as Record<string, unknown>).image as string).trim()
+        : "";
+    if (!image) {
+      rejected.push({ name, reason: "missing image" });
+      continue;
+    }
+    if (!isPinnedImage(image)) {
+      rejected.push({
+        name,
+        reason: `image "${image.slice(0, 80)}" is not pinned (need an explicit non-latest tag or sha256 digest)`,
+      });
+      continue;
+    }
+    const e = entry as Record<string, unknown>;
+    let ports: string[] | undefined;
+    if (e.ports !== undefined) {
+      if (
+        !Array.isArray(e.ports) ||
+        !(e.ports as unknown[]).every((p) => typeof p === "string" && /^\d+:\d+$/.test((p as string).trim()))
+      ) {
+        rejected.push({ name, reason: 'ports must be ["host:container", ...] with numeric ports' });
+        continue;
+      }
+      ports = (e.ports as string[]).map((p) => p.trim());
+    }
+    let env: Record<string, string> | undefined;
+    if (e.env !== undefined) {
+      if (typeof e.env !== "object" || e.env === null || Array.isArray(e.env)) {
+        rejected.push({ name, reason: "env must be a {KEY: value} object" });
+        continue;
+      }
+      const entries = Object.entries(e.env as Record<string, unknown>);
+      if (!entries.every(([k, v]) => k.trim().length > 0 && typeof v === "string")) {
+        rejected.push({ name, reason: "env keys/values must be non-empty strings" });
+        continue;
+      }
+      env = Object.fromEntries(entries.map(([k, v]) => [k, v as string]));
+    }
+    valid.push({ name, image, ...(env ? { env } : {}), ...(ports ? { ports } : {}) });
+  }
+  return { valid, rejected };
+}
+
 /** Built-in readiness probes for known services (used by `compose up --wait`). */
 const PRESET_HEALTHCHECKS: Record<string, string[]> = {
   postgres: ["CMD-SHELL", "pg_isready -U postgres"],
@@ -140,7 +231,9 @@ export function renderComposeYaml(specs: ServiceSpec[]): string {
     if (svc.name === "postgres") {
       lines.push(`    environment:\n      POSTGRES_USER: postgres\n      POSTGRES_PASSWORD: postgres\n      POSTGRES_DB: app`);
     }
-    for (const p of svc.ports) lines.push(`    ports:\n      - "${p}"`);
+    if (svc.ports.length > 0) {
+      lines.push(`    ports:\n${svc.ports.map((p) => `      - "${p}"`).join("\n")}`);
+    }
     if (svc.command) lines.push(`    command: ${svc.command}`);
     const hc = svc.healthcheck || PRESET_HEALTHCHECKS[svc.name];
     if (hc) {

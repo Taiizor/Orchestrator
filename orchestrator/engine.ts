@@ -1452,6 +1452,67 @@ export class OrchestratorEngine {
   }
 
   /**
+   * Auto-adopt agent-requested Docker services (durable from run #2).
+   *
+   * Agents that need an undeclared container at runtime start it themselves
+   * for their own run and append `{name, image, env?, ports?}` to
+   * workspace/services.request.json. This consumes that file from the content
+   * integration branch: valid entries merge into roadmap.services (canonical
+   * compose is re-rendered by ensureServiceFiles later this tick), the
+   * payload hash lands in roadmap.consumedServiceRequests so each request
+   * processes exactly once. Rejections (unpinned image, bad shape, cap hit)
+   * are reported on the dashboard — fail-closed, never silently dropped.
+   */
+  public static async adoptRequestedServices(roadmap: Roadmap): Promise<boolean> {
+    const { parseServiceRequests, normalizeServices, SERVICE_REQUEST_FILE } = await import("./service_manager.ts");
+    let rawText: string | null = null;
+    try {
+      rawText = await GitManager.showFile(CONFIG.INTEGRATION_BRANCH, SERVICE_REQUEST_FILE);
+    } catch {
+      return false;
+    }
+    if (!rawText || !rawText.trim()) return false;
+    const hash = String(Bun.hash(rawText));
+    const consumed = Array.isArray(roadmap.consumedServiceRequests) ? roadmap.consumedServiceRequests : [];
+    if (consumed.includes(hash)) return false;
+
+    let changed = false;
+    const notes: string[] = [];
+    let parsed: unknown = null;
+    try {
+      parsed = JSON.parse(rawText);
+    } catch {
+      notes.push(`⚠️ Unparseable ${SERVICE_REQUEST_FILE} — request ignored (fix the JSON and re-commit to re-request).`);
+    }
+    if (parsed !== null) {
+      const { valid, rejected } = parseServiceRequests(parsed);
+      const declared = new Set(normalizeServices(roadmap.services || []).map((s) => s.name));
+      for (const svc of valid) {
+        if (declared.has(svc.name)) continue; // idempotent re-run
+        if (normalizeServices([...(roadmap.services || []), svc]).length > CONFIG.MAX_SERVICES) {
+          notes.push(`⚠️ Service "${svc.name}" rejected: service cap reached (MAX_SERVICES=${CONFIG.MAX_SERVICES}).`);
+          continue;
+        }
+        roadmap.services = [...(roadmap.services || []), svc];
+        declared.add(svc.name);
+        notes.push(`🐳 Service "${svc.name}" auto-adopted (\`${svc.image}\`) — live in compose from this tick.`);
+        changed = true;
+      }
+      for (const r of rejected) notes.push(`⚠️ Service "${r.name}" rejected: ${r.reason}.`);
+    }
+    roadmap.consumedServiceRequests = [...consumed, hash];
+    roadmap.updatedAt = new Date().toISOString();
+    await this.persistRoadmap(roadmap, `chore(orchestrator): adopt requested services (${notes.length} note(s))`);
+    const issueNum = await IssueManager.syncDashboardIssue(roadmap);
+    if (issueNum && notes.length > 0) {
+      await IssueManager.postMilestoneUpdate(issueNum, `**Service auto-adopt:**\n${notes.map((n) => `- ${n}`).join("\n")}`);
+    } else {
+      console.log(notes.join("\n") || "ℹ️ Service request consumed (all duplicates).");
+    }
+    return changed;
+  }
+
+  /**
    * Write workspace/docker-compose.services.yml deterministically from
    * roadmap.services (pure render — same output every run). The workflow's
    * service step starts it; empty service list = no file, legacy behavior.
@@ -1580,6 +1641,9 @@ export class OrchestratorEngine {
     // Board-sync saver: snapshot the status signature now; the end-of-tick
     // drift heal is skipped when nothing changed and the last sync is fresh.
     const statusSigBefore = roadmap.tasks.map((t) => `${t.id}:${t.status}`).join(",");
+    // Service auto-adopt BEFORE rendering compose: agent-requested containers
+    // become durable roadmap.services this tick, live for the next dispatch.
+    await this.adoptRequestedServices(roadmap);
     await this.ensureServiceFiles(roadmap);
 
     // Ensure GitHub Milestones and Issues exist for all tasks
