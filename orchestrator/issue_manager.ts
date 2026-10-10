@@ -140,7 +140,8 @@ export class IssueManager {
       `- \`/add <role> "title" -- "description" [deps:A,B] [milestone:M]\`: Queue a validated PENDING task\n` +
       `- \`/log <TASK-ID>\`: Tail of recent subagent run logs\n` +
       `- \`/revise <TASK-ID> "change"\`: Rework a finished task + cascade-rebuild dependents\n` +
-      `\n> 🔒 Operator commands are honored only from repo collaborators (push access). Other comments are ignored.\n`;
+      `\n> 🔒 Operator commands are honored only from repo collaborators (push access). Other comments are ignored.\n` +
+      `> 📦 Adopting a different existing codebase? Run the \`adopt\` action from the Actions tab (dashboard commands only steer the current roadmap).\n`;
 
     if (issueNumber) {
       // Update existing issue body
