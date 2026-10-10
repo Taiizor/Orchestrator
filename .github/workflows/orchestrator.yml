@@ -27,11 +27,12 @@ jobs:
   orchestrate:
     # Repo-level kill switch: set the ORCHESTRATOR_ENABLED repo variable to
     # 0/false/off to stand the engine down (template repos with no project).
-    # Unset/anything-else = on. Null-safe denylist form: a MISSING variable
-    # must evaluate to ON (bare `!=` chains return false for missing vars and
-    # would skip every fresh repo). Mirrors isEngineEnabled() in
-    # orchestrator/config.ts (which is case-insensitive; keep values lowercase).
-    if: ${{ !contains(fromJSON('["0", "false", "no", "off"]'), vars.ORCHESTRATOR_ENABLED) }}
+    # Unset/anything-else = on. Null-safe form: a MISSING variable must
+    # evaluate to ON. (Bare `!=` chains return false for missing vars, and
+    # contains() throws on null — both skip every fresh repo.) Mirrors
+    # isEngineEnabled() in orchestrator/config.ts (which is case-insensitive;
+    # keep values lowercase).
+    if: ${{ toJSON(vars.ORCHESTRATOR_ENABLED) == 'null' || vars.ORCHESTRATOR_ENABLED == '' || (vars.ORCHESTRATOR_ENABLED != '0' && vars.ORCHESTRATOR_ENABLED != 'false' && vars.ORCHESTRATOR_ENABLED != 'no' && vars.ORCHESTRATOR_ENABLED != 'off') }}
     concurrency:
       group: orchestrator-singleton
       cancel-in-progress: false
