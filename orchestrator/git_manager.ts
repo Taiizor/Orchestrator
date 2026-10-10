@@ -240,8 +240,7 @@ export class GitManager {
     const pat = this.dataPat();
     let url = `https://github.com/${slug}.git`;
     if (pat) {
-      const user = slug.split("/")[0];
-      url = `https://${user}:${pat}@github.com/${slug}.git`;
+      url = `https://x-access-token:${pat}@github.com/${slug}.git`;
       console.log(`🔑 Data remote auth: explicit DATA_PAT/GH_PROJECT_TOKEN (${pat.length} chars).`);
     } else {
       console.warn("⚠️ DATA_PAT (or GH_PROJECT_TOKEN) is empty; data remote may fail auth.");
