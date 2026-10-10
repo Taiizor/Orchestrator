@@ -23,7 +23,7 @@ flowchart TD
         Sleep["💤 Exits Immediately (0 Runner Minutes)"]
     end
 
-    subgraph Subagents["🛠️ 3. Parallel Execution (Up to 10 Subagents)"]
+    subgraph Subagents["🛠️ 3. Parallel Execution (Up to 5 Subagents)"]
         AgentA["Architect (Schema, Types & Contracts)"]
         AgentB["Backend (REST APIs & Services)"]
         AgentC["Frontend (UI & State)"]
@@ -164,7 +164,7 @@ The built-in [`OpenCodeClient`](orchestrator/opencode_client.ts) features an aut
 
 ### 5. ⏱️ Actions Timeouts & Deadlock Watchdog
 - **Subagents:** `timeout-minutes: 35` (Broad window for compilation, tests, and free model latency, while preventing quota exhaustion).
-- **Orchestrator:** `timeout-minutes: 10` (Quick review & dispatch cycle).
+- **Orchestrator:** `timeout-minutes: 30` (Quick review & dispatch cycle).
 - **Watchdog Observation:** The Orchestrator monitors active runs via `gh run list --workflow subagent.yml --status in_progress` and can intervene via `gh run cancel` to re-steer stalled tasks.
 
 ### 6. 📊 Native GitHub Projects (v2) Kanban Board & Milestones
@@ -189,7 +189,7 @@ Upon completing project milestones or reaching 100% completion, the Orchestrator
 - Publishes a formal GitHub Release with changelogs and deliverables summary via `gh release create`.
 
 ### 9. ⚡ GitHub Actions Caching
-Both `orchestrator.yml` and `subagent.yml` utilize `actions/cache@v4` to cache Bun packages and the OpenCode binary across runs, slashing job spin-up times from 40s down to 5s.
+Both `orchestrator.yml` and `subagent.yml` utilize `actions/cache@v6` to cache Bun packages and the OpenCode binary across runs, slashing job spin-up times from 40s down to 5s.
 
 ### 10. 💬 Interactive ChatOps Control Center
 You can steer, pause, or query the autonomous team directly from GitHub Issue comments on the Dashboard Issue:
@@ -200,6 +200,11 @@ You can steer, pause, or query the autonomous team directly from GitHub Issue co
 - `/retry <TASK-ID>`: Reset retry counter to 0 and re-queue a failed or stuck task.
 - `/status`: Post an instantaneous progress snapshot comment.
 - `/discuss <TASK-ID> "message"`: Relay a message to the task's agent discussion thread (agents read it on retry).
+- `/setup [public|data|all]`: Audit & repair repo features (issues/wiki/projects/discussions/pull-requests).
+- `/ask <question>`: Answer from live roadmap state (cited task IDs).
+- `/add <role> "title" -- "description" [deps:A,B] [milestone:M]`: Queue a DAG-validated PENDING task.
+- `/log <TASK-ID>`: Tail recent subagent run logs for that task.
+- `/revise <TASK-ID> "change"`: Queue a surgical revision task (originals stay COMPLETED).
 
 ### 11. 🧱 Planned Task Anatomy & Spec Quality Gate
 - Every planned task carries `description` (min ~80 words, exact file paths), `deliverables` (min 2 acceptance items, injected into the subagent prompt), and `verificationCommand` (exact proof command). Thin plans are flagged by the deterministic roadmap validator.
@@ -212,7 +217,7 @@ You can steer, pause, or query the autonomous team directly from GitHub Issue co
 | Role | System Prompt | Primary Mission | Key Deliverables |
 | :--- | :--- | :--- | :--- |
 | **Orchestrator** | [`orchestrator/prompts/system.md`](orchestrator/prompts/system.md) | Plans roadmap, decomposes tasks, monitors execution, resolves conflicts, merges branches. | `state/roadmap.json`, `state/PROGRESS.md`, PR Merges |
-| **System Architect** | [`subagents/prompts/roles/architect.md`](subagents/prompts/roles/architect.md) | Initializes foundation, sets up service-backed data layer, shared TypeScript contracts. | `src/db/schema.ts`, `src/types/`, migrations |
+| **System Architect** | [`subagents/prompts/roles/architect.md`](subagents/prompts/roles/architect.md) | Initializes foundation, sets up Docker-backed data layer, shared contracts. | `src/db/**`, `src/types/`, migrations |
 | **Backend Developer** | [`subagents/prompts/roles/backend.md`](subagents/prompts/roles/backend.md) | Implements REST APIs, controllers, services, and database queries. | `src/api/**`, `src/services/**`, unit tests |
 | **Frontend Developer**| [`subagents/prompts/roles/frontend.md`](subagents/prompts/roles/frontend.md) | Builds responsive UI, components, styling, and client-side state. | `src/ui/**`, client bundler configs |
 | **Mobile Developer**| [`subagents/prompts/roles/mobile.md`](subagents/prompts/roles/mobile.md) | Builds mobile features: offline-first, permissions, push, store readiness. | `src/mobile/**`, platform configs |
@@ -242,17 +247,26 @@ Orchestrator/
 │   ├── assets/                     # Mockups, screenshots, architecture diagrams
 │   └── references/                 # API specs, sample data, URLs
 ├── orchestrator/
-│   ├── config.ts                   # Concurrency limits, timeouts & fallback models
+│   ├── config.ts                   # Concurrency limits, timeouts, kill switch & fallback models
 │   ├── types.ts                    # TypeScript schemas for tasks, roadmap, reports
+│   ├── stacks.ts                   # Product stack registry (bun/go/rust/dotnet/python/php) + ECC refs
+│   ├── service_manager.ts          # Docker service presets, compose render, request validation
 │   ├── opencode_client.ts          # Free-tier model fallback runner
 │   ├── project_manager.ts          # GitHub Projects v2, Milestones & Issues bridge
 │   ├── conflict_resolver.ts        # AI-driven Git merge conflict resolver
-│   ├── issue_manager.ts            # Master Issue & Release Manager
+│   ├── issue_manager.ts            # Master Issue, ChatOps & Release Manager
 │   ├── state_manager.ts            # Roadmap state & PROGRESS.md generator
 │   ├── git_manager.ts              # Git branching, merging, and gh CLI bridge
-│   ├── engine.ts                   # Main orchestration engine (plan, review, tick)
+│   ├── engine.ts                   # Main orchestration engine (plan, adopt, tick)
 │   ├── github_app.ts               # GitHub App JWT + installation-token minting
+│   ├── launch_verdict.ts           # Launch-verdict parsing + fix-round caps
 │   ├── spec_checks.ts              # Stage-1 spec quality gate (sections, length floor)
+│   ├── skill_format.ts             # Forged-skill frontmatter normalize/validate
+│   ├── discussion_manager.ts       # Per-task agent discussion threads
+│   ├── repo_setup.ts               # Repo feature audit/repair (setup action)
+│   ├── pr_manager.ts               # PR open/merge + review comments
+│   ├── review_gate.ts              # Deterministic pre-LLM gate (v6)
+│   ├── roadmap_validator.ts        # Roadmap DAG + stack + coverage validation
 │   └── prompts/
 │       ├── system.md               # Orchestrator rules & environment constraints
 │       ├── analyst.md              # Requirements synthesis + completeness floor
@@ -260,6 +274,14 @@ Orchestrator/
 │       ├── reviewer.md             # Subagent evaluation and approval prompt
 │       ├── skill_forger.md         # Project-skill forging prompt
 │       └── conflict_resolver.md    # Conflict resolution prompt
+├── scripts/
+│   ├── install-ecc.ts              # Repo-scoped ECC installer (release → vendor/ecc)
+│   └── stage-ecc-skills.ts         # Per-run ECC skill staging (.opencode/skills/ecc-*)
+├── vendor/
+│   └── ecc/                        # Pinned ECC reference (manifest committed, content fetched)
+│       ├── .manifest.json          # File hashes + version pin
+│       └── ATTRIBUTION.md          # MIT attribution
+├── tests/                          # Engine unit tests (bun test)
 ├── subagents/
 │   ├── runner.ts                   # Subagent executor running OpenCode
 │   └── prompts/
@@ -273,9 +295,10 @@ Orchestrator/
 │           ├── security.md         # Vulnerability & security auditor
 │           ├── reviewer.md         # PR review agent
 │           ├── tracker.md          # Deliverables auditor & diff verifier
-│           └── fullstack.md        # Vertical slices (API + services + UI + tests)
+│           ├── fullstack.md        # Vertical slices (API + services + UI + tests)
+│           └── launch.md           # Launch verification (boot proof + verdict)
 ├── .opencode/
-│   └── skills/                     # Native skills (24): craft + universal sets
+│   └── skills/                     # Native skills: craft + stack essentials (+ staged ecc-*, ignored)
 ├── state/
 │   ├── roadmap.json                # Master JSON DAG state
 │   └── PROGRESS.md                 # Auto-generated markdown progress board

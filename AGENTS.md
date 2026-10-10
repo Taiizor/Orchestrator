@@ -9,12 +9,12 @@ This document defines the rules, roles, constraints, quality gates, and inter-ag
 | Role | Name | Primary Mission | Key Deliverables | Scope Boundaries |
 | :--- | :--- | :--- | :--- | :--- |
 | **Orchestrator** | `orchestrator` | Plans roadmap DAG, decomposes tasks, monitors execution, reviews diffs, merges branches. | `state/roadmap.json`, `state/PROGRESS.md`, PR Merges, Releases | Does not write application code; oversees subagents. |
-| **System Architect** | `architect` | Initializes project foundation, sets up service-backed data layer, shared TypeScript contracts. | `workspace/package.json`, `workspace/src/db/schema.ts`, `workspace/CONTRACTS.md` | Focuses on foundation, types, and database initialization. |
+| **System Architect** | `architect` | Initializes project foundation, sets up Docker-backed data layer, shared contracts. | `workspace/` scaffolding per stack, `workspace/src/db/**`, `workspace/CONTRACTS.md` | Focuses on foundation, types, and database initialization. |
 | **Backend Developer** | `backend` | Implements API endpoints, controllers, business services, and database queries. | `workspace/src/api/**`, `workspace/src/services/**`, unit tests | Uses Docker services via env & updates `CONTRACTS.md`. |
 | **Frontend Developer**| `frontend` | Builds responsive UI, components, styling, and client-side state. | `workspace/src/ui/**`, client bundler configs, assets | Connects exclusively to documented backend contracts. |
 | **Mobile Developer**| `mobile` | Builds mobile features: offline-first, permissions, push, store readiness. | `workspace/src/mobile/**`, platform configs | Follows contracts; no hardcoded copy or secrets on device. |
 | **QA Engineer** | `qa` | Writes automated unit and integration tests with the product stack's runner. | `workspace/tests/**`, test execution logs | Focuses on test coverage, edge cases, and verification. |
-| **Security Auditor** | `security` | Audits SQL injection (SQLite), secret leaks, path traversal, payload size limits. | `workspace/SECURITY_AUDIT.md` | Does not introduce new features; audits and hardens. |
+| **Security Auditor** | `security` | Audits SQL injection (parameterized queries), secret leaks, path traversal, payload size limits. | `workspace/SECURITY_AUDIT.md` | Does not introduce new features; audits and hardens. |
 | **Code Reviewer** | `reviewer` | Evaluates clean code standards, error boundaries, edge cases, regression risks. | Review evaluation JSON & comments | Evaluates PR branches before merge approval. Read-only auditor: may read the full repo/diffs, writes only to `TASK_PROGRESS.md` (review section) or PR comments. |
 | **Progress Tracker** | `tracker` | Audits `TASK_PROGRESS.md` claims against actual git diffs to eliminate hallucinations. | Progress audit reports | Validates claims against raw git diffs. Read-only auditor: may read `state/`, `inputs/`, all branches; writes verdict to `TASK_PROGRESS.md` (`### 6.`) only. |
 | **Fullstack Developer** | `fullstack` | Owns vertical slices end-to-end (API + services + UI + tests) in one branch. | Slice across `workspace/src/api/**`, `services/**`, `ui/**`, tests | Contract-first across the boundary; both backend and frontend disciplines apply, stricter wins. |
@@ -43,6 +43,7 @@ Every subagent MUST adhere to these environmental rules:
    - `inputs/`, `workspace/` and `state/` are private: they arrive via data-remote sync and are `.gitignore`d here. NEVER force-push them to the public origin; content goes to the data remote only (`publishTaskBranch`, `persistRoadmapToData`).
    - Content-branch reads/diffs/merges/PRs/discussions always target the data remote. `main` on public origin carries engine code only (humans).
    - Issues, board cards and dashboard stay public: keep them free of secrets — bodies render redacted automatically, but prefer generic task titles.
+7. **Engine Kill Switch:** the `ORCHESTRATOR_ENABLED` repo variable (`0`/`false`/`no`/`off`) stands down all engine actions with exit 0 — no auth, no dispatch, no review. Unset/anything-else = on. The workflow `if:` mirrors it so scheduled runs never start. Use it on repos with no project to run (e.g. this template itself).
 
 ---
 
@@ -108,7 +109,7 @@ Before any task branch is merged into `develop`:
 1. **Phased Quality Gate:**
    - **Deterministic Gate (`orchestrator/review_gate.ts`):** Empty diff, missing `TASK_PROGRESS.md` sections, out-of-scope files, and secret patterns fail fast with no LLM cost. API/schema changes without `CONTRACTS.md` update warn.
    - **Functional Review:** Code Reviewer verifies deliverables match requirements. Unparseable reviewer output counts as rejection, never silent approval. Reviewer output MUST be JSON-only; `notes` must cover all checklist areas; truncated diffs are judged conservatively (visible scope only).
-   - **Security Audit:** Security subagent verifies SQLite parameterization and zero secrets.
+   - **Security Audit:** Security subagent verifies parameterized queries and zero secrets.
    - **Test Evidence:** QA verification confirms 0 failed unit/integration tests.
 2. **PR Integration (`orchestrator/pr_manager.ts`):**
    - Approved work opens (or reuses) a PR `task/<id>` → `develop`; the review summary is posted as a PR comment.
