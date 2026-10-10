@@ -117,6 +117,37 @@ export class OrchestratorEngine {
         console.log(
           `✅ [Stage 1/3] Canonical specification synthesized and saved to ${CONFIG.COMPILED_SPEC_FILE} (${compiledSpecContent.length} bytes)!`
         );
+        // Quality gate (quality over speed): free-tier analysts often
+        // under-generate. Validate against the prompt's own required
+        // sections + a length floor; run a single expansion pass on gaps.
+        const { findSpecGaps } = await import("./spec_checks.ts");
+        let gaps = findSpecGaps(compiledSpecContent, analystPromptTemplate);
+        if (gaps.length > 0) {
+          console.warn(`⚠️ [Stage 1/3] Spec quality gaps (${gaps.length}): ${gaps.join("; ")}. Running one expansion pass...`);
+          const expandPrompt =
+            `${systemPrompt}\n\nYou are expanding a thin draft specification. Gaps found:\n- ${gaps.join("\n- ")}` +
+            `\n\nCurrent draft:\n${compiledSpecContent}\n\nReturn the COMPLETE merged specification as full markdown ` +
+            `(preserve everything already written, fill only the gaps — no "...etc", no placeholders):`;
+          const expandRes = await OpenCodeClient.runWithFallback(expandPrompt, { timeoutMs: 10 * 60 * 1000 });
+          const expanded = (expandRes.stdout || "").trim();
+          if (expandRes.exitCode === 0 && expanded) {
+            const regaps = findSpecGaps(expanded, analystPromptTemplate);
+            if (regaps.length < gaps.length) {
+              compiledSpecContent = expanded;
+              gaps = regaps;
+              await Bun.write(CONFIG.COMPILED_SPEC_FILE, compiledSpecContent);
+              console.log(
+                `✅ [Stage 1/3] Expansion closed gaps; spec now ${compiledSpecContent.length} bytes (${regaps.length} gaps remain).`
+              );
+            } else {
+              console.warn(
+                `⚠️ [Stage 1/3] Expansion did not improve coverage (${regaps.length} gaps remain); keeping original draft.`
+              );
+            }
+          } else {
+            console.warn("⚠️ [Stage 1/3] Expansion pass produced no content; keeping original draft.");
+          }
+        }
       } else {
         console.warn("⚠️ Analyst run did not return content; falling back to raw inputs for planner.");
       }

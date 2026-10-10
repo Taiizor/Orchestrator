@@ -92,3 +92,9 @@ For each user interface / dashboard:
 
 ## 📤 Output Instructions:
 Output the complete, fully detailed markdown specification. Do NOT abbreviate sections with "...etc" or "todo". Produce the exhaustive, comprehensive document ready to guide the entire engineering team!
+
+## 📏 Completeness Floor (non-negotiable — a thin draft WILL be sent back for expansion)
+
+- **Minimum depth:** the finished document MUST be at least ~6,000 words. A 9-section payment-platform specification (endpoint catalog, schema, screen breakdown) cannot be complete in fewer words. If your draft is shorter, you have skimmed — go back and expand every section before outputting.
+- **No orphan inputs:** every ingested input file MUST be cited at least once in §2's index AND have its key requirements surfaced in the relevant section. Enumerate endpoints, entities, and screens exhaustively — one bullet per item, never grouped away.
+- **Self-check before finishing:** re-read your draft against §1 mandates and the Required Structure above. Any section thinner than its template demands is a defect — fix it before outputting.
