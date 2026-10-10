@@ -166,12 +166,21 @@ async function main() {
   // .opencode/skills/<name>/SKILL.md — reload them on demand by name).
   const ROLE_SKILLS: Record<string, string[]> = {
     architect: ["sqlite-hardening", "api-contracts", "sql-review"],
-    backend: ["api-contracts", "error-handling", "backend-structure", "security-scan", "container-services"],
-    frontend: ["ui-conventions", "design-system", "i18n", "frontend-stack"],
+    backend: [
+      "api-contracts",
+      "error-handling",
+      "backend-structure",
+      "security-scan",
+      "container-services",
+      "sqlite-hardening",
+      "observability-basics",
+      "external-integrations",
+    ],
+    frontend: ["ui-conventions", "design-system", "i18n", "frontend-stack", "web-accessibility"],
     mobile: ["ui-conventions", "mobile-essentials", "i18n", "frontend-stack"],
-    qa: ["test-evidence", "test-driven-development", "code-review"],
+    qa: ["test-evidence", "test-driven-development", "code-review", "container-services"],
     security: ["security-scan", "auth-review"],
-    reviewer: ["code-review", "api-design", "documentation-discipline"],
+    reviewer: ["code-review", "api-design", "documentation-discipline", "security-scan"],
     tracker: ["code-review", "test-evidence"],
     fullstack: ["api-contracts", "ui-conventions", "systematic-debugging", "code-review"],
   };
@@ -229,6 +238,12 @@ async function main() {
   prompt += `## Assigned Task: [${task.id}] - ${task.title}\n\n`;
   prompt += `**Description:**\n${task.description}\n\n`;
   prompt += `**Target Files:**\n${task.targetFiles.join(", ")}\n\n`;
+  if (task.deliverables && task.deliverables.length > 0) {
+    prompt += `**Acceptance Criteria (ALL must hold before you finish):**\n${task.deliverables.map((d) => `- [ ] ${d}`).join("\n")}\n\n`;
+  }
+  if (task.verificationCommand) {
+    prompt += `**Verification Command:** \`${task.verificationCommand}\` — run it and paste the real output in TASK_PROGRESS.md.\n\n`;
+  }
 
   if (task.reviewNotes) {
     prompt += `### ⚠️ Important Reviewer Feedback from Previous Attempt:\n${task.reviewNotes}\n`;

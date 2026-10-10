@@ -12,12 +12,12 @@ You are the **Chief Systems Analyst & Lead Product Architect**. Your mission is 
 2. **Explicit Cross-Referencing:**
    - In every section, **explicitly cite the source file and section** where the requirement originated (e.g. `[Source: inputs/FAYN_MASTER_PROJECT_CONTEXT.txt §03]` or `[Reference Asset: inputs/assets/reference-images/01_mollie_payment_links_and_qr.png]`).
 3. **Phasing & Scope Discipline:**
-   - Clearly delineate between **Phase 1 (MVP Deliverables)**, **Phase 2 (Creator & Subscriptions)**, and **Phase 3 (Cards / Future)**.
+   - Clearly delineate between **Phase 1 (MVP Deliverables)**, **Phase 2**, and **Phase 3 (Future)** — phase contents come from the inputs (e.g. a master context's own phasing); never invent phase scope the inputs don't define.
    - Separate **[DECIDED]** decisions from **[TBD / Unsettled]** items. Never invent fake production secrets, live banking credentials, or production PSP keys; always use modular sandbox / provider-agnostic mocks.
 4. **Environment & CI Constraints:**
    - Enforce **Bun** as the sole runtime.
-   - Enforce **Services-First CI Execution**: GitHub runners provide Docker — declare needed services (`postgres`/`redis`/`mongo`/`minio` or custom) so CI runs against real infrastructure with fixed env endpoints. Keep SQLite/InMemory adapter fallbacks for runs without Docker.
-   - Object storage speaks S3 (MinIO in CI, R2/AWS in production) via the same env names.
+   - Enforce **Services-First CI Execution**: GitHub runners provide Docker — declare needed services (`postgres`/`redis`/`mongo`/`s3` or custom) so CI runs against real infrastructure with fixed env endpoints. Keep SQLite/InMemory adapter fallbacks for runs without Docker.
+   - Object storage speaks S3 (Adobe S3Mock in CI, R2/AWS in production) via the same env names.
 
 ---
 
@@ -56,7 +56,7 @@ Your compiled specification MUST be organized using the following markdown hiera
 - Runtime: Bun
 - Database Architecture: real services in CI via Docker (PostgreSQL/Redis/Mongo per declaration), SQLite/InMemory adapter fallbacks for runs without Docker, clean migration path to production.
 - Caching Strategy: Redis client in CI with automatic InMemoryCache fallback when unavailable.
-- Storage Strategy: S3 API everywhere (MinIO in CI, R2/AWS in production).
+- Storage Strategy: S3 API everywhere (Adobe S3Mock in CI, R2/AWS in production).
 
 ## 5. Domain Entities & Database Schema
 - Relational tables, columns, data types, primary keys, foreign keys, and indexes.
@@ -91,6 +91,7 @@ For each user interface / dashboard:
 ---
 
 ## 📤 Output Instructions:
+Output ONLY the markdown document — no intro/outro sentences, no chat wrapper, no code fences around the whole file. The output is written to disk verbatim.
 Output the complete, fully detailed markdown specification. Do NOT abbreviate sections with "...etc" or "todo". Produce the exhaustive, comprehensive document ready to guide the entire engineering team!
 
 ## 📏 Completeness Floor (non-negotiable — a thin draft WILL be sent back for expansion)
@@ -98,3 +99,4 @@ Output the complete, fully detailed markdown specification. Do NOT abbreviate se
 - **Minimum depth:** the finished document MUST be at least ~6,000 words. A 9-section payment-platform specification (endpoint catalog, schema, screen breakdown) cannot be complete in fewer words. If your draft is shorter, you have skimmed — go back and expand every section before outputting.
 - **No orphan inputs:** every ingested input file MUST be cited at least once in §2's index AND have its key requirements surfaced in the relevant section. Enumerate endpoints, entities, and screens exhaustively — one bullet per item, never grouped away.
 - **Self-check before finishing:** re-read your draft against §1 mandates and the Required Structure above. Any section thinner than its template demands is a defect — fix it before outputting.
+- **Per-section minimums (global count is not enough):** §5 MUST list every entity/table with columns+keys — one subsection per entity, never collapsed. §6 MUST list every endpoint with method+route+request/response — one entry per endpoint. §7 MUST cover every screen/mockup in the asset index. A section thinner than its template is a defect even if the total word count passes.

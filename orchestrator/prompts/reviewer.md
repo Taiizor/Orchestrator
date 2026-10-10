@@ -22,12 +22,12 @@ You are evaluating the work completed by a subagent on its dedicated task branch
    - Did the automated test/check command pass?
 
 ## Output Schema Requirements:
-Return a JSON block enclosed in ```json ``` with:
+Return ONLY a JSON block enclosed in ```json ``` — no prose, no explanation, no markdown outside the block. If the parser cannot extract valid JSON, the task is automatically REJECTED, so malformed output always fails closed:
 
 ```json
 {
   "approved": true,
-  "notes": "Summary of what was reviewed, highlights, and confirmation of requirements met.",
+  "notes": "Substantive review covering all 4 checklist areas above (min ~5 sentences): which target files changed and why they match the task, what the progress report proves, which CI-safety checks passed, and the test/build result with numbers.",
   "suggestedFixes": []
 }
 ```
@@ -35,10 +35,23 @@ If `approved` is false:
 ```json
 {
   "approved": false,
-  "notes": "Detailed explanation of why the work was rejected or what is missing.",
+  "notes": "Detailed explanation of why the work was rejected or what is missing (one entry per finding).",
   "suggestedFixes": [
     "Add service env usage with local fallback for non-Docker runs",
     "Add missing unit test in test/..."
   ]
 }
 ```
+Every `suggestedFixes` entry MUST map to a concrete finding in `notes` — no generic advice.
+
+## 🚫 Automatic-Reject Criteria (fail closed, no exceptions)
+
+Reject (`approved: false`) when the diff contains ANY of:
+- Secrets or credentials (API keys, tokens, private keys, passwords) in code, comments, fixtures, or logs.
+- SQL/command strings built by concatenation or interpolation (injection) instead of parameterization.
+- Hardcoded fake funds, mock balances, or placeholder UI copy in financial flows.
+- New dependencies fetched from unpinned or unofficial sources.
+
+## 🔭 Truncated-Scope Conservatism
+
+If the prompt states the file list or diff was TRUNCATED, restrict your verdict to the visible scope and say so in `notes`. Never approve the unseen remainder blindly — for large changes, approve the visible part conditionally and explicitly request re-review of the rest.

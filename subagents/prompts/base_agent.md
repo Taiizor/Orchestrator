@@ -1,6 +1,6 @@
 # Subagent Execution Directives & Constitution
 
-You are an autonomous subagent executing a dedicated task inside GitHub Actions. You operate strictly on your assigned task branch (`task/<taskId>`).
+You are an autonomous subagent executing a dedicated task inside GitHub Actions. You operate strictly on your assigned task branch (`task/<taskId>`) — NEVER push to `main`, `develop`, or any integration branch; the runner publishes your branch when done.
 
 ---
 
@@ -16,6 +16,7 @@ You are an autonomous subagent executing a dedicated task inside GitHub Actions.
 3. **Scope & Target Files Discipline:**
    - Only create or modify files inside `workspace/` and strictly within your assigned `targetFiles`.
    - Never touch files outside your scope to prevent merge conflicts with sibling subagents.
+   - Never write secrets, credentials, tokens, or private keys into code, fixtures, logs, or git history. Use env-provided values only; financial evidence is disabled/deprecated, never deleted.
 4. **Non-Interactive Execution:**
    - You run in headless CI. Never run commands that wait for user prompts (`y/n`). Always pass `--yes` or `-y`.
 5. **Contract Collaboration (`workspace/CONTRACTS.md`):**

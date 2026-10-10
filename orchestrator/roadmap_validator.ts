@@ -16,7 +16,16 @@ function globOverlap(a: string, b: string): boolean {
 
 /** Validate planner-generated roadmap before persisting. */
 export function validateRoadmap(raw: {
-  tasks: { id: string; role: string; dependencies: string[]; targetFiles: string[]; milestone?: string }[];
+  tasks: {
+    id: string;
+    role: string;
+    dependencies: string[];
+    targetFiles: string[];
+    milestone?: string;
+    description?: string;
+    deliverables?: string[];
+    verificationCommand?: string;
+  }[];
   milestones?: { title: string }[];
   services?: (string | { name?: string; image?: string; env?: Record<string, string>; ports?: string[] })[];
 }): ValidationResult {
@@ -47,6 +56,16 @@ export function validateRoadmap(raw: {
   for (const t of tasks) {
     if (!VALID_ROLES.has(t.role)) {
       errors.push(`[${t.id}] invalid role "${t.role}". Valid: ${[...VALID_ROLES].join(", ")}.`);
+    }
+    const desc = t.description || "";
+    if (desc.trim().split(/\s+/).filter(Boolean).length < 20) {
+      warnings.push(`[${t.id}] description is thin (<20 words); subagent will under-deliver.`);
+    }
+    if (!Array.isArray(t.deliverables) || t.deliverables.length < 2) {
+      warnings.push(`[${t.id}] has fewer than 2 deliverables; acceptance criteria unclear.`);
+    }
+    if (!t.verificationCommand) {
+      warnings.push(`[${t.id}] has no verificationCommand; proof of completion unenforceable.`);
     }
     if (!t.targetFiles || t.targetFiles.length === 0) {
       warnings.push(`[${t.id}] has no targetFiles; parallel safety cannot be verified.`);

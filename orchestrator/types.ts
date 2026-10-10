@@ -15,6 +15,8 @@ export interface TaskItem {
   role: AgentRole; // Assigned subagent role
   dependencies: string[]; // IDs of tasks that must be COMPLETED first
   targetFiles: string[]; // Files/directories allocated to this task to prevent conflicts
+  deliverables?: string[]; // Concrete acceptance items (files, functions, contracts, tests)
+  verificationCommand?: string; // Exact command proving the deliverables (bun test | bun run build | ...)
   status: TaskStatus; // Current lifecycle status
   branch: string; // Dedicated branch for this task
   runId?: number; // GitHub Actions workflow run ID if triggered

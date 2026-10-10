@@ -110,6 +110,36 @@ describe("Roadmap Validator Module", () => {
       });
       expect(result.warnings.some(w => w.includes("unknown milestone"))).toBe(true);
     });
+
+    it("should warn on thin description", () => {
+      const result = validateRoadmap({
+        tasks: [{ id: "t1", role: "backend", dependencies: [], targetFiles: ["a"], description: "Do stuff" }]
+      });
+      expect(result.warnings.some(w => w.includes("description is thin"))).toBe(true);
+    });
+
+    it("should warn on missing deliverables and verificationCommand", () => {
+      const result = validateRoadmap({
+        tasks: [{
+          id: "t1", role: "backend", dependencies: [], targetFiles: ["a"],
+          description: "word ".repeat(25).trim()
+        }]
+      });
+      expect(result.warnings.some(w => w.includes("fewer than 2 deliverables"))).toBe(true);
+      expect(result.warnings.some(w => w.includes("no verificationCommand"))).toBe(true);
+    });
+
+    it("should not warn on a fully specified task", () => {
+      const result = validateRoadmap({
+        tasks: [{
+          id: "t1", role: "backend", dependencies: [], targetFiles: ["a"],
+          description: "word ".repeat(25).trim(),
+          deliverables: ["Create a.ts", "Test a.ts"],
+          verificationCommand: "bun test"
+        }]
+      });
+      expect(result.warnings.length).toBe(0);
+    });
   });
 
   describe("formatValidation", () => {

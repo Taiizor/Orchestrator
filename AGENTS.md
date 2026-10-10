@@ -15,8 +15,9 @@ This document defines the rules, roles, constraints, quality gates, and inter-ag
 | **Mobile Developer**| `mobile` | Builds mobile features: offline-first, permissions, push, store readiness. | `workspace/src/mobile/**`, platform configs | Follows contracts; no hardcoded copy or secrets on device. |
 | **QA Engineer** | `qa` | Writes automated unit and integration tests using `bun test`. | `workspace/tests/**`, test execution logs | Focuses on test coverage, edge cases, and verification. |
 | **Security Auditor** | `security` | Audits SQL injection (SQLite), secret leaks, path traversal, payload size limits. | `workspace/SECURITY_AUDIT.md` | Does not introduce new features; audits and hardens. |
-| **Code Reviewer** | `reviewer` | Evaluates clean code standards, error boundaries, edge cases, regression risks. | Review evaluation JSON & comments | Evaluates PR branches before merge approval. |
-| **Progress Tracker** | `tracker` | Audits `TASK_PROGRESS.md` claims against actual git diffs to eliminate hallucinations. | Progress audit reports | Validates claims against raw git diffs. |
+| **Code Reviewer** | `reviewer` | Evaluates clean code standards, error boundaries, edge cases, regression risks. | Review evaluation JSON & comments | Evaluates PR branches before merge approval. Read-only auditor: may read the full repo/diffs, writes only to `TASK_PROGRESS.md` (review section) or PR comments. |
+| **Progress Tracker** | `tracker` | Audits `TASK_PROGRESS.md` claims against actual git diffs to eliminate hallucinations. | Progress audit reports | Validates claims against raw git diffs. Read-only auditor: may read `state/`, `inputs/`, all branches; writes verdict to `TASK_PROGRESS.md` (`### 6.`) only. |
+| **Fullstack Developer** | `fullstack` | Owns vertical slices end-to-end (API + services + UI + tests) in one branch. | Slice across `workspace/src/api/**`, `services/**`, `ui/**`, tests | Contract-first across the boundary; both backend and frontend disciplines apply, stricter wins. |
 
 ---
 
@@ -27,10 +28,10 @@ Every subagent MUST adhere to these environmental rules:
    - NEVER invoke `node`, `npm`, `npx`, `pnpm`, or `yarn`.
    - Always run commands via `bun run`, `bun test`, `bun add`, or `bunx`.
 2. **Services-First CI Execution (Docker-backed) with Adapter Fallback:**
-   - **Real Services in CI:** GitHub runners provide Docker. When the roadmap declares `services` (presets `postgres`/`redis`/`mongo`/`minio`, or full custom `{name, image, env?, ports?}` definitions), the workflow starts them from the generated `workspace/docker-compose.services.yml` before any agent runs. Connect via env endpoints (`DATABASE_URL`, `REDIS_URL`, `MONGO_URL`, `S3_*`, plus custom `env` — see `container-services` skill).
+   - **Real Services in CI:** GitHub runners provide Docker. When the roadmap declares `services` (presets `postgres`/`redis`/`mongo`/`s3`, or full custom `{name, image, env?, ports?}` definitions), the workflow starts them from the generated `workspace/docker-compose.services.yml` before any agent runs. Connect via env endpoints (`DATABASE_URL`, `REDIS_URL`, `MONGO_URL`, `S3_*`, plus custom `env` — see `container-services` skill).
    - **Data Is Ephemeral:** containers reset every run. Seed fixtures inside tasks/tests; never assume pre-existing rows, buckets, or keys.
    - **Adapter Fallback Retained:** keep SQLite/InMemory fallback paths for runs without Docker (local dev). CI targets real services first.
-   - **Production:** same env names, secret-managed values; MinIO speaks S3, so code also runs on R2/AWS unchanged.
+   - **Production:** same env names, secret-managed values; S3 speaks S3 everywhere (Adobe S3Mock in CI, R2/AWS in production), so code runs unchanged.
 3. **Timeouts & Execution:** Every subagent workflow has a strict **35-minute timeout**.
    - Tasks must be atomic, focused, and completed well within this window.
 4. **Non-Interactive Execution:** You are running in a headless CI/CD runner.
@@ -75,6 +76,7 @@ Every subagent MUST create and maintain `workspace/TASK_PROGRESS.md` before conc
 - **3. 📋 Todo:** Deferred items or instructions for downstream dependencies.
 - **4. 🧪 Verification & Test Proof:** **Actual terminal output of tests (`bun test`) proving 0 failures.**
   - *No claims without proof.* Subagents must run tests before pushing. The runner embeds the actual terminal output into this section.
+- **Task anatomy (planner contract):** every task carries `description` (min ~80 words, exact file paths), `deliverables` (min 2 concrete items — the acceptance criteria), and `verificationCommand` (exact proof command). Thin plans are flagged by the roadmap validator; subagents treat `deliverables` as binding.
 
 ---
 
@@ -105,7 +107,7 @@ ChatOps notes: command words are typo-tolerant (edit distance ≤ 2, e.g. `/stau
 Before any task branch is merged into `develop`:
 1. **Phased Quality Gate:**
    - **Deterministic Gate (`orchestrator/review_gate.ts`):** Empty diff, missing `TASK_PROGRESS.md` sections, out-of-scope files, and secret patterns fail fast with no LLM cost. API/schema changes without `CONTRACTS.md` update warn.
-   - **Functional Review:** Code Reviewer verifies deliverables match requirements. Unparseable reviewer output counts as rejection, never silent approval.
+   - **Functional Review:** Code Reviewer verifies deliverables match requirements. Unparseable reviewer output counts as rejection, never silent approval. Reviewer output MUST be JSON-only; `notes` must cover all checklist areas; truncated diffs are judged conservatively (visible scope only).
    - **Security Audit:** Security subagent verifies SQLite parameterization and zero secrets.
    - **Test Evidence:** QA verification confirms 0 failed unit/integration tests.
 2. **PR Integration (`orchestrator/pr_manager.ts`):**
@@ -119,3 +121,14 @@ Before any task branch is merged into `develop`:
    - Task issues are deduplicated by `[TASK-ID]` title prefix (`ProjectManager.findTaskIssue` adopts the canonical issue; duplicates are closed as `--duplicate-of`).
    - Closed milestones with unfinished tasks are reopened by `ensureMilestones`; completed ones are closed only when all their tasks are `COMPLETED`.
    - Agent coordination happens in per-task discussion threads (`DiscussionManager`); operators can relay via `/discuss`.
+
+---
+
+## 8. GitHub App Authentication (preferred over PATs)
+
+Workflows mint a short-lived installation token via `actions/create-github-app-token@v3` (`client-id` input — the legacy `app-id` input is NOT used). The token carries the installation's permissions (contents/PRs/issues/discussions/actions/projects) with a ~5-6k/hr budget, and covers the private `DATA_REPO` without a separate PAT:
+- **Org-level (shared):** `GH_CLIENT_ID` (variable, non-secret), `GH_APP_PRIVATE_KEY` (secret), `DOCKERHUB_POOL` (secret). On Free-plan orgs these reach public repos only.
+- **Repo-level (per product repo):** `DATA_REPO` (secret holding the private data repo slug, e.g. `Soferity/<name>-data`).
+- **Installation scope:** the App must be installed with **All repositories** (or explicitly include every engine + data repo), or data access silently 404s.
+- **Engine parity:** `orchestrator/github_app.ts` mints the same token locally when `GH_CLIENT_ID` + private key are present (`initializeGitHubAppAuth()` at startup, `CONFIG` refreshed after mint). All auth paths fall back to `GITHUB_TOKEN`/PATs when App credentials are absent — never hard-fail.
+- **Dual-repo push mechanics:** state persists run in an isolated linked worktree — never `checkout` data branches in the main worktree (a dirty checkout aborts the switch and every push is then rejected as non-fast-forward forever).

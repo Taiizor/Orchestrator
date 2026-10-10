@@ -142,7 +142,7 @@ Before any branch is merged into `develop`:
   Role-specific native skills under [`.opencode/skills/`](.opencode/skills/) — deterministically injected per role and reloadable on demand via the `skill` tool.
 - **Universal craft skills:** `systematic-debugging`, `test-driven-development`, `api-design`, `sql-review`, `web-accessibility`, `auth-review`, `i18n`, `design-system`, `error-handling`, `backend-structure`, `mobile-essentials`, `deployment-readiness`, `observability-basics`, `performance-budgets`, `external-integrations`, `documentation-discipline`, `frontend-stack` — injected for the most relevant roles, natively discoverable by every agent.
 - **No framework lock-in:** shadcn/Next.js/Nuxt/Blazor skills are deliberately NOT vendored (stale fast, bloat). Instead: docs-first protocol (`frontend-stack`), live official docs via `webfetch`, and project skill drops at `inputs/skills/<role>-<name>/SKILL.md` (auto-injected for that role, travel with project data).
-- **Skill forge:** on every `plan`, the Skill Forger analyzes the stack and writes missing project-specific skills into `inputs/skills/` (max 6, validated, committed). Manual drops welcome anytime — same convention.
+- **Skill forge:** on every `plan`, the Skill Forger analyzes the stack and writes missing project-specific skills into `inputs/skills/` (`MAX_FORGED_SKILLS`, default 20; validated frontmatter, committed). Manual drops welcome anytime — same convention.
 - **Code Reviewer ([`subagents/prompts/roles/reviewer.md`](subagents/prompts/roles/reviewer.md)):**  
   Enforces clean code standards, SOLID principles, error boundaries, and regression safety.
 
@@ -200,6 +200,10 @@ You can steer, pause, or query the autonomous team directly from GitHub Issue co
 - `/status`: Post an instantaneous progress snapshot comment.
 - `/discuss <TASK-ID> "message"`: Relay a message to the task's agent discussion thread (agents read it on retry).
 
+### 11. 🧱 Planned Task Anatomy & Spec Quality Gate
+- Every planned task carries `description` (min ~80 words, exact file paths), `deliverables` (min 2 acceptance items, injected into the subagent prompt), and `verificationCommand` (exact proof command). Thin plans are flagged by the deterministic roadmap validator.
+- Stage-1 synthesis is gated too: the compiled spec is checked against the analyst prompt's own required sections plus a length floor, with one automatic expansion pass on gaps — quality over speed, pipeline never blocks.
+
 ---
 
 ## 👥 3. Agent Ecosystem & Responsibilities
@@ -215,6 +219,7 @@ You can steer, pause, or query the autonomous team directly from GitHub Issue co
 | **Security Auditor** | [`subagents/prompts/roles/security.md`](subagents/prompts/roles/security.md) | Audits SQL injection, secret leaks, path traversal, payload size limits. | `workspace/SECURITY_AUDIT.md` |
 | **Progress Tracker** | [`subagents/prompts/roles/tracker.md`](subagents/prompts/roles/tracker.md) | Audits `TASK_PROGRESS.md` claims against actual git diffs to eliminate hallucinations. | Progress audit reports |
 | **Code Reviewer** | [`subagents/prompts/roles/reviewer.md`](subagents/prompts/roles/reviewer.md) | Evaluates clean code standards, error boundaries, edge cases, regression risks. | Review evaluation JSON & comments |
+| **Fullstack Developer** | [`subagents/prompts/roles/fullstack.md`](subagents/prompts/roles/fullstack.md) | Owns vertical slices end-to-end (API + services + UI + tests) in one branch. | Slice across `src/api/**`, `services/**`, `ui/**`, tests |
 
 ---
 
@@ -225,7 +230,8 @@ Orchestrator/
 ├── .github/
 │   └── workflows/
 │       ├── orchestrator.yml        # Orchestrator runner (cron + manual + subagent event triggers)
-│       └── subagent.yml            # Subagent task worker (runs OpenCode in headless CI)
+│       ├── subagent.yml            # Subagent task worker (runs OpenCode in headless CI)
+│       └── chatops.yml             # ChatOps fast lane (slash commands on the dashboard issue)
 ├── AGENTS.md                       # Master operational constitution for all agents
 ├── inputs/                         # Put your project specs here
 │   ├── README.md                   # Guide for inputs
@@ -242,10 +248,14 @@ Orchestrator/
 │   ├── state_manager.ts            # Roadmap state & PROGRESS.md generator
 │   ├── git_manager.ts              # Git branching, merging, and gh CLI bridge
 │   ├── engine.ts                   # Main orchestration engine (plan, review, tick)
+│   ├── github_app.ts               # GitHub App JWT + installation-token minting
+│   ├── spec_checks.ts              # Stage-1 spec quality gate (sections, length floor)
 │   └── prompts/
 │       ├── system.md               # Orchestrator rules & environment constraints
+│       ├── analyst.md              # Requirements synthesis + completeness floor
 │       ├── planner.md              # Task decomposition & DAG generation prompt
 │       ├── reviewer.md             # Subagent evaluation and approval prompt
+│       ├── skill_forger.md         # Project-skill forging prompt
 │       └── conflict_resolver.md    # Conflict resolution prompt
 ├── subagents/
 │   ├── runner.ts                   # Subagent executor running OpenCode
@@ -259,7 +269,8 @@ Orchestrator/
 │           ├── qa.md               # Unit, integration & E2E tests
 │           ├── security.md         # Vulnerability & security auditor
 │           ├── reviewer.md         # PR review agent
-│           └── tracker.md          # Deliverables auditor & diff verifier
+│           ├── tracker.md          # Deliverables auditor & diff verifier
+│           └── fullstack.md        # Vertical slices (API + services + UI + tests)
 ├── .opencode/
 │   └── skills/                     # Native skills (24): craft + universal sets
 ├── state/
@@ -272,14 +283,19 @@ Orchestrator/
 
 ## 🛠️ 5. Getting Started
 
-### Step 1: Configure GitHub Personal Access Token (PAT)
-To enable the Orchestrator to manage GitHub Projects v2 and Milestones:
-1. Generate a **Personal Access Token (PAT)** on GitHub (**Settings > Developer settings > Personal access tokens**):
-   - Scopes required: `repo` (Full control), `project` (Full control of projects), `discussion` (Write).
-2. Go to your repository **Settings > Secrets and variables > Actions**.
-3. Create a repository secret named **`GH_PROJECT_TOKEN`** with your token value.
-4. Under **Settings > Actions > General > Workflow permissions**, select **"Read and write permissions"** and check **"Allow GitHub Actions to create and approve pull requests"**.
-5. *(Optional)* Add API keys (`ANTHROPIC_API_KEY`, etc.) if you wish to use paid models instead of the built-in free models.
+### Step 1: Configure GitHub Authentication (App preferred, PAT fallback)
+
+**Recommended: GitHub App** (higher rate limits, no personal token, covers the private data repo):
+1. Create an App at the org level (**Organization Settings > Developer settings > GitHub Apps > New GitHub App**): `Contents`, `Pull requests`, `Issues`, `Discussions`, `Actions` = Read & Write; `Projects` = Read & Write; `Metadata` = Read-only. `Where can this be installed: Only on this account`.
+2. Generate a private key (**App settings > Credentials > Key pairs**) and **Install** the App with **All repositories** (or at least every engine + data repo).
+3. Add an organization **Variable** `GH_CLIENT_ID` (the App's Client ID, non-secret) and an organization **Secret** `GH_APP_PRIVATE_KEY` (the `.pem` content). Workflows use `actions/create-github-app-token@v3` (`client-id` input) and the engine mints the same token locally.
+
+**Legacy fallback: Personal Access Token (PAT):**
+1. Generate a classic PAT (**Settings > Developer settings > Personal access tokens**) with scopes `repo`, `project`, `discussion`.
+2. Save it as a repository secret named **`GH_PROJECT_TOKEN`**.
+
+In both cases, under **Settings > Actions > General > Workflow permissions**, select **"Read and write permissions"** and check **"Allow GitHub Actions to create and approve pull requests"**.
+*(Optional)* Add API keys (`ANTHROPIC_API_KEY`, etc.) if you wish to use paid models instead of the built-in free models.
 
 ### Step 2: Define Your Target Project
 Edit [`inputs/spec.md`](inputs/spec.md) with your project requirements, user stories, and tech stack preferences. Add any visual mockups into `inputs/assets/`.
@@ -290,7 +306,7 @@ To run this template as a **public** repo while keeping project content private:
 2. Push your real `inputs/` + `workspace/` content there (any branch layout; the orchestrator seeds `develop` on first `plan` if missing).
 3. Add two repository secrets to the **public** repo:
    - **`DATA_REPO`** = `owner/name` (or full URL) of the private data repo.
-   - **`DATA_PAT`** = classic PAT with `repo` scope (read/write on the data repo). Defaults to `GH_PROJECT_TOKEN` when empty.
+   - **`DATA_PAT`** = only needed when the data repo lives under a DIFFERENT owner/account than the App installation (classic PAT with `repo` scope). Same-org data repos are covered by the App token (falls back to `GH_PROJECT_TOKEN` when set).
    - **`DOCKERHUB_USERNAME`** + **`DOCKERHUB_TOKEN`** = optional single account; or **`DOCKERHUB_POOL`** = JSON array `[{"username":"u1","token":"t1"},...]` — runs spread pulls across accounts by run ID (pool wins when both set; anonymous pulls otherwise).
 5. *(Optional)* Feature toggles as repository **Variables** (Settings → Secrets and variables → Actions → Variables):
    - `PUBLIC_FEATURES` (default `issues,discussions,projects`), `DATA_FEATURES` (default `discussions`) — comma lists from `issues|wiki|projects|discussions|pull_requests`. Enforced by `action=setup` or dashboard `/setup [public|data|all]`. (PRs are enforced on where the merge flow needs them.)

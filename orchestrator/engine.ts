@@ -212,6 +212,13 @@ export class OrchestratorEngine {
             role: t.role || "backend",
             dependencies: t.dependencies || [],
             targetFiles: t.targetFiles || [],
+            deliverables: Array.isArray((t as any).deliverables)
+              ? (t as any).deliverables.filter((d: any) => typeof d === "string" && d.trim()).map((d: string) => d.trim())
+              : [],
+            verificationCommand:
+              typeof (t as any).verificationCommand === "string" && (t as any).verificationCommand.trim()
+                ? (t as any).verificationCommand.trim()
+                : "",
             milestone: t.milestone || (raw.milestones?.[0]?.title ?? "v0.1.0 - Foundation"),
             status: "PENDING",
             branch: t.branch || `task/${t.id || `TASK-${String(idx + 1).padStart(3, "0")}`}`,
@@ -240,6 +247,9 @@ export class OrchestratorEngine {
         dependencies: t.dependencies,
         targetFiles: t.targetFiles,
         milestone: t.milestone,
+        description: t.description,
+        deliverables: t.deliverables,
+        verificationCommand: t.verificationCommand,
       })),
       milestones: roadmapData.milestones,
       services: roadmapData.services,
