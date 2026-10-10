@@ -18,6 +18,9 @@ jobs:
     env:
       CLIENT_ID: ${{ vars.GH_CLIENT_ID || vars.CLIENT_ID || secrets.GH_CLIENT_ID || secrets.CLIENT_ID }}
       APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY || secrets.APP_PRIVATE_KEY }}
+      OPENCODE_DISABLE_MODELS_FETCH: "true"
+      OPENCODE_DISABLE_AUTOUPDATE: "true"
+      OPENCODE_DISABLE_LSP_DOWNLOAD: "true"
     timeout-minutes: 10
     permissions:
       contents: write
@@ -50,7 +53,7 @@ jobs:
         run: |
           if ! command -v opencode &> /dev/null; then
             echo "Installing OpenCode CLI..."
-            bun install -g --trust @opencode/cli
+            bun install -g --trust @opencode/cli@2.0.26
           fi
           echo "$HOME/.bun/bin" >> $GITHUB_PATH
           export PATH="$HOME/.bun/bin:$PATH"

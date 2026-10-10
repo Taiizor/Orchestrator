@@ -103,7 +103,14 @@ export class OrchestratorEngine {
       const analystPromptTemplate = await Bun.file(analystPromptPath).text();
       const analystPrompt = `${systemPrompt}\n\n${analystPromptTemplate}\n\n${fullInputContext}\nSynthesize all inputs into the canonical specification (state/COMPILED_SPEC.md) now:`;
 
-      const analystRes = await OpenCodeClient.runWithFallback(analystPrompt, { timeoutMs: 10 * 60 * 1000 });
+      // Attach reference images/files so the analyst SEES mockups instead of
+      // bare filenames (multimodal --file; server-side resized). Text inputs
+      // are already inlined above; attachments cover the visual assets.
+      const analystFiles = assetList.map((a) => `${CONFIG.INPUTS_DIR}/${a}`).filter((p) => existsSync(p));
+      if (analystFiles.length > 0) {
+        console.log(`🖼️ Attaching ${analystFiles.length} visual asset(s) to the analyst call.`);
+      }
+      const analystRes = await OpenCodeClient.runWithFallback(analystPrompt, { timeoutMs: 10 * 60 * 1000, files: analystFiles });
       if (analystRes.exitCode === 0 && analystRes.stdout.trim()) {
         compiledSpecContent = analystRes.stdout.trim();
         // Remove markdown code block wrappers if any
@@ -367,6 +374,18 @@ export class OrchestratorEngine {
   private static async collectForgedSkills(): Promise<string[]> {
     const valid: string[] = [];
     const cap = CONFIG.MAX_FORGED_SKILLS > 0 ? CONFIG.MAX_FORGED_SKILLS : 20;
+    // Built-in skill names win: a forged duplicate would make skill-tool
+    // discovery (which requires unique names across locations) ambiguous.
+    const builtin = new Set<string>();
+    try {
+      const bglob = new Bun.Glob(".opencode/skills/*");
+      for await (const rel of bglob.scan({ cwd: ".", onlyFiles: false })) {
+        const b = rel.split(/[/\\]/).pop() || "";
+        if (!b.startsWith(".") && b !== ".gitkeep") builtin.add(b);
+      }
+    } catch {
+      // No builtin skills dir (tests, minimal checkouts) — nothing to collide with.
+    }
     try {
       const glob = new Bun.Glob("inputs/skills/*");
       const dirs: string[] = [];
@@ -380,16 +399,30 @@ export class OrchestratorEngine {
           const raw = await Bun.file(p).text();
           // Normalize first: forger LLMs emit unquoted ": " in descriptions,
           // which breaks YAML parsers. Quoted output always parses.
-          const { normalizeSkillFrontmatter, skillFrontmatterName } = await import("./skill_format.ts");
-          const clean = normalizeSkillFrontmatter(raw);
+          const { normalizeSkillFrontmatter, skillFrontmatterName, skillFrontmatterDescription } =
+            await import("./skill_format.ts");
+          let clean = normalizeSkillFrontmatter(raw);
           const name = clean ? skillFrontmatterName(clean) : undefined;
           const base = dir.split("/").pop()!;
-          if (clean && name === base && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(name)) {
-            if (clean !== raw) await Bun.write(p, clean);
-            valid.push(base);
-          } else {
+          if (!clean || name !== base || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(name)) {
             console.warn(`⚠️ Ignoring malformed forged skill (name must equal directory): ${p}`);
+            continue;
           }
+          if (builtin.has(base)) {
+            console.warn(`⚠️ Ignoring forged skill shadowing built-in skill: ${p}`);
+            continue;
+          }
+          const desc = skillFrontmatterDescription(clean);
+          if (desc !== undefined && desc.length > 1024) {
+            // Skill discovery requires 1–1024 chars: truncate loudly, keep the skill.
+            clean = clean.replace(/^description:\s*".*"$/m, (line) => {
+              const open = line.slice(0, line.indexOf('"') + 1);
+              return `${open}${desc.slice(0, 1021)}…"`;
+            });
+            console.warn(`⚠️ Truncated over-long description (${desc.length} chars) in forged skill: ${p}`);
+          }
+          if (clean !== raw) await Bun.write(p, clean);
+          valid.push(base);
         } catch {
           console.warn(`⚠️ Ignoring ${dir} (no readable SKILL.md).`);
         }

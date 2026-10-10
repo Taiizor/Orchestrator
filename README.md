@@ -233,6 +233,7 @@ Orchestrator/
 │       ├── subagent.yml            # Subagent task worker (runs OpenCode in headless CI)
 │       └── chatops.yml             # ChatOps fast lane (slash commands on the dashboard issue)
 ├── AGENTS.md                       # Master operational constitution for all agents
+├── opencode.json                   # OpenCode runtime config (model defaults, no-share, no-autoupdate, allow-all tools)
 ├── inputs/                         # Put your project specs here
 │   ├── README.md                   # Guide for inputs
 │   ├── spec.md                     # Target project requirements

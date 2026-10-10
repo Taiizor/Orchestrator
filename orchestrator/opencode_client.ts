@@ -86,11 +86,15 @@ export class OpenCodeClient {
     return a.model === b.model && (a.variant || "") === (b.variant || "");
   }
 
-  private static buildCommand(spec: { model: string; variant?: string }): string[] {
+  private static buildCommand(spec: { model: string; variant?: string }, files?: string[]): string[] {
     // OpenCode v2 CLI takes the variant as a "#suffix" on --model
     // (there is no separate --variant flag): provider/model#variant
     const modelArg = spec.variant ? `${spec.model}#${spec.variant}` : spec.model;
-    return ["opencode", "run", "--model", modelArg, "--format", "json"];
+    const cmd = ["opencode", "run", "--model", modelArg, "--format", "json"];
+    // Attach files (reference images, docs) so the model SEES them instead
+    // of reasoning about bare filenames. Server-side resized per limits.
+    for (const f of files || []) cmd.push("--file", f);
+    return cmd;
   }
 
   private static displaySpec(spec: { model: string; variant?: string }): string {
@@ -104,7 +108,7 @@ export class OpenCodeClient {
    */
   public static async runWithFallback(
     prompt: string,
-    options?: { preferredModel?: string; preferredVariant?: string; timeoutMs?: number }
+    options?: { preferredModel?: string; preferredVariant?: string; timeoutMs?: number; files?: string[] }
   ): Promise<OpenCodeRunResult> {
     const candidateModels: { model: string; variant?: string }[] = [];
 
@@ -144,7 +148,7 @@ export class OpenCodeClient {
       console.log(`🤖 [OpenCode] Attempting execution with model (${i + 1}/${candidateModels.length}): ${label}...`);
 
       const timeoutMs = options?.timeoutMs ?? OpenCodeClient.DEFAULT_TIMEOUT_MS;
-      const cmd = OpenCodeClient.buildCommand(spec);
+      const cmd = OpenCodeClient.buildCommand(spec, options?.files);
       const res = await GitManager.run(cmd, ".", prompt, undefined, timeoutMs);
 
       const parsedStdout = OpenCodeClient.extractText(res.stdout);
@@ -174,7 +178,7 @@ export class OpenCodeClient {
       if (isVariantError) {
         console.warn(`⚠️ [OpenCode] Variant "${spec.variant}" rejected for ${spec.model}. Retrying with default effort...`);
         const retryRes = await GitManager.run(
-          OpenCodeClient.buildCommand({ model: spec.model }),
+          OpenCodeClient.buildCommand({ model: spec.model }, options?.files),
           ".",
           prompt,
           undefined,
