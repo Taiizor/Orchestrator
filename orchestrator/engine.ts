@@ -2,7 +2,7 @@ import { parseArgs } from "util";
 import { existsSync, statSync, mkdirSync, rmSync, cpSync, copyFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
-import { CONFIG } from "./config.ts";
+import { CONFIG, isEngineEnabled } from "./config.ts";
 import { StateManager } from "./state_manager.ts";
 import { GitManager } from "./git_manager.ts";
 import { OpenCodeClient } from "./opencode_client.ts";
@@ -1890,6 +1890,14 @@ async function main() {
   });
 
   const action = values.action || "tick";
+
+  // Repo-level kill switch: ORCHESTRATOR_ENABLED=0/false/no/off stands the
+  // engine down (template repos with no project). Exit 0 — disabled is a
+  // state, not a failure. Checked before auth so nothing billable happens.
+  if (!isEngineEnabled()) {
+    console.log("⏸️ Engine disabled via ORCHESTRATOR_ENABLED — standing down (no auth, no dispatch, no review).");
+    return;
+  }
 
   // Optional: Authenticate via GitHub App if CLIENT_ID / APP_PRIVATE_KEY are provided
   await initializeGitHubAppAuth();

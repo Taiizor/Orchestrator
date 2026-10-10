@@ -47,6 +47,10 @@ export const CONFIG = {
   // Pull requests are enforced on (merge flow needs them on the data repo).
   PUBLIC_FEATURES: process.env.PUBLIC_FEATURES || "",
   DATA_FEATURES: process.env.DATA_FEATURES || "",
+  // Engine kill switch (repo-level): set the ORCHESTRATOR_ENABLED repo
+  // variable to 0/false/off to stand the engine down (e.g. the template
+  // repo itself, which has no project to run). Unset/anything-else = on.
+  ORCHESTRATOR_ENABLED: process.env.ORCHESTRATOR_ENABLED ?? "",
   // Extra logins always honored by ChatOps (besides repo collaborators
   // with push access). Comma-separated GitHub usernames.
   CHATOPS_ADMINS: (process.env.CHATOPS_ADMINS || "")
@@ -106,7 +110,8 @@ export const CONFIG = {
  * (after imports) and writes it into process.env. Without this refresh,
  * consumers reading CONFIG.PROJECT_TOKEN / CONFIG.DATA_PAT would keep
  * seeing "" and silently skip Projects v2 sync / DATA operations.
- * Idempotent and cheap — safe to call at startup.
+ * Idempotent and cheap — safe to call at startup. Also refreshes the
+ * ORCHESTRATOR_ENABLED kill switch.
  */
 export function refreshAuthFromEnv(): void {
   const mutable = CONFIG as unknown as Record<string, unknown>;
@@ -116,6 +121,19 @@ export function refreshAuthFromEnv(): void {
   mutable.CLIENT_ID = process.env.GH_CLIENT_ID || process.env.CLIENT_ID || "";
   mutable.APP_PRIVATE_KEY = process.env.GH_APP_PRIVATE_KEY || process.env.APP_PRIVATE_KEY || "";
   mutable.APP_INSTALLATION_ID = process.env.GH_APP_INSTALLATION_ID || process.env.APP_INSTALLATION_ID || "";
+  mutable.ORCHESTRATOR_ENABLED = process.env.ORCHESTRATOR_ENABLED ?? "";
+}
+
+/**
+ * Engine kill switch: false only when ORCHESTRATOR_ENABLED is explicitly
+ * set to 0/false/no/off (case-insensitive). Unset, empty, or anything else
+ * means ON. Reads the CONFIG snapshot (see refreshAuthFromEnv).
+ */
+export function isEngineEnabled(): boolean {
+  const raw = String(CONFIG.ORCHESTRATOR_ENABLED || "")
+    .trim()
+    .toLowerCase();
+  return !["0", "false", "no", "off"].includes(raw);
 }
 
 /**

@@ -326,6 +326,8 @@ The Orchestrator will decompose the project, launch the first batch of subagents
 
 **Already have code?** Run workflow with Action: **`adopt`** instead of `plan`. Adopt surveys `workspace/`, backfills a roadmap of COMPLETED baseline tasks (one per area), reverse-engineers `workspace/CONTRACTS.md` when missing, seeds the content branch, and wires milestones + board project + dashboard — with NO per-task issues or board cards for adopted history (those appear for future work only). Refuses when a roadmap already exists (never overwrites history) or when `workspace/` holds only scaffolding (use `plan`). Re-running adopt is safe: already-adopted state is detected, never duplicated.
 
+> 🔌 **Kill switch (template repos):** the engine ticks every 15 min by schedule. On a repo with no project to run (like this template itself), set the **`ORCHESTRATOR_ENABLED`** repo variable to `false` (repo Settings → Secrets and variables → Variables; lowercase). Scheduled and manual runs stand down with exit 0 — no auth, no dispatch, no review. Delete the variable (or set anything else) to resume.
+
 ---
 
 ## 💻 Local Development & CLI

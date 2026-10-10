@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
-import { CONFIG, validateConfig } from "../orchestrator/config.ts";
+import { CONFIG, validateConfig, isEngineEnabled } from "../orchestrator/config.ts";
 
 describe("Config Module", () => {
   let originalConfig: any;
@@ -80,5 +80,24 @@ describe("Config Module", () => {
     
     expect(warnSpy).toHaveBeenCalledWith("⚠️ GH_PROJECT_TOKEN is not set — GitHub Projects v2 board sync will be skipped.");
     warnSpy.mockRestore();
+  });
+
+  describe("isEngineEnabled (ORCHESTRATOR_ENABLED kill switch)", () => {
+    it("is ON when unset or empty", () => {
+      (CONFIG as any).ORCHESTRATOR_ENABLED = "";
+      expect(isEngineEnabled()).toBe(true);
+    });
+    it("is OFF for 0/false/no/off (any case, padded)", () => {
+      for (const v of ["0", "false", "FALSE", "  off ", "No", "nO"]) {
+        (CONFIG as any).ORCHESTRATOR_ENABLED = v;
+        expect(isEngineEnabled()).toBe(false);
+      }
+    });
+    it("is ON for anything else", () => {
+      for (const v of ["1", "true", "yes", "on", "anything"]) {
+        (CONFIG as any).ORCHESTRATOR_ENABLED = v;
+        expect(isEngineEnabled()).toBe(true);
+      }
+    });
   });
 });
