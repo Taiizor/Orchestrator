@@ -32,6 +32,9 @@ jobs:
     # Slash comments are handled by chatops.yml (fast lane) and can request
     # a cycle explicitly via /tick.
     runs-on: ubuntu-latest
+    env:
+      APP_ID: ${{ secrets.GH_APP_ID || secrets.APP_ID }}
+      APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY || secrets.APP_PRIVATE_KEY }}
     timeout-minutes: 30
     permissions:
       contents: write
@@ -45,11 +48,11 @@ jobs:
     steps:
       - name: 🔑 Generate GitHub App Token (optional)
         id: app-token
-        if: ${{ (secrets.GH_APP_ID != '' && secrets.GH_APP_PRIVATE_KEY != '') || (secrets.APP_ID != '' && secrets.APP_PRIVATE_KEY != '') }}
+        if: ${{ env.APP_ID != '' && env.APP_PRIVATE_KEY != '' }}
         uses: actions/create-github-app-token@v1
         with:
-          app-id: ${{ secrets.GH_APP_ID || secrets.APP_ID }}
-          private-key: ${{ secrets.GH_APP_PRIVATE_KEY || secrets.APP_PRIVATE_KEY }}
+          app-id: ${{ env.APP_ID }}
+          private-key: ${{ env.APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
 
       - name: 📥 Checkout Repository
