@@ -1,5 +1,5 @@
 import { parseArgs } from "util";
-import { existsSync, statSync, mkdirSync, rmSync, cpSync, copyFileSync } from "node:fs";
+import { existsSync, statSync, mkdirSync, rmSync, copyFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { CONFIG, isEngineEnabled } from "./config.ts";
@@ -14,6 +14,25 @@ import { STACKS, normalizeStackId, effectiveTaskStack } from "./stacks.ts";
 import type { StackId } from "./stacks.ts";
 import { initializeGitHubAppAuth } from "./github_app.ts";
 import type { Roadmap, TaskItem, ReviewResult } from "./types.ts";
+
+/**
+ * Recursively copy src dir into dst WITHOUT deleting dst-only files (union).
+ * Used by dual-repo persist: src is the engine checkout (template files),
+ * dst is the data worktree that may hold data-only files (forged skills)
+ * absent from src. A replace (rm + cp) committed those as deletions.
+ */
+export function unionMirrorDir(src: string, dst: string): void {
+  mkdirSync(dst, { recursive: true });
+  for (const entry of readdirSync(src, { withFileTypes: true })) {
+    const s = join(src, entry.name);
+    const d = join(dst, entry.name);
+    if (entry.isDirectory()) {
+      unionMirrorDir(s, d);
+    } else if (entry.isFile()) {
+      copyFileSync(s, d);
+    }
+  }
+}
 
 export class OrchestratorEngine {
   /**
@@ -1416,8 +1435,11 @@ export class OrchestratorEngine {
           }
           try {
             if (st.isDirectory()) {
-              rmSync(dst, { recursive: true, force: true });
-              cpSync(src, dst, { recursive: true });
+              // UNION merge, never replace: src lives on the ENGINE checkout
+              // (template files) while dst may hold DATA-only files (forged
+              // skills) absent from src. Replace (rm+cp) deleted them on
+              // every tick — data loss committed by the bot itself.
+              unionMirrorDir(src, dst);
             } else {
               mkdirSync(dirname(dst), { recursive: true });
               copyFileSync(src, dst);
