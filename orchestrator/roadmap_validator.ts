@@ -5,7 +5,18 @@ export interface ValidationResult {
   warnings: string[];
 }
 
-const VALID_ROLES = new Set(["architect", "backend", "frontend", "mobile", "qa", "reviewer", "security", "tracker", "fullstack"]);
+const VALID_ROLES = new Set([
+  "architect",
+  "backend",
+  "frontend",
+  "mobile",
+  "qa",
+  "reviewer",
+  "security",
+  "tracker",
+  "fullstack",
+  "launch",
+]);
 
 function globOverlap(a: string, b: string): boolean {
   // Conservative overlap: same prefix or one is prefix of the other
@@ -122,6 +133,18 @@ export function validateRoadmap(raw: {
       if (overlap) {
         warnings.push(`Parallel tasks ${roots[i].id} and ${roots[j].id} have overlapping targetFiles (merge-conflict risk).`);
       }
+    }
+  }
+
+  // Launch coverage: milestones that serve HTTP (backend/frontend/fullstack/
+  // mobile tasks) need a launch-verification task — otherwise nothing ever
+  // proves tak-çalıştır (unwired-UI class gaps slip through green reviews).
+  const SERVING_ROLES = new Set(["backend", "frontend", "fullstack", "mobile"]);
+  for (const m of raw.milestones || []) {
+    const mtasks = tasks.filter((t) => t.milestone === m.title);
+    if (!mtasks.some((t) => SERVING_ROLES.has(t.role))) continue;
+    if (!mtasks.some((t) => t.role === "launch")) {
+      warnings.push(`Milestone "${m.title}" serves HTTP but has no launch-verification task; tak-çalıştır is unproven.`);
     }
   }
 

@@ -183,6 +183,7 @@ async function main() {
     reviewer: ["code-review", "api-design", "documentation-discipline", "security-scan"],
     tracker: ["code-review", "test-evidence"],
     fullstack: ["api-contracts", "ui-conventions", "systematic-debugging", "code-review"],
+    launch: ["container-services", "systematic-debugging", "test-evidence", "observability-basics"],
   };
   let skillsText = "";
   const skillNames = ROLE_SKILLS[role] || [];
@@ -269,6 +270,57 @@ async function main() {
   }
 
   prompt += `\nPlease execute this task now. Create/edit code inside the workspace/ directory, test your code, and make sure to update workspace/TASK_PROGRESS.md with your Done, Doing, Todo, and Verification sections.`;
+
+  // Launch-role browser pre-install: deterministic HTML signals decide BEFORE
+  // the agent runs (browser download takes minutes). Best-effort — the agent
+  // re-decides live and installs on its own if signals were wrong.
+  if (role === "launch") {
+    let browserReady = false;
+    try {
+      let uiSignals = false;
+      try {
+        const uiGlob = new Bun.Glob("workspace/src/ui/**/*.ts");
+        for await (const f of uiGlob.scan({ cwd: ".", onlyFiles: true })) {
+          if (!f.endsWith(".test.ts")) {
+            uiSignals = true;
+            break;
+          }
+        }
+      } catch {
+        /* no UI tree */
+      }
+      if (!uiSignals) {
+        try {
+          const pkg = JSON.parse(await Bun.file("workspace/package.json").text());
+          const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
+          uiSignals = Object.keys(deps).some((d) => d.includes("playwright"));
+        } catch {
+          /* no readable package.json */
+        }
+      }
+      if (uiSignals) {
+        console.log("🌐 Launch task: UI signals detected — pre-installing headless Chromium (best-effort)...");
+        const inst = await GitManager.run(
+          ["bunx", "playwright", "install", "chromium", "--with-deps"],
+          ".",
+          undefined,
+          undefined,
+          8 * 60 * 1000
+        );
+        browserReady = inst.exitCode === 0;
+        console.log(
+          browserReady
+            ? "✅ Chromium pre-installed."
+            : "⚠️ Chromium pre-install failed; agent will try on its own or degrade to HTTP smoke."
+        );
+      } else {
+        console.log("ℹ️ Launch task: no UI signals — skipping browser pre-install (agent decides live).");
+      }
+    } catch (err: any) {
+      console.warn("⚠️ Browser pre-install probe failed (non-fatal):", err?.message || err);
+    }
+    prompt += `\n\n**Browser smoke precondition:** headless Chromium pre-installed=${browserReady}. Follow your role protocol: probe live routes first, use Playwright only if HTML is actually served (install it yourself if missing), and report infra failures as \`skipped\`, never \`fail\`.`;
+  }
 
   console.log(`⚡ Running OpenCode CLI for ${task.id} with fallback chain...`);
 

@@ -18,6 +18,7 @@ This document defines the rules, roles, constraints, quality gates, and inter-ag
 | **Code Reviewer** | `reviewer` | Evaluates clean code standards, error boundaries, edge cases, regression risks. | Review evaluation JSON & comments | Evaluates PR branches before merge approval. Read-only auditor: may read the full repo/diffs, writes only to `TASK_PROGRESS.md` (review section) or PR comments. |
 | **Progress Tracker** | `tracker` | Audits `TASK_PROGRESS.md` claims against actual git diffs to eliminate hallucinations. | Progress audit reports | Validates claims against raw git diffs. Read-only auditor: may read `state/`, `inputs/`, all branches; writes verdict to `TASK_PROGRESS.md` (`### 6.`) only. |
 | **Fullstack Developer** | `fullstack` | Owns vertical slices end-to-end (API + services + UI + tests) in one branch. | Slice across `workspace/src/api/**`, `services/**`, `ui/**`, tests | Contract-first across the boundary; both backend and frontend disciplines apply, stricter wins. |
+| **Launch Verification** | `launch` | Boots the composed app with real services and proves tak-çalıştır (Playwright where HTML is served, HTTP smoke otherwise). | Boot proof + probe results + machine-readable verdict block | Reports `pass`/`fail`/`skipped`; infra failures are `skipped`, never `fail`. Fail verdicts auto-spawn ONE bounded fix task. |
 
 ---
 

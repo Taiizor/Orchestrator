@@ -220,6 +220,7 @@ You can steer, pause, or query the autonomous team directly from GitHub Issue co
 | **Progress Tracker** | [`subagents/prompts/roles/tracker.md`](subagents/prompts/roles/tracker.md) | Audits `TASK_PROGRESS.md` claims against actual git diffs to eliminate hallucinations. | Progress audit reports |
 | **Code Reviewer** | [`subagents/prompts/roles/reviewer.md`](subagents/prompts/roles/reviewer.md) | Evaluates clean code standards, error boundaries, edge cases, regression risks. | Review evaluation JSON & comments |
 | **Fullstack Developer** | [`subagents/prompts/roles/fullstack.md`](subagents/prompts/roles/fullstack.md) | Owns vertical slices end-to-end (API + services + UI + tests) in one branch. | Slice across `src/api/**`, `services/**`, `ui/**`, tests |
+| **Launch Verification** | [`subagents/prompts/roles/launch.md`](subagents/prompts/roles/launch.md) | Boots the composed app and proves tak-çalıştır (Playwright/HTTP verdict block). | Boot proof + probe results |
 
 ---
 

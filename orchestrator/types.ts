@@ -6,7 +6,7 @@ export type TaskStatus =
   | "FAILED"; // Subagent failed or review rejected max attempts
 
 export type AgentRole =
-  "architect" | "backend" | "frontend" | "mobile" | "qa" | "reviewer" | "security" | "tracker" | "fullstack";
+  "architect" | "backend" | "frontend" | "mobile" | "qa" | "reviewer" | "security" | "tracker" | "fullstack" | "launch";
 
 export interface TaskItem {
   id: string; // Unique ID e.g. "TASK-001"
@@ -34,6 +34,8 @@ export interface TaskItem {
   lastGateVersion?: number; // Ruleset version of last verdict (rule fixes invalidate old skips)
   createdAt: string;
   updatedAt: string;
+  launchRound?: number; // Launch-verification round (planner sets 1; auto re-launches increment; capped by MAX_LAUNCH_ROUNDS)
+  launchVerdict?: "pass" | "fail" | "skipped"; // Verdict consumed from the launch report (set once — repeat ticks never re-process)
 }
 
 export interface ServiceDefinition {

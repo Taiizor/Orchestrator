@@ -45,7 +45,7 @@ Return ONLY a JSON block enclosed in ```json ``` with the following structure �
       "title": "Short title",
       "milestone": "v0.1.0 - Foundation & Schema",
       "description": "REQUIRED, min ~80 words: specific, actionable instructions including exact file paths, interfaces, and requirements synthesized from inputs. One-line descriptions are rejected.",
-      "role": "architect | backend | frontend | mobile | qa | reviewer | security | tracker | fullstack",
+      "role": "architect | backend | frontend | mobile | qa | reviewer | security | tracker | fullstack | launch",
       "dependencies": [],
       "targetFiles": ["workspace/src/..."],
       "branch": "task/TASK-001-setup-db",
@@ -79,3 +79,10 @@ Return ONLY a JSON block enclosed in ```json ``` with the following structure �
   - Custom: `{"name": "elastic", "image": "docker.elastic.co/elasticsearch/elasticsearch:8.13.0", "env": {"ELASTIC_URL": "http://localhost:9200"}, "ports": ["9200:9200"]}` — any Docker image the project needs (queues, search, brokers...). Optional `command` and `healthcheck` (CMD array) supported.
 - Omit entirely when the project needs none (pure static site, SQLite-only tool, etc.) — every service adds runner pull/start time.
 - Tasks MUST use the env endpoints (`DATABASE_URL`, `REDIS_URL`, `MONGO_URL`, `S3_*`, plus any custom `env` — see `container-services` skill) with local SQLite/InMemory adapters retained ONLY as fallback for runs without Docker.
+
+## 🚀 Launch Verification Task (tak-çalıştır proof)
+
+- For every milestone that SERVES anything over HTTP (API and/or UI), emit exactly ONE task with `"role": "launch"`, depending on ALL other tasks of that milestone (it runs last), with `targetFiles` covering the server entrypoint plus `workspace/tests/smoke/**`.
+- Its `deliverables`: boot the composed app with real services, probe every served surface (Playwright where HTML is served, HTTP smoke otherwise), write the machine-readable verdict block. Its `verificationCommand`: the smoke command it ran.
+- Pure-library milestones (no serving surface) get NO launch task.
+- Set `"launchRound": 1`. Never emit round 2+ yourself — re-launches are queued automatically after fixes.

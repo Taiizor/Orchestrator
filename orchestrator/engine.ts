@@ -450,6 +450,141 @@ export class OrchestratorEngine {
     return ts.length > 0 && ts.every((t) => t.status === "COMPLETED");
   }
 
+  /**
+   * Step 1.3: consume launch-verification verdicts.
+   * - COMPLETED launch task, verdict unprocessed → read its TASK_PROGRESS
+   *   verdict block: `fail` spawns ONE fix task (role inferred from gaps),
+   *   bounded by MAX_LAUNCH_ROUNDS (then the launch is FAILED + escalated
+   *   so false celebration can't fire); `pass`/`skipped` stay quiet.
+   * - COMPLETED launch-fix task with no linked re-launch and no active
+   *   launch in its milestone → queue ONE re-launch (round+1).
+   */
+  private static async processLaunchVerdicts(roadmap: Roadmap): Promise<boolean> {
+    const { parseLaunchVerdict, inferFixRole, countLaunchFixRounds, MAX_LAUNCH_ROUNDS, LAUNCH_FIX_TITLE_PREFIX } =
+      await import("./launch_verdict.ts");
+    let changed = false;
+    const now = new Date().toISOString();
+    let nextNum = Math.max(0, ...roadmap.tasks.map((t) => parseInt((t.id.match(/(\d+)/) || ["0", "0"])[1], 10) || 0)) + 1;
+    const takeId = () => `TASK-${String(nextNum++).padStart(3, "0")}`;
+    const milestoneLaunchesActive = (milestone: string | undefined) =>
+      roadmap.tasks.some(
+        (t) =>
+          t.role === "launch" &&
+          (t.milestone || "") === (milestone || "") &&
+          ["PENDING", "IN_PROGRESS", "IN_REVIEW"].includes(t.status)
+      );
+
+    for (const task of roadmap.tasks) {
+      // A. Consume fresh launch verdicts exactly once.
+      if (task.role === "launch" && task.status === "COMPLETED" && !task.launchVerdict) {
+        let progress: string | null = null;
+        try {
+          progress = await GitManager.showFile(task.branch, `workspace/${CONFIG.TASK_PROGRESS_FILE}`);
+        } catch {
+          // Branch gone — nothing to parse.
+        }
+        const verdict = progress ? parseLaunchVerdict(progress) : null;
+        if (!verdict) {
+          console.warn(`⚠️ [${task.id}] launch completed without a parseable verdict block; marking skipped (no auto-fix).`);
+          task.launchVerdict = "skipped";
+          task.updatedAt = now;
+          changed = true;
+          continue;
+        }
+        task.launchVerdict = verdict.verdict;
+        task.updatedAt = now;
+        changed = true;
+        if (verdict.verdict !== "fail") {
+          console.log(`✅ [${task.id}] launch verdict: ${verdict.verdict}.`);
+          continue;
+        }
+        const rounds = countLaunchFixRounds(roadmap.tasks, task.milestone);
+        if (rounds >= MAX_LAUNCH_ROUNDS) {
+          if (!task.reviewNotes?.includes("[launch-escalated]")) {
+            console.error(`🚨 [${task.id}] launch failed after ${rounds} auto-fix rounds; escalating to humans.`);
+            task.status = "FAILED";
+            task.failedAt = now;
+            task.reviewNotes =
+              `${task.reviewNotes || ""}\n[launch-escalated] Auto rounds exhausted after repeated launch failures; human needed.`.trim();
+            task.updatedAt = now;
+            if (roadmap.projectNumber) {
+              await ProjectManager.updateItemStatus(roadmap.projectNumber, task, "Failed");
+            }
+            const issueNum = await IssueManager.syncDashboardIssue(roadmap);
+            if (issueNum) {
+              await IssueManager.postMilestoneUpdate(
+                issueNum,
+                `🚨 **Launch verification needs a human:** [${task.id}] failed ${rounds + 1} launch round(s) with auto-fixes exhausted (milestone \`${task.milestone || "?"}\`). Latest gaps: ${
+                  verdict.gaps
+                    .slice(0, 5)
+                    .map((g) => `[${g.area}] ${g.detail}`)
+                    .join("; ") || "see task progress"
+                }.`
+              );
+            }
+          }
+          continue;
+        }
+        const role = inferFixRole(verdict.gaps);
+        const fixId = takeId();
+        const gapText = verdict.gaps
+          .map(
+            (g, i) =>
+              `${i + 1}. [${g.area}] ${g.detail}${g.files?.length ? ` (likely: ${g.files.join(", ")})` : ""}${g.log ? `\n   log: ${g.log.slice(0, 500)}` : ""}`
+          )
+          .join("\n");
+        roadmap.tasks.push({
+          id: fixId,
+          title: `${LAUNCH_FIX_TITLE_PREFIX} (round ${rounds + 1})`,
+          description:
+            `[LAUNCH-FIX round=${rounds + 1} for ${task.id}] The launch verification failed — fix the gaps below, then prove with tests. Do NOT re-verify full boot here; a re-launch is queued automatically when you complete.\n\n` +
+            `Failing gaps:\n${gapText || "(no gap details reported)"}\n\nEvidence:\n${(verdict.evidence || "").slice(0, 1000)}`,
+          role,
+          dependencies: [],
+          targetFiles: [],
+          status: "PENDING",
+          branch: `task/${fixId}`,
+          milestone: task.milestone,
+          attempts: 0,
+          maxAttempts: CONFIG.MAX_TASK_ATTEMPTS,
+          reviewNotes: `[LAUNCH-FIX] Auto-spawned from ${task.id} fail verdict. Unscoped — reviewer judges file relevance.`,
+          createdAt: now,
+          updatedAt: now,
+        });
+        console.log(`🔧 [${task.id}] launch failed → queued fix ${fixId} (role ${role}).`);
+        continue;
+      }
+      // B. Completed launch-fix → ONE bounded re-launch (unless one is active).
+      if (task.status === "COMPLETED" && task.title.startsWith(LAUNCH_FIX_TITLE_PREFIX)) {
+        const linked = roadmap.tasks.some((t) => t.role === "launch" && t.dependencies.includes(task.id));
+        if (linked || milestoneLaunchesActive(task.milestone)) continue;
+        const roundMatch = (task.description || "").match(/\[LAUNCH-FIX round=(\d+)/);
+        const nextRound = (roundMatch ? parseInt(roundMatch[1], 10) : 1) + 1;
+        const template = roadmap.tasks.find((t) => t.role === "launch" && (t.milestone || "") === (task.milestone || ""));
+        const relaunchId = takeId();
+        roadmap.tasks.push({
+          id: relaunchId,
+          title: `Re-launch verification (round ${nextRound})`,
+          description: `Re-run launch verification for milestone \`${task.milestone || "?"}\` after fix ${task.id}. Same protocol as the launch role: boot, probe, verdict block.`,
+          role: "launch",
+          dependencies: [task.id],
+          targetFiles: template?.targetFiles ? [...template.targetFiles] : [],
+          status: "PENDING",
+          branch: `task/${relaunchId}`,
+          milestone: task.milestone,
+          launchRound: nextRound,
+          attempts: 0,
+          maxAttempts: CONFIG.MAX_TASK_ATTEMPTS,
+          createdAt: now,
+          updatedAt: now,
+        });
+        console.log(`🚀 [${task.id}] fix completed → queued re-launch ${relaunchId} (round ${nextRound}).`);
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
   public static async reviewTasks(roadmap: Roadmap): Promise<boolean> {
     let hasChanges = false;
 
@@ -594,6 +729,7 @@ export class OrchestratorEngine {
           }
           task.lastReviewSha = undefined;
           task.lastGateVersion = undefined;
+          task.launchVerdict = undefined;
           task.updatedAt = new Date().toISOString();
           if (roadmap.projectNumber) {
             await ProjectManager.updateItemStatus(roadmap.projectNumber, task, task.status === "FAILED" ? "Failed" : "Todo");
@@ -1247,6 +1383,11 @@ export class OrchestratorEngine {
     // Step 1: Review any completed subagent tasks
     await this.reviewTasks(roadmap);
 
+    // Step 1.3: Consume launch-verification verdicts (fail → ONE fix task;
+    // fix completion → ONE bounded re-launch). Processed verdicts are
+    // recorded so repeat ticks never double-spawn.
+    await this.processLaunchVerdicts(roadmap);
+
     // Step 1.2: Overnight autopilot — resurrect FAILED tasks whose cooldown
     // elapsed, bounded by FAILED_AUTO_RESURRECT_MAX. Pre-dates-failedAt
     // tasks fall back to updatedAt so existing FAILED entries qualify.
@@ -1262,6 +1403,7 @@ export class OrchestratorEngine {
       task.resurrections = res + 1;
       task.lastReviewSha = undefined;
       task.lastGateVersion = undefined;
+      task.launchVerdict = undefined;
       task.updatedAt = new Date().toISOString();
       task.reviewNotes = `Auto-resurrect #${res + 1}/${CONFIG.FAILED_AUTO_RESURRECT_MAX} after ${CONFIG.FAILED_RESURRECT_COOLDOWN_MIN}m cooldown (was FAILED). Previous: ${(task.reviewNotes || "-").slice(0, 1000)}`;
       console.log(`🌅 [${task.id}] auto-resurrected to PENDING (${task.resurrections}/${CONFIG.FAILED_AUTO_RESURRECT_MAX}).`);
