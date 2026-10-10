@@ -3,6 +3,7 @@ bun.lock
 bun.lockb
 .env
 .env.local
+*.pem
 dist/
 *.log
 .DS_Store
