@@ -167,10 +167,11 @@ export class OrchestratorEngine {
     try {
       const forgerTemplate = await Bun.file("orchestrator/prompts/skill_forger.md").text();
       const forgerContext = compiledSpecContent
-        ? // Full spec: truncating here would waste the quality the Stage-1
-          // gate just bought. The 12K guard stays only for the raw-inputs
-          // fallback (unbounded ingestion can overflow small contexts).
-          `## Synthesized Project Specification:\n${compiledSpecContent}`
+        ? // Bounded input: the forger needs TOPICS, not the full text. A thick
+          // spec (tens of KB) would overflow small-context free models; 40K
+          // chars carry every section header plus substance. The raw-inputs
+          // fallback keeps the legacy 12K guard.
+          `## Synthesized Project Specification:\n${compiledSpecContent.slice(0, 40000)}`
         : fullInputContext.slice(0, 12000);
       const forgerPrompt = `${systemPrompt}\n\n${forgerTemplate}\n\n${forgerContext}\n\nWrite the skill files now (reply with a one-line summary per file written, or "NO_NEW_SKILLS"):`;
       const forgerRes = await OpenCodeClient.runWithFallback(forgerPrompt, { timeoutMs: 10 * 60 * 1000 });

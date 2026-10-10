@@ -228,11 +228,20 @@ async function main() {
     contractsText = `\n\n### 📜 Shared System & API Contracts (workspace/CONTRACTS.md):\n${await Bun.file(contractsPath).text()}\n`;
   }
 
-  // Check for synthesized master specification
+  // Check for synthesized master specification (bounded: full specs run
+  // tens of KB and would drown small-context free models; the agent can pull
+  // the complete file from the data remote when it needs more).
   const specPath = CONFIG.COMPILED_SPEC_FILE;
+  const MAX_SPEC_CHARS = 40000;
   let compiledSpecText = "";
   if (existsSync(specPath)) {
-    compiledSpecText = `\n\n### 📘 Canonical Project Specification (${specPath}):\n${await Bun.file(specPath).text()}\n`;
+    const fullSpec = await Bun.file(specPath).text();
+    const shown = fullSpec.length > MAX_SPEC_CHARS ? fullSpec.slice(0, MAX_SPEC_CHARS) : fullSpec;
+    const truncNote =
+      fullSpec.length > MAX_SPEC_CHARS
+        ? `\n_(Spec truncated to ${MAX_SPEC_CHARS} chars here; full text at \`${specPath}\` on data/main — fetch it via \`git show data/main:${specPath}\` if your task needs details beyond this excerpt.)_\n`
+        : "";
+    compiledSpecText = `\n\n### 📘 Canonical Project Specification (${specPath}):\n${shown}\n${truncNote}`;
   }
 
   let prompt = `${basePrompt}\n\n${rolePrompt}${skillsText}${contractsText}${compiledSpecText}\n\n`;
