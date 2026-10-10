@@ -129,7 +129,7 @@ Before any task branch is merged into `develop`:
 
 Workflows mint a short-lived installation token via `actions/create-github-app-token@v3` (`client-id` input — the legacy `app-id` input is NOT used). The token carries the installation's permissions (contents/PRs/issues/discussions/actions/projects) with a ~5-6k/hr budget, and covers the private `DATA_REPO` without a separate PAT:
 - **Org-level (shared):** `GH_CLIENT_ID` (variable, non-secret), `GH_APP_PRIVATE_KEY` (secret), `DOCKERHUB_POOL` (secret). On Free-plan orgs these reach public repos only.
-- **Repo-level (per product repo):** `DATA_REPO` (secret holding the private data repo slug, e.g. `Soferity/<name>-data`).
+- **Repo-level (per product repo):** `DATA_REPO` (secret holding the private data repo slug, e.g. `<owner>/<name>-data`).
 - **Installation scope:** the App must be installed with **All repositories** (or explicitly include every engine + data repo), or data access silently 404s.
 - **Engine parity:** `orchestrator/github_app.ts` mints the same token locally when `GH_CLIENT_ID` + private key are present (`initializeGitHubAppAuth()` at startup, `CONFIG` refreshed after mint). All auth paths fall back to `GITHUB_TOKEN`/PATs when App credentials are absent — never hard-fail.
 - **Dual-repo push mechanics:** state persists run in an isolated linked worktree — never `checkout` data branches in the main worktree (a dirty checkout aborts the switch and every push is then rejected as non-fast-forward forever).
