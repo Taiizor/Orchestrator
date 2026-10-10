@@ -83,6 +83,11 @@ export const CONFIG = {
   GITHUB_REPOSITORY: process.env.GITHUB_REPOSITORY || "",
   SUBAGENT_WORKFLOW: "subagent.yml",
   ORCHESTRATOR_WORKFLOW: "orchestrator.yml",
+
+  // Optional GitHub App credentials
+  APP_ID: process.env.GH_APP_ID || process.env.APP_ID || "",
+  APP_PRIVATE_KEY: process.env.GH_APP_PRIVATE_KEY || process.env.APP_PRIVATE_KEY || "",
+  APP_INSTALLATION_ID: process.env.GH_APP_INSTALLATION_ID || process.env.APP_INSTALLATION_ID || "",
 } as const;
 
 /**
@@ -99,13 +104,13 @@ export function validateConfig(): void {
   if (CONFIG.STALE_RUN_TIMEOUT_MINUTES <= 0) {
     throw new Error(`CONFIG.STALE_RUN_TIMEOUT_MINUTES must be > 0, got ${CONFIG.STALE_RUN_TIMEOUT_MINUTES}`);
   }
-  if (!CONFIG.GITHUB_TOKEN) {
+  if (!CONFIG.GITHUB_TOKEN && !(CONFIG.APP_ID && CONFIG.APP_PRIVATE_KEY)) {
     console.warn("⚠️ GITHUB_TOKEN is not set — GitHub API calls will fail with 401/403.");
   }
-  if (CONFIG.DATA_REPO && !CONFIG.DATA_PAT) {
+  if (CONFIG.DATA_REPO && !CONFIG.DATA_PAT && !(CONFIG.APP_ID && CONFIG.APP_PRIVATE_KEY)) {
     console.warn("⚠️ DATA_REPO is set but DATA_PAT is empty — dual-repo git operations will fail with auth errors.");
   }
-  if (!CONFIG.PROJECT_TOKEN) {
+  if (!CONFIG.PROJECT_TOKEN && !(CONFIG.APP_ID && CONFIG.APP_PRIVATE_KEY)) {
     console.warn("⚠️ GH_PROJECT_TOKEN is not set — GitHub Projects v2 board sync will be skipped.");
   }
 }

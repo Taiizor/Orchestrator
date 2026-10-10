@@ -35,11 +35,20 @@ jobs:
       discussions: write
 
     steps:
+      - name: 🔑 Generate GitHub App Token (optional)
+        id: app-token
+        if: ${{ (secrets.GH_APP_ID != '' && secrets.GH_APP_PRIVATE_KEY != '') || (secrets.APP_ID != '' && secrets.APP_PRIVATE_KEY != '') }}
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GH_APP_ID || secrets.APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY || secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
       - name: 📥 Checkout Repository
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
 
       - name: 🥟 Setup Bun Runtime
         uses: oven-sh/setup-bun@v2.2.0
@@ -111,12 +120,12 @@ jobs:
 
       - name: 🐳 Start Project Services (if declared)
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_PROJECT_TOKEN: ${{ secrets.GH_PROJECT_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+          GH_PROJECT_TOKEN: ${{ steps.app-token.outputs.token || secrets.GH_PROJECT_TOKEN }}
           INTEGRATION_BRANCH: develop
           DATA_REPO: ${{ secrets.DATA_REPO }}
-          DATA_PAT: ${{ secrets.DATA_PAT }}
+          DATA_PAT: ${{ steps.app-token.outputs.token || secrets.DATA_PAT }}
           DOCKERHUB_POOL: ${{ secrets.DOCKERHUB_POOL }}
         run: |
           bun run orchestrator/engine.ts --action=services
@@ -169,16 +178,18 @@ jobs:
 
       - name: 🤖 Execute Subagent Task
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_PROJECT_TOKEN: ${{ secrets.GH_PROJECT_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+          GH_PROJECT_TOKEN: ${{ steps.app-token.outputs.token || secrets.GH_PROJECT_TOKEN }}
           OPENCODE_MODEL: ${{ secrets.OPENCODE_MODEL }}
           OPENCODE_VARIANT: ${{ secrets.OPENCODE_VARIANT }}
           INTEGRATION_BRANCH: develop
           DATA_REPO: ${{ secrets.DATA_REPO }}
-          DATA_PAT: ${{ secrets.DATA_PAT }}
+          DATA_PAT: ${{ steps.app-token.outputs.token || secrets.DATA_PAT }}
           PUBLIC_FEATURES: ${{ vars.PUBLIC_FEATURES }}
           DATA_FEATURES: ${{ vars.DATA_FEATURES }}
+          GH_APP_ID: ${{ secrets.GH_APP_ID || secrets.APP_ID }}
+          GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY || secrets.APP_PRIVATE_KEY }}
         run: |
           bun run subagents/runner.ts \
             --taskId="${{ inputs.taskId }}" \
@@ -188,7 +199,7 @@ jobs:
       - name: 🔔 Wake Up Orchestrator
         if: always()
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
         run: |
           echo "Checking for an already-queued orchestrator run before dispatching..."
           PENDING=$(gh run list --workflow orchestrator.yml --limit 10 --json status --jq '[.[] | select(.status == "queued" or .status == "in_progress" or .status == "waiting" or .status == "requested")] | length' 2>/dev/null || echo 0)

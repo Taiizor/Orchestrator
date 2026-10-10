@@ -6,6 +6,7 @@ import { GitManager } from "../orchestrator/git_manager.ts";
 import { OpenCodeClient } from "../orchestrator/opencode_client.ts";
 import { ProjectManager } from "../orchestrator/project_manager.ts";
 import { DiscussionManager } from "../orchestrator/discussion_manager.ts";
+import { initializeGitHubAppAuth } from "../orchestrator/github_app.ts";
 import type { TaskItem } from "../orchestrator/types.ts";
 
 async function main() {
@@ -27,6 +28,9 @@ async function main() {
   }
 
   console.log(`🤖 Starting Subagent runner for Task: ${taskId}...`);
+
+  // Optional: Authenticate via GitHub App if APP_ID / APP_PRIVATE_KEY are provided
+  await initializeGitHubAppAuth();
 
   await GitManager.setupGitAuthor();
   await GitManager.run(["git", "fetch", "--all"]);

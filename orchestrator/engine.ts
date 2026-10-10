@@ -8,6 +8,7 @@ import { IssueManager } from "./issue_manager.ts";
 import { ProjectManager } from "./project_manager.ts";
 import { GATE_VERSION, hasStructuredProgress, isDefaultProgress, runReviewGate } from "./review_gate.ts";
 import { validateRoadmap, formatValidation } from "./roadmap_validator.ts";
+import { initializeGitHubAppAuth } from "./github_app.ts";
 import type { Roadmap, TaskItem, ReviewResult } from "./types.ts";
 
 export class OrchestratorEngine {
@@ -1151,6 +1152,9 @@ async function main() {
   });
 
   const action = values.action || "tick";
+
+  // Optional: Authenticate via GitHub App if APP_ID / APP_PRIVATE_KEY are provided
+  await initializeGitHubAppAuth();
 
   switch (action) {
     case "plan":
