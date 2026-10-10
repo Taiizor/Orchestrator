@@ -49,6 +49,7 @@ export function validateRoadmap(raw: {
     description?: string;
     deliverables?: string[];
     verificationCommand?: string;
+    stack?: unknown;
   }[];
   milestones?: { title: string }[];
   services?: (string | { name?: string; image?: string; env?: Record<string, string>; ports?: string[] })[];
@@ -89,6 +90,14 @@ export function validateRoadmap(raw: {
   for (const t of tasks) {
     if (!VALID_ROLES.has(t.role)) {
       errors.push(`[${t.id}] invalid role "${t.role}". Valid: ${[...VALID_ROLES].join(", ")}.`);
+    }
+    if (
+      t.stack !== undefined &&
+      t.stack !== null &&
+      t.stack !== "" &&
+      !(typeof t.stack === "string" && (STACK_IDS as string[]).includes(t.stack))
+    ) {
+      errors.push(`[${t.id}] unknown task stack "${String(t.stack).slice(0, 40)}". Known: ${STACK_IDS.join(", ")}.`);
     }
     const desc = t.description || "";
     if (desc.trim().split(/\s+/).filter(Boolean).length < 20) {

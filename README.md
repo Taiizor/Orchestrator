@@ -10,7 +10,7 @@ An enterprise-grade, autonomous multi-agent software engineering framework that 
 ## What it does
 
 - **Plans** your `inputs/` into a dependency-managed roadmap, then **dispatches** one subagent per task on isolated branches.
-- **Builds polyglot products** — Bun, Go, Rust, .NET, Python, PHP (one stack per roadmap; engine itself always runs on Bun).
+- **Builds polyglot products** — Bun, Go, Rust, .NET, Python, PHP (default stack per roadmap, override per layer; engine itself always runs on Bun).
 - **Docker-always services** (Postgres/Redis/Mongo/S3 or any image) with ephemeral data and fail-fast discipline.
 - **Quality gates**: deterministic checks → reviewer → security audit → test proof; conflicts auto-resolved and re-verified.
 - **Live board**: GitHub Projects v2, milestones, per-task issues, dashboard + ChatOps steering.

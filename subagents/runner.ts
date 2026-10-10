@@ -11,6 +11,7 @@ import {
   detectWorkspaceStack,
   normalizeStackId,
   runStackTests,
+  effectiveTaskStack,
 } from "../orchestrator/stacks.ts";
 import { stageEccSkills } from "../scripts/stage-ecc-skills.ts";
 import { ProjectManager } from "../orchestrator/project_manager.ts";
@@ -194,12 +195,15 @@ async function main() {
     fullstack: ["api-contracts", "ui-conventions", "systematic-debugging", "code-review"],
     launch: ["container-services", "systematic-debugging", "test-evidence", "observability-basics"],
   };
-  // Product stack precedence: --stack CLI (dispatch input) → roadmap.stack →
-  // workspace markers. Every agent additionally gets its stack's essentials
-  // skill (toolchain + idioms for the product language).
+  // Product stack precedence: --stack CLI (dispatch input) → task.stack
+  // override → roadmap.stack → workspace markers. Every agent gets its
+  // EFFECTIVE stack's essentials skill (layers may differ per task).
   const cliStack = typeof values.stack === "string" ? values.stack : undefined;
-  const productStack = normalizeStackId(cliStack ?? (roadmap as { stack?: unknown }).stack, await detectWorkspaceStack("."));
-  console.log(`🧱 Product stack: ${productStack} (${STACKS[productStack].label}).`);
+  const detected = await detectWorkspaceStack(".");
+  const productStack = cliStack
+    ? normalizeStackId(cliStack, detected)
+    : effectiveTaskStack(task, (roadmap as { stack?: unknown }).stack, detected);
+  console.log(`🧱 Task stack: ${productStack} (${STACKS[productStack].label})${task.stack ? " (task override)" : ""}.`);
   const stackSkill = STACK_ESSENTIAL_SKILLS[productStack];
   let skillsText = "";
   const skillNames = [...new Set([...(ROLE_SKILLS[role] || []), ...(stackSkill ? [stackSkill] : [])])];
@@ -272,6 +276,7 @@ async function main() {
 
   let prompt = `${basePrompt}\n\n${rolePrompt}${skillsText}${contractsText}${compiledSpecText}\n\n`;
   prompt += `## Assigned Task: [${task.id}] - ${task.title}\n\n`;
+  prompt += `**Product Stack (this task):** \`${productStack}\` — use ONLY its toolchain for all commands below.\n\n`;
   prompt += `**Description:**\n${task.description}\n\n`;
   prompt += `**Target Files:**\n${task.targetFiles.join(", ")}\n\n`;
   if (task.deliverables && task.deliverables.length > 0) {

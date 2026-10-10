@@ -1,6 +1,6 @@
 import { GitManager } from "./git_manager.ts";
 import { OpenCodeClient } from "./opencode_client.ts";
-import { detectWorkspaceStack, verifyWorkspace } from "./stacks.ts";
+import { verifyAllWorkspaceStacks } from "./stacks.ts";
 
 export class ConflictResolver {
   /**
@@ -50,13 +50,12 @@ export class ConflictResolver {
       console.log(`✅ Conflict resolved and staged for ${filePath}`);
     }
 
-    // Verify resolved code with the workspace stack's tests (tests live under
-    // workspace/, not repo root). An empty suite ("No tests found") is a
-    // PASS — there is nothing to break. Only real failures block the merge.
-    // The stack is detected from workspace markers (go.mod, Cargo.toml,
-    // *.csproj, pyproject.toml); default is Bun.
-    const stack = await detectWorkspaceStack(".");
-    if (!(await verifyWorkspace(stack, "workspace"))) {
+    // Verify resolved code with every workspace stack's tests (tests live
+    // under workspace/, not repo root). An empty suite ("No tests found")
+    // is a PASS — there is nothing to break. Only real failures block.
+    // Mixed trees verify each layer so one green suite can't mask another's
+    // breakage. Stacks are detected from workspace markers.
+    if (!(await verifyAllWorkspaceStacks())) {
       return false;
     }
 

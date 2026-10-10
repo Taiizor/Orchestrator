@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { STACKS, STACK_IDS, STACK_ECC_REFS, STACK_ESSENTIAL_SKILLS, STACK_ECC_SKILL_IDS, TEST_EVIDENCE_RX, isKnownStackCommand, normalizeStackId } from "../orchestrator/stacks.ts";
+import { STACKS, STACK_IDS, STACK_ECC_REFS, STACK_ESSENTIAL_SKILLS, STACK_ECC_SKILL_IDS, TEST_EVIDENCE_RX, isKnownStackCommand, normalizeStackId, effectiveTaskStack, detectWorkspaceStacks } from "../orchestrator/stacks.ts";
 import { validateRoadmap } from "../orchestrator/roadmap_validator.ts";
 
 describe("stacks registry", () => {
@@ -49,6 +49,25 @@ describe("stacks registry", () => {
     for (const id of STACK_IDS) {
       expect(STACK_ECC_SKILL_IDS[id].length).toBeGreaterThan(0);
     }
+  });
+
+  it("resolves effective task stacks (override wins, else roadmap, else fallback)", () => {
+    expect(effectiveTaskStack({ stack: "go" }, "bun")).toBe("go");
+    expect(effectiveTaskStack({}, "go")).toBe("go");
+    expect(effectiveTaskStack({ stack: "" }, "rust")).toBe("rust");
+    expect(effectiveTaskStack({ stack: "cobol" }, "go")).toBe("go");
+    expect(effectiveTaskStack({}, undefined)).toBe("bun");
+  });
+
+  it("detects every stack present in mixed trees", async () => {
+    const root = `C:/Users/Taiizor/AppData/Local/Temp/opencode/stackdetect-${process.pid}-${Date.now()}`.replace(/\\/g, "/");
+    await Bun.write(`${root}/workspace/go.mod`, "module example.com/x\n");
+    await Bun.write(`${root}/workspace/package.json`, '{"name":"ui"}\n');
+    expect(await detectWorkspaceStacks(root)).toEqual(["go", "bun"]);
+    const empty = `${root}-empty`;
+    const { mkdirSync } = await import("node:fs");
+    mkdirSync(`${empty}/workspace`, { recursive: true });
+    expect(await detectWorkspaceStacks(empty)).toEqual([]);
   });
 
   it("references only manifest-pinned ECC depth files", async () => {

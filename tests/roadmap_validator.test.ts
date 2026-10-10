@@ -141,6 +141,21 @@ describe("Roadmap Validator Module", () => {
       expect(result.warnings.length).toBe(0);
     });
 
+    it("should error on unknown per-task stack but accept known ones", () => {
+      const base = {
+        id: "t1", role: "backend", dependencies: [], targetFiles: ["a"],
+        description: "word ".repeat(25).trim(),
+        deliverables: ["Create a.ts", "Test a.ts"],
+        verificationCommand: "go test ./..."
+      };
+      const bad = validateRoadmap({ stack: "bun", tasks: [{ ...base, stack: "cobol" }] });
+      expect(bad.errors.some((e) => e.includes("unknown task stack"))).toBe(true);
+      const good = validateRoadmap({ stack: "bun", tasks: [{ ...base, stack: "go" }] });
+      expect(good.errors).toEqual([]);
+      const inherited = validateRoadmap({ stack: "go", tasks: [{ ...base }] });
+      expect(inherited.errors).toEqual([]);
+    });
+
     it("should warn on uncovered input files", () => {
       const tasks = [{
         id: "t1", role: "backend", dependencies: [], targetFiles: ["a"],

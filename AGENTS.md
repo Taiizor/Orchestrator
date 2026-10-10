@@ -136,9 +136,9 @@ Workflows mint a short-lived installation token via `actions/create-github-app-t
 
 ---
 
-## 9. Product Stack Directives (one stack per roadmap)
+## 9. Product Stack Directives (default per roadmap, override per task)
 
-The ENGINE always runs on Bun. The PRODUCT in `workspace/` uses exactly one of these stacks (`roadmap.stack`, default `bun`). Every subagent additionally gets its stack's essentials skill injected (see `STACK_ESSENTIAL_SKILLS` in `orchestrator/stacks.ts`); role skills still apply on top.
+The ENGINE always runs on Bun. The PRODUCT defaults to one roadmap stack (`roadmap.stack`, default `bun`), but layers MAY differ per task (`task.stack` override — e.g. go API + bun UI). Every subagent gets its task's EFFECTIVE stack skill injected (see `STACK_ESSENTIAL_SKILLS` in `orchestrator/stacks.ts`); role skills still apply on top. Split stacks MUST meet at `workspace/CONTRACTS.md` with generated typed clients.
 
 | Stack | Test (proof) | Build / gate | Lint / format | Skill |
 | :--- | :--- | :--- | :--- | :--- |
@@ -150,7 +150,7 @@ The ENGINE always runs on Bun. The PRODUCT in `workspace/` uses exactly one of t
 | `php` | `php vendor/bin/phpunit` | `composer install` | Pint/CS-Fixer, PHPStan/Psalm, `strict_types` | `php-essentials` |
 
 Stack laws (all stacks):
-- Product commands use ONLY the declared stack's toolchain; engine commands (`orchestrator/engine.ts`, `subagents/runner.ts`) stay `bun`.
+- Each task uses ONLY its effective stack's toolchain (`task.stack` ?? roadmap default); engine commands (`orchestrator/engine.ts`, `subagents/runner.ts`) stay `bun`.
 - Docker-always: connect via env to declared services; no SQLite/InMemory fallback layers; fail fast when a service is unreachable.
 - Parameterized data access always (placeholders / ORM expressions — never string-built SQL).
 - Tests prove behavior: stack test command with 0 failures, real output pasted in `workspace/TASK_PROGRESS.md`. No live background servers inside tests (in-memory/transport-level harnesses per stack).

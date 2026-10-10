@@ -177,26 +177,52 @@ export function isKnownStackCommand(cmd: string): boolean {
 
 /** Detect the product stack from workspace markers (first hit wins). */
 export async function detectWorkspaceStack(cwd = "."): Promise<StackId> {
+  const all = await detectWorkspaceStacks(cwd);
+  return all[0] ?? "bun";
+}
+
+/** Detect EVERY product stack present (mixed trees: go API + bun UI). */
+export async function detectWorkspaceStacks(cwd = "."): Promise<StackId[]> {
   const join = (p: string) => (cwd === "." ? p : `${cwd.replace(/\/$/, "")}/${p}`);
-  if (existsSync(join("workspace/go.mod"))) return "go";
-  if (existsSync(join("workspace/Cargo.toml"))) return "rust";
-  if (existsSync(join("workspace/pyproject.toml"))) return "python";
-  if (existsSync(join("workspace/requirements.txt"))) return "python";
-  if (existsSync(join("workspace/setup.py"))) return "python";
-  if (existsSync(join("workspace/composer.json"))) return "php";
+  const found: StackId[] = [];
+  if (existsSync(join("workspace/go.mod"))) found.push("go");
+  if (existsSync(join("workspace/Cargo.toml"))) found.push("rust");
+  if (
+    existsSync(join("workspace/pyproject.toml")) ||
+    existsSync(join("workspace/requirements.txt")) ||
+    existsSync(join("workspace/setup.py"))
+  ) {
+    found.push("python");
+  }
+  if (existsSync(join("workspace/composer.json"))) found.push("php");
   try {
     const glob = new Bun.Glob("workspace/*.sln");
-    for await (const _ of glob.scan({ cwd, onlyFiles: true })) return "dotnet";
+    for await (const _ of glob.scan({ cwd, onlyFiles: true })) {
+      found.push("dotnet");
+      break;
+    }
   } catch {
     /* no sln */
   }
-  try {
-    const glob = new Bun.Glob("workspace/**/*.csproj");
-    for await (const _ of glob.scan({ cwd, onlyFiles: true })) return "dotnet";
-  } catch {
-    /* no csproj */
+  if (!found.includes("dotnet")) {
+    try {
+      const glob = new Bun.Glob("workspace/**/*.csproj");
+      for await (const _ of glob.scan({ cwd, onlyFiles: true })) {
+        found.push("dotnet");
+        break;
+      }
+    } catch {
+      /* no csproj */
+    }
   }
-  return "bun";
+  if (
+    existsSync(join("workspace/package.json")) ||
+    existsSync(join("workspace/bun.lock")) ||
+    existsSync(join("workspace/bun.lockb"))
+  ) {
+    found.push("bun");
+  }
+  return found;
 }
 
 /** Normalize a declared stack value; unknown/empty falls back to detected/default. */
@@ -205,6 +231,17 @@ export function normalizeStackId(raw: unknown, fallback: StackId = "bun"): Stack
     return raw.toLowerCase() as StackId;
   }
   return fallback;
+}
+
+/**
+ * A task's effective stack: explicit task.stack wins, else the roadmap
+ * default. Layers may differ (go API + bun UI) — each task proves itself
+ * with its own toolchain.
+ */
+export function effectiveTaskStack(task: { stack?: unknown }, roadmapStack: unknown, fallback: StackId = "bun"): StackId {
+  const base = normalizeStackId(roadmapStack, fallback);
+  if (task.stack === undefined || task.stack === null || task.stack === "") return base;
+  return normalizeStackId(task.stack, base);
 }
 
 export interface StackTestResult {
@@ -244,6 +281,24 @@ export async function verifyWorkspace(stack: StackId, cwd = "workspace"): Promis
     return false;
   }
   return true;
+}
+
+/**
+ * Verify EVERY stack present in a (possibly mixed) workspace. Merges can
+ * touch several layers at once — one suite passing must not mask another
+ * layer's breakage. Empty tree = legacy bun default (unchanged behavior).
+ */
+export async function verifyAllWorkspaceStacks(): Promise<boolean> {
+  const stacks = await detectWorkspaceStacks(".");
+  const list = stacks.length > 0 ? stacks : (["bun"] as StackId[]);
+  if (list.length > 1) {
+    console.log(`🧪 Mixed workspace detected (${list.join(" + ")}); verifying each stack.`);
+  }
+  let allOk = true;
+  for (const s of list) {
+    if (!(await verifyWorkspace(s, "workspace"))) allOk = false;
+  }
+  return allOk;
 }
 
 /** One-line toolchain reference for agent prompts. */

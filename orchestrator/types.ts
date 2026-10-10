@@ -15,8 +15,9 @@ export interface TaskItem {
   role: AgentRole; // Assigned subagent role
   dependencies: string[]; // IDs of tasks that must be COMPLETED first
   targetFiles: string[]; // Files/directories allocated to this task to prevent conflicts
+  stack?: StackId; // Per-task product stack override (layers may differ: go API + bun UI). Unset = roadmap.stack.
   deliverables?: string[]; // Concrete acceptance items (files, functions, contracts, tests)
-  verificationCommand?: string; // Exact proof command for the product stack (bun test | go test ./... | cargo test | dotnet test | python -m pytest -q | php vendor/bin/phpunit | ...)
+  verificationCommand?: string; // Exact proof command for the task's EFFECTIVE stack (task.stack ?? roadmap.stack)
   status: TaskStatus; // Current lifecycle status
   branch: string; // Dedicated branch for this task
   runId?: number; // GitHub Actions workflow run ID if triggered

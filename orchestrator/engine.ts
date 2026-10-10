@@ -10,7 +10,7 @@ import { IssueManager } from "./issue_manager.ts";
 import { ProjectManager } from "./project_manager.ts";
 import { GATE_VERSION, hasStructuredProgress, isDefaultProgress, runReviewGate } from "./review_gate.ts";
 import { validateRoadmap, formatValidation, sanitizeCoverage } from "./roadmap_validator.ts";
-import { STACKS, normalizeStackId } from "./stacks.ts";
+import { STACKS, normalizeStackId, effectiveTaskStack } from "./stacks.ts";
 import type { StackId } from "./stacks.ts";
 import { initializeGitHubAppAuth } from "./github_app.ts";
 import type { Roadmap, TaskItem, ReviewResult } from "./types.ts";
@@ -225,6 +225,8 @@ export class OrchestratorEngine {
             role: t.role || "backend",
             dependencies: t.dependencies || [],
             targetFiles: t.targetFiles || [],
+            // Per-task stack override (split layers); undefined = inherit roadmap.stack.
+            stack: typeof t.stack === "string" && t.stack.trim() ? (t.stack.trim().toLowerCase() as any) : undefined,
             deliverables: Array.isArray((t as any).deliverables)
               ? (t as any).deliverables.filter((d: any) => typeof d === "string" && d.trim()).map((d: string) => d.trim())
               : [],
@@ -276,6 +278,7 @@ export class OrchestratorEngine {
         description: t.description,
         deliverables: t.deliverables,
         verificationCommand: t.verificationCommand,
+        stack: (t as any).stack,
       })),
       milestones: roadmapData.milestones,
       services: roadmapData.services,
@@ -783,6 +786,7 @@ export class OrchestratorEngine {
         description: t.description,
         deliverables: t.deliverables,
         verificationCommand: t.verificationCommand,
+        stack: (t as any).stack,
       })),
       milestones: roadmap.milestones,
       services: roadmap.services,
@@ -1551,7 +1555,12 @@ export class OrchestratorEngine {
     );
 
     for (const task of readyTasks) {
-      const dispatched = await GitManager.dispatchSubagentWorkflow(task.id, task.role, task.branch, roadmap.stack);
+      const dispatched = await GitManager.dispatchSubagentWorkflow(
+        task.id,
+        task.role,
+        task.branch,
+        effectiveTaskStack(task, roadmap.stack)
+      );
       if (dispatched) {
         task.status = "IN_PROGRESS";
         task.updatedAt = new Date().toISOString();
