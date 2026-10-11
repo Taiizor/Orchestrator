@@ -137,18 +137,36 @@ export function validateRoadmap(raw: {
     }
   }
 
-  // Split layers must meet at a contract: with 2+ effective stacks, at
-  // least one task must own workspace/CONTRACTS.md (the planner's contract
-  // task). Otherwise the layers evolve against an undocumented boundary.
+  // Split layers must meet at a CONSUMED contract: with 2+ effective stacks,
+  // at least one task must own workspace/CONTRACTS.md (the planner's contract
+  // task), and every override-stack task must depend on it directly.
+  // Otherwise the layers evolve against an undocumented boundary (a contract
+  // nobody depends on is a demo artifact) or drift apart silently. Errors,
+  // not warnings: a defective split must never persist.
   const effStacks = new Set(tasks.map((t) => effectiveTaskStack({ stack: t.stack }, raw.stack)));
   if (effStacks.size > 1) {
-    const hasContractTask = tasks.some((t) =>
-      (t.targetFiles || []).some((f) => f.replace(/\\/g, "/").includes("workspace/CONTRACTS.md"))
+    const contractOwners = new Set(
+      tasks
+        .filter((t) => (t.targetFiles || []).some((f) => f.replace(/\\/g, "/").includes("workspace/CONTRACTS.md")))
+        .map((t) => t.id)
     );
-    if (!hasContractTask) {
-      warnings.push(
-        `Split-stack roadmap (${[...effStacks].join(" + ")}) has no task owning workspace/CONTRACTS.md; add a contract task (OpenAPI/typed clients) that cross-layer tasks depend on.`
+    if (contractOwners.size === 0) {
+      errors.push(
+        `Split-stack roadmap (${[...effStacks].join(" + ")}) has no task owning workspace/CONTRACTS.md; add a contract task (OpenAPI/typed clients + freshness check) that cross-layer tasks depend on.`
       );
+    } else {
+      for (const t of tasks) {
+        const eff = effectiveTaskStack({ stack: t.stack }, raw.stack);
+        const isDefaultLayer = eff === effectiveTaskStack({}, raw.stack);
+        if (!isDefaultLayer && !contractOwners.has(t.id)) {
+          const deps = t.dependencies || [];
+          if (!deps.some((d) => contractOwners.has(d))) {
+            errors.push(
+              `[${t.id}] effective stack is ${eff} but it does not depend on the contract task (${[...contractOwners].join(", ")}); cross-layer tasks must anchor to the contract or they drift into demos.`
+            );
+          }
+        }
+      }
     }
   }
 
