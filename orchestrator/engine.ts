@@ -1646,16 +1646,33 @@ export class OrchestratorEngine {
     }
 
     const readyTasks = StateManager.getReadyTasks(roadmap, CONFIG.MAX_CONCURRENT_SUBAGENTS);
-    if (readyTasks.length === 0) {
+    // Unscoped mutual exclusion: tasks WITHOUT targetFiles (operator /add,
+    // /revise) cannot prove disjointness, so two of them must never run
+    // concurrently — parallel unscoped workers edit the same tree blind
+    // (TASK-025/026 both touched web/bun.lock + progress). Scoped tasks
+    // still parallelize freely; unscoped ones serialize among themselves.
+    const unscopedActive = roadmap.tasks.some(
+      (t) => t.status === "IN_PROGRESS" && (!t.targetFiles || t.targetFiles.length === 0)
+    );
+    const dispatchable = unscopedActive
+      ? readyTasks.filter((t) => t.targetFiles && t.targetFiles.length > 0)
+      : readyTasks;
+    {
+      const held = readyTasks.length - dispatchable.length;
+      if (held > 0) {
+        console.log(`⏳ Holding ${held} unscoped task(s): another unscoped task is IN_PROGRESS (collision guard).`);
+      }
+    }
+    if (dispatchable.length === 0) {
       console.log("ℹ️ No ready tasks to dispatch at this time.");
       return;
     }
 
     console.log(
-      `🚀 Dispatching ${readyTasks.length} parallel subagents (Concurrency limit: ${CONFIG.MAX_CONCURRENT_SUBAGENTS})...`
+      `🚀 Dispatching ${dispatchable.length} parallel subagents (Concurrency limit: ${CONFIG.MAX_CONCURRENT_SUBAGENTS})...`
     );
 
-    for (const task of readyTasks) {
+    for (const task of dispatchable) {
       const dispatched = await GitManager.dispatchSubagentWorkflow(
         task.id,
         task.role,

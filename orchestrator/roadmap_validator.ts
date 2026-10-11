@@ -230,6 +230,28 @@ export function validateRoadmap(raw: {
     }
   }
 
+  // Unscoped collision risk: tasks WITHOUT targetFiles (operator /add,
+  // /revise) cannot prove disjointness. Two live unscoped tasks in the same
+  // role edit the same tree blind (TASK-025/026 both touched web/bun.lock).
+  // The dispatcher serializes them; this warns at plan time so scopes can
+  // be assigned instead.
+  const live = tasks.filter((t) => (t as any).status !== "COMPLETED");
+  const unscopedByRole = new Map<string, string[]>();
+  for (const t of live) {
+    if (!t.targetFiles || t.targetFiles.length === 0) {
+      const list = unscopedByRole.get(t.role) || [];
+      list.push(t.id);
+      unscopedByRole.set(t.role, list);
+    }
+  }
+  for (const [role, ids] of unscopedByRole) {
+    if (ids.length > 1) {
+      warnings.push(
+        `Unscoped tasks share role '${role}' (${ids.join(", ")}) with no targetFiles: collision risk, dispatch serializes them — assign disjoint scopes to parallelize.`
+      );
+    }
+  }
+
   // Launch coverage: milestones that serve HTTP (backend/frontend/fullstack/
   // mobile tasks) need a launch-verification task — otherwise nothing ever
   // proves tak-çalıştır (unwired-UI class gaps slip through green reviews).

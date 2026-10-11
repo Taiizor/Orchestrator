@@ -233,6 +233,34 @@ describe("Roadmap Validator Module", () => {
       expect(r.errors.some((e) => e.includes("does not depend on the contract task"))).toBe(true);
     });
 
+    it("should warn when live unscoped tasks share a role", () => {
+      const mk = (id: string, status = "PENDING") => ({
+        id, role: "frontend", dependencies: ["t0"], targetFiles: [] as string[],
+        milestone: "v1",
+        description: "word ".repeat(25).trim(),
+        deliverables: ["Create x", "Test x"],
+        verificationCommand: "bun test",
+        status,
+      });
+      const r = validateRoadmap({
+        milestones: [{ title: "v1" }],
+        tasks: [
+          { ...mk("t0", "COMPLETED"), targetFiles: ["workspace/a.ts"] },
+          mk("t1"),
+          mk("t2"),
+        ],
+      });
+      expect(r.warnings.some((w) => w.includes("Unscoped tasks share role"))).toBe(true);
+      const solo = validateRoadmap({
+        milestones: [{ title: "v1" }],
+        tasks: [
+          { ...mk("t0", "COMPLETED"), targetFiles: ["workspace/a.ts"] },
+          mk("t1"),
+        ],
+      });
+      expect(solo.warnings.some((w) => w.includes("Unscoped tasks share role"))).toBe(false);
+    });
+
     it("should error on invalid task IDs", () => {
       const base = {
         role: "backend", dependencies: [], targetFiles: ["a"],
