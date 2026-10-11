@@ -150,6 +150,11 @@ export const STACK_ECC_REFS: Record<StackId, string[]> = {
   ],
 };
 
+/** Runner-executed proof stamp (subagents/runner.ts embeds it with every
+ *  test run). Evidence patterns WITHOUT this stamp are agent-pasted text —
+ *  the TASK-001 fabrication class — and fail the gate. */
+export const RUNNER_MARK_RX = /\[runner-executed\] '[^\n']+' exit=\d+/;
+
 /** Combined evidence pattern: any supported toolchain output counts as proof. */
 export const TEST_EVIDENCE_RX =
   /bun test|bun run|go test|cargo test|test result:|dotnet (test|build)|pytest|phpunit|pest|OK \(|FAILURES|passed!|passing|passed/i;

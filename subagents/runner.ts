@@ -455,6 +455,10 @@ async function main() {
     console.log(`🧪 Executing '${STACKS[productStack].testCommand}' to verify deliverables...`);
     const testRes = await runStackTests(productStack, "workspace");
     testProof = ((testRes.stdout || "") + "\n" + (testRes.stderr || "")).trim() || `(no output, exit ${testRes.exitCode})`;
+    // Anti-fabrication stamp: the review gate requires this marker alongside
+    // any test-evidence patterns. Agent-pasted "passing" text without a stamp
+    // fails the gate — only runner-executed output counts as proof.
+    testProof = `[runner-executed] '${STACKS[productStack].testCommand}' exit=${testRes.exitCode}\n${testProof}`;
     if (testRes.exitCode !== 0) {
       console.warn("⚠️ Automated tests reported failures. Embedding test output into TASK_PROGRESS.md for review.");
     } else {

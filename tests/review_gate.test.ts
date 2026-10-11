@@ -5,6 +5,7 @@ import {
   isDefaultProgress,
   globMatches,
   isAllowedFile,
+  checkEvidenceStamp,
   scanSecrets,
   scanSecretWarnings,
   scanSqlInjection,
@@ -132,6 +133,18 @@ describe("Review Gate Module", () => {
       const warnings = scanSecretWarnings(diff);
       expect(warnings.length).toBe(1);
       expect(warnings[0]).toContain("Placeholder secret-style assignment");
+    });
+  });
+
+  describe("checkEvidenceStamp", () => {
+    it("passes stamped runner output", () => {
+      expect(checkEvidenceStamp("[runner-executed] 'go test ./...' exit=0\ngo test ok")).toBe("ok");
+    });
+    it("fails unstamped pasted output", () => {
+      expect(checkEvidenceStamp("go test ok\nall passing")).toBe("unstamped");
+    });
+    it("warns when no evidence at all", () => {
+      expect(checkEvidenceStamp("did some work, trust me")).toBe("missing-evidence");
     });
   });
 

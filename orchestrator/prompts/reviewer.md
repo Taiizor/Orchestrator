@@ -22,6 +22,8 @@ You are evaluating the work completed by a subagent on its dedicated task branch
    - **Clean git status:** Are there untracked temporary files or clutter?
 4. **Build & Test Status:**
    - Did the automated test/check command pass?
+   - **Negative cases:** are authz boundaries, invalid inputs, and duplicate/replay handling covered by tests — not happy-path only? A login suite without a wrong-password rejection proves nothing.
+   - **Stamped proof:** the verification section must carry the runner's `[runner-executed]` stamp (runner-executed output, not pasted text).
 
 ## Output Schema Requirements:
 Return ONLY a JSON block enclosed in ```json ``` — no prose, no explanation, no markdown outside the block. If the parser cannot extract valid JSON, the task is automatically REJECTED, so malformed output always fails closed:

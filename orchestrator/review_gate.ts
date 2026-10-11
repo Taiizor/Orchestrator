@@ -1,6 +1,6 @@
 import { CONFIG } from "./config.ts";
 import { GitManager } from "./git_manager.ts";
-import { TEST_EVIDENCE_RX } from "./stacks.ts";
+import { TEST_EVIDENCE_RX, RUNNER_MARK_RX } from "./stacks.ts";
 import type { TaskItem } from "./types.ts";
 
 export interface GateResult {
@@ -173,6 +173,14 @@ function addedLinesByFile(diff: string): Map<string, string[]> {
   return map;
 }
 
+/** Evidence-stamp verdict for a progress report: unstamped toolchain output
+ *  is pasted text, not executed proof (TASK-001 fabrication class). */
+export function checkEvidenceStamp(progressContent: string): "ok" | "missing-evidence" | "unstamped" {
+  if (!TEST_EVIDENCE_RX.test(progressContent)) return "missing-evidence";
+  if (!RUNNER_MARK_RX.test(progressContent)) return "unstamped";
+  return "ok";
+}
+
 /** Paths whose secret-shaped literals are fixtures by definition. */
 function isTestPath(file: string): boolean {
   return (
@@ -313,7 +321,7 @@ function touchesApiOrSchema(files: string[]): boolean {
  * under a previous version must be re-evaluated, never skipped by the
  * unchanged-tip optimization.
  */
-export const GATE_VERSION = 8;
+export const GATE_VERSION = 9;
 
 /**
  * Deterministic pre-LLM gate. Fails fast on empty diff, missing progress
@@ -359,9 +367,17 @@ export async function runReviewGate(task: TaskItem, diff: string, progressConten
         "TASK_PROGRESS.md is the runner placeholder, not an agent report: no evidence of work. Produce real Done/Verification content."
       );
     }
-    if (!TEST_EVIDENCE_RX.test(progressContent)) {
+    const stamp = checkEvidenceStamp(progressContent);
+    if (stamp === "missing-evidence") {
       warnings.push(
         "Verification section has no recognizable test evidence (bun test | go test | cargo test | dotnet test | pytest | phpunit output)."
+      );
+    } else if (stamp === "unstamped") {
+      // Anti-fabrication: evidence patterns with no runner stamp are pasted
+      // text, not executed proof (the TASK-001 class: plausible output the
+      // runner never produced). Fail closed — re-running the task re-stamps.
+      failures.push(
+        "Test evidence present but no [runner-executed] stamp: proof must come from the runner's own test execution, not pasted text."
       );
     }
   }
