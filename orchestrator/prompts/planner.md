@@ -106,6 +106,12 @@ Return ONLY a JSON block enclosed in ```json ``` with the following structure �
 - Omit ONLY when the project genuinely needs nothing (pure static site, pure library) — every service adds runner pull/start time, but never avoid a needed service out of frugality.
 - Tasks MUST use the env endpoints (`DATABASE_URL`, `REDIS_URL`, `MONGO_URL`, `S3_*`, plus any custom `env` — see `container-services` skill). Fallback data layers are FORBIDDEN: no SQLite/InMemory adapters, no second backends.
 
+## 🔌 External Integrations (key-in ready)
+- Every third-party API (payments, email, KYC, maps...) gets an **adapter boundary task**: interface + sandbox double + env-key mapping. The owner plugs in LIVE keys later and re-runs the same tests green — that is the definition of done, not "code written, untested".
+- **Sandbox first:** prefer the vendor's real sandbox — an emulator Docker image declared as a custom service (same pattern as S3Mock for S3), or the vendor's hosted sandbox env. Hand-written fakes ONLY when no sandbox exists, and then ONLY with a conformance test proving the fake honors the interface contract.
+- **Same env names everywhere:** test/sandbox credentials seeded in CI, live credentials owner-provided and NEVER in the tree (reviewers reject live secrets on sight). The swap is config-only, never code.
+- **KEY-IN deliverable (mandatory per integration):** exact owner steps to go live (where keys come from, which env vars, which tests to re-run, expected green output). A task without it is incomplete.
+
 ## 🚀 Launch Verification Task (tak-çalıştır proof)
 
 - For every milestone that SERVES anything over HTTP (API and/or UI), emit exactly ONE task with `"role": "launch"`, depending on ALL other tasks of that milestone (it runs last), with `targetFiles` covering the server entrypoint plus `workspace/tests/smoke/**`.

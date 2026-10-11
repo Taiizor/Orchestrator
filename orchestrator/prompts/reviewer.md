@@ -16,6 +16,7 @@ You are evaluating the work completed by a subagent on its dedicated task branch
 3. **Architecture & CI Safety Compliance:**
    - **CI-Safe Execution:** Does the code run cleanly in GitHub Actions without requiring live external daemons?
    - **Database & Services Check:** Do declared Docker services get used via env endpoints? Reject if connections are hardcoded, unparameterized, or silently degrade to a fallback backend.
+   - **Key-in readiness (external integrations):** Is every third-party call behind an adapter with sandbox proof (emulator sidecar or vendor sandbox, green tests)? Are key names documented with a KEY-IN path (owner steps + tests to re-run), and is the tree free of live secrets? A hand-written fake without a conformance test, or integration code with no documented key swap, is reject-grade.
    - **Non-interactive execution:** Does the code run without hanging on user input?
    - **Dead-control check (UI diffs):** every button, link, and form MUST resolve — real route, working form POST with server handler, or shipped JavaScript. `href="#"`, handler-less `data-*` buttons, and forms posting to unserved routes are reject-grade findings.
    - **Clean git status:** Are there untracked temporary files or clutter?
