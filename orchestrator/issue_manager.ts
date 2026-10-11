@@ -210,12 +210,21 @@ export class IssueManager {
     for (const comment of recentComments) {
       let body = (comment.body || "").trim();
       const commentId = comment.id || comment.databaseId;
+      // Per-comment trace: silent skips here are invisible in CI logs and
+      // cost hours of debugging (operator commands seemingly ignored).
+      console.log(
+        `💬 ChatOps considering comment ${String(commentId).slice(0, 20)} by @${comment.author?.login || "?"}: "${body.slice(0, 60)}"`
+      );
 
       // Skip comments by bot itself (login varies: github-actions[bot] vs github-actions)
-      if (/github-actions/i.test(comment.author?.login || "")) continue;
+      if (/github-actions/i.test(comment.author?.login || "")) {
+        console.log(`💬 ChatOps skipping ${String(commentId).slice(0, 20)}: own bot comment.`);
+        continue;
+      }
       // Authorization gate (public dashboard!): outsiders' slash commands
       // are silently marked processed, never executed.
       if (!(await this.isCommandAuthorized(comment.author?.login || ""))) {
+        console.log(`💬 ChatOps skipping ${String(commentId).slice(0, 20)}: unauthorized author.`);
         await this.markProcessed(commentId);
         continue;
       }
@@ -223,9 +232,13 @@ export class IssueManager {
       if (
         comment.reactionGroups?.some((r: any) => (r.content === "ROCKET" || r.content === "THUMBS_UP") && r.users?.totalCount > 0)
       ) {
+        console.log(`💬 ChatOps skipping ${String(commentId).slice(0, 20)}: already processed.`);
         continue;
       }
-      if (!body.startsWith("/")) continue;
+      if (!body.startsWith("/")) {
+        console.log(`💬 ChatOps skipping ${String(commentId).slice(0, 20)}: not a command.`);
+        continue;
+      }
 
       // Typo tolerance: /staus, /pausse, /statuss... (edit distance ≤ 2).
       // Unknown commands get the help text instead of silence.
