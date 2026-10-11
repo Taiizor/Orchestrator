@@ -471,9 +471,7 @@ export class ProjectManager {
         // Never fail silently: a missing label or milestone rejects creation
         // (e.g. role:launch absent from ensureLabels) and the task would stay
         // invisible on issues/board forever while the log looks innocent.
-        console.warn(
-          `⚠️ Issue creation failed for [${task.id}]: ${(issueRes.stdout + issueRes.stderr).slice(0, 300)}`
-        );
+        console.warn(`⚠️ Issue creation failed for [${task.id}]: ${(issueRes.stdout + issueRes.stderr).slice(0, 300)}`);
       }
       // Polite pacing: GitHub secondary rate limits trigger when creating issues too fast
       await Bun.sleep(1500);
