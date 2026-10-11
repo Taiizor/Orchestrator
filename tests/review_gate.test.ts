@@ -141,7 +141,7 @@ describe("Review Gate Module", () => {
 
   describe("isAllowedFile", () => {
     const task = { targetFiles: ["workspace/api/handlers/auth.go"] } as any;
-    it("allows lockfiles and manifests at any depth (TASK-007/013 regression)", () => {
+    it("allows lockfiles and manifests at any depth (scope regression)", () => {
       for (const f of [
         "workspace/go.mod",
         "workspace/go.sum",
