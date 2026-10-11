@@ -213,7 +213,14 @@ async function main() {
       "container-services",
       "observability-basics",
     ],
-    launch: ["container-services", "systematic-debugging", "test-evidence", "observability-basics", "deployment-readiness", "performance-budgets"],
+    launch: [
+      "container-services",
+      "systematic-debugging",
+      "test-evidence",
+      "observability-basics",
+      "deployment-readiness",
+      "performance-budgets",
+    ],
   };
   // Product stack precedence: --stack CLI (dispatch input) → task.stack
   // override → roadmap.stack → workspace markers. Every agent gets its
