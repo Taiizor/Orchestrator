@@ -1650,16 +1650,27 @@ export class OrchestratorEngine {
     // /revise) cannot prove disjointness, so two of them must never run
     // concurrently — parallel unscoped workers edit the same tree blind
     // (TASK-025/026 both touched web/bun.lock + progress). Scoped tasks
-    // still parallelize freely; unscoped ones serialize among themselves.
-    const unscopedActive = roadmap.tasks.some(
-      (t) => t.status === "IN_PROGRESS" && (!t.targetFiles || t.targetFiles.length === 0)
-    );
-    const dispatchable = unscopedActive ? readyTasks.filter((t) => t.targetFiles && t.targetFiles.length > 0) : readyTasks;
-    {
-      const held = readyTasks.length - dispatchable.length;
-      if (held > 0) {
-        console.log(`⏳ Holding ${held} unscoped task(s): another unscoped task is IN_PROGRESS (collision guard).`);
+    // still parallelize freely; unscoped ones serialize among themselves,
+    // INCLUDING within one dispatch batch (a batch would otherwise launch
+    // N unscoped workers atomically before any of them shows IN_PROGRESS).
+    const isUnscoped = (t: (typeof roadmap.tasks)[number]) => !t.targetFiles || t.targetFiles.length === 0;
+    let unscopedBusy = roadmap.tasks.some((t) => t.status === "IN_PROGRESS" && isUnscoped(t));
+    const dispatchable: typeof readyTasks = [];
+    let heldCount = 0;
+    for (const t of readyTasks) {
+      if (isUnscoped(t)) {
+        if (unscopedBusy) {
+          heldCount++;
+          continue;
+        }
+        unscopedBusy = true;
       }
+      dispatchable.push(t);
+    }
+    if (heldCount > 0) {
+      console.log(
+        `⏳ Holding ${heldCount} unscoped task(s): another unscoped task is IN_PROGRESS or dispatched ahead in this batch (collision guard).`
+      );
     }
     if (dispatchable.length === 0) {
       console.log("ℹ️ No ready tasks to dispatch at this time.");
