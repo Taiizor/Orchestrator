@@ -15,7 +15,7 @@ Use when integrating any external service (payments, email, maps, AI, storage).
 
 ## Rules
 
-1. **Isolate:** one adapter module per provider behind an internal interface; business code never imports the vendor SDK directly — enables mocks and provider swaps.
+1. **Isolate:** one adapter module per provider behind an internal interface; business code never imports the vendor SDK directly — enables sandbox-backed doubles and provider swaps. Every mock ships with a conformance test against the sandbox/emulator; mock-only verification fails review.
 2. **Bound every call:** explicit timeouts, retries with exponential backoff + jitter (max 3), circuit breaking on repeated failure.
 3. **Webhooks:** verify signatures on raw bytes; enforce timestamp/replay windows; persist provider event ids for effectively-once handling.
 4. **Keys:** sandbox vs production separation; keys from env only; version-pin the API you code against and handle deprecation headers.

@@ -15,7 +15,7 @@ Use when creating or altering a schema, table, endpoint, or response shape.
 
 ## Rules
 
-1. **Document immediately** in `workspace/CONTRACTS.md`: route + method, request headers/body schema, response schemas per status code (200/201/400/404/500), validation rules.
+1. **Document immediately** in `workspace/CONTRACTS.md`: route + method, request headers/body schema, response schemas per status code (200/201/400/404/500), validation rules. Every documented error status ships a test that triggers it.
 2. **Money:** integer minor units + ISO currency; amounts immutable once processing begins.
 3. **Idempotency:** `Idempotency-Key` on POST create/confirm paths; effectively-once webhook handling with `(provider_id, provider_event_id)` uniqueness.
 4. **Tenancy:** every query tenant-scoped; public IDs (UUIDv4) opaque and non-secret.

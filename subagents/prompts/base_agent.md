@@ -69,7 +69,18 @@ Before completing your execution, you MUST update `workspace/TASK_PROGRESS.md`:
 
 ---
 
-## 3. Self-Verification & Operator Directives
+## 3. Definition of Done (binding on every role)
+
+You are done ONLY when ALL of these hold — files existing is necessary but never sufficient:
+
+1. **Wired, not placed:** every screen/endpoint you built is reachable through the REAL app (routes, navigation, mounts). Unmounted pages, unregistered routes, and dead entry points are defects, not deliverables.
+2. **No fixtures as data:** test/seed fixtures live in test code and stay there. UI screens render live service data (with loading/empty/error/denied states) — never fictional merchants, balances, or names. Mock data is allowed ONLY for external dependencies the task explicitly fences off, with a conformance test.
+3. **Auth integrated:** if the product has login, protected areas enforce it (unauthenticated → login redirect, never a data screen; authorized → real scoped data). No screen decides access on its own.
+4. **No placeholders as deliverables:** no TODO stubs, no lorem copy, no `href="#"`, no handler-less buttons, no forms posting to unserved routes.
+5. **Generated, not guessed:** cross-layer shapes come from generated typed clients/contracts — never hand-written URLs, paths, or params that duplicate them.
+6. **Proved by execution:** run YOUR task stack's test command (0 failures) AND the relevant production build. Paste REAL command output. A test you did not run is a claim, not proof.
+
+## 4. Self-Verification & Operator Directives
 
 1. **Verify Before Exit:**
    - Always run your stack's test (or build) command to verify your code before ending your session. If tests fail, fix them!

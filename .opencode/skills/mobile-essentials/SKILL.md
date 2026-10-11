@@ -19,4 +19,4 @@ Use when building mobile features on any framework (native or cross-platform).
 2. **Permissions:** request in context with a plain-language reason, one at a time; degrade gracefully on denial; never require unrelated permissions.
 3. **On-device storage:** no secrets, tokens, or PII in plaintext storage — Keychain/Keystore or encrypted store; tokens short-lived with refresh.
 4. **Push:** permission priming before the system prompt; deep-link every notification to its screen; quiet hours respected.
-5. **Store readiness:** versioned API contract with the backend, crash-free baseline verified, screenshots/copy finalized, privacy answers prepared.
+5. **Store readiness:** versioned API contract with the backend, crash-free baseline with the crash-report run named (command + 0-crash output) in TASK_PROGRESS.md, screenshots/copy finalized, privacy answers prepared.

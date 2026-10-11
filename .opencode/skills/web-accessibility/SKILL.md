@@ -19,4 +19,4 @@ Use when building or auditing any user interface.
 2. **Screen readers:** semantic landmarks and headings; every control has an accessible name; live regions announce async outcomes (loading → success/failure).
 3. **Contrast & motion:** 4.5:1 text contrast minimum; honor `prefers-reduced-motion`; never convey status by color alone.
 4. **Forms:** labels (not placeholder-only), inline error text tied to inputs, error summary on submit failure.
-5. **Verify:** tab through the whole flow blind, then run one automated pass (axe/Lighthouse) and fix what it flags.
+5. **Verify:** tab through the whole flow blind, then run one automated pass (axe/Lighthouse), fix what it flags, and note the pass plus the blind walkthrough in TASK_PROGRESS.md.

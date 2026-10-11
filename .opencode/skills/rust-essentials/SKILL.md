@@ -16,7 +16,7 @@ Use on every task whose effective stack (`task.stack` ?? `roadmap.stack`, or `wo
 ## Rules
 
 1. **Toolchain only:** `cargo run` / `cargo test` / `cargo build`. Gate on `cargo fmt --check` AND `cargo clippy -- -D warnings` clean before exit.
-2. **Verify:** `cargo test` (0 failures) before exit; paste real output into `workspace/TASK_PROGRESS.md`. Unit tests in `#[cfg(test)]` modules beside code, integration tests in `tests/`; examples use `?`, never `unwrap!`.
+2. **Verify:** `cargo test` (0 failures, including at least one error-path case per new behavior) before exit; paste real output into `workspace/TASK_PROGRESS.md`. Unit tests in `#[cfg(test)]` modules beside code, integration tests in `tests/`; examples use `?`, never `unwrap!`.
 3. **Errors:** `Result<T, E>` for recoverable errors, `panic!` only for unrecoverable; propagate with `?`; domain errors via `thiserror`, app glue via `anyhow`; `Option<T>` for maybe-values. No `unwrap()`/`expect()` in library paths.
 4. **Style:** `&str` params over `String` unless ownership is needed; borrow over `clone()`; lazy iterators over premature `collect()`; `serde` for serialization; `tokio` for async (+`#[tokio::test]`); split `lib.rs` (logic, testable) from `main.rs` (thin binary). Test naming: scenario verbs (`creates_user_with_valid_email`, `rejects_order_when_insufficient_stock`).
 5. **Data access:** connect via env to declared Docker services (`std::env::var`, fail fast when missing); parameterized queries always (sqlx `$1`/`?` binds — never `format!` SQL). No fallback data layers. Parse, don't validate: newtypes (`Email::parse`) make invalid states unrepresentable.

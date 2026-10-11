@@ -20,4 +20,5 @@ Use when implementing or auditing login, signup, sessions, MFA, OAuth, or API ke
 3. **Sessions:** random opaque tokens, rotation on privilege change, absolute + idle expiry, secure/HttpOnly/SameSite cookies, CSRF tokens on state-changing routes.
 4. **MFA:** TOTP with backup codes; step-up authentication before sensitive actions (payouts, role changes, key rotation).
 5. **Brute force:** rate-limit + exponential backoff + lockout/breach screening on auth endpoints; log without recording secrets.
+6. **Proof per item:** each checklist item above ships a test (enumeration, expiry, lockout, rotation) with output in TASK_PROGRESS.md.
 6. **API keys:** salted-hash storage, visible prefix, scopes, expiry, rotation path — never the raw key after creation.

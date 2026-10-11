@@ -175,25 +175,45 @@ async function main() {
   // Dynamically attach relevant skills (deterministic injection; the same
   // skills are natively discoverable via the `skill` tool from
   // .opencode/skills/<name>/SKILL.md — reload them on demand by name).
+  // Role→skill injection is deterministic (prose triggers never evaluated).
+  // Authors MUST receive every standard they will be judged against:
+  // a judge-only skill (api-design, sql-review, auth-review) lets reviewers
+  // fail work for rules the author never saw.
   const ROLE_SKILLS: Record<string, string[]> = {
-    architect: ["api-contracts", "sql-review"],
+    architect: ["api-contracts", "sql-review", "test-driven-development"],
     backend: [
       "api-contracts",
+      "api-design",
       "error-handling",
       "backend-structure",
       "security-scan",
       "container-services",
       "observability-basics",
       "external-integrations",
+      "auth-review",
+      "sql-review",
+      "test-driven-development",
+      "systematic-debugging",
     ],
-    frontend: ["ui-conventions", "design-system", "i18n", "frontend-stack", "web-accessibility"],
-    mobile: ["ui-conventions", "mobile-essentials", "i18n", "frontend-stack"],
-    qa: ["test-evidence", "test-driven-development", "code-review", "container-services"],
-    security: ["security-scan", "auth-review"],
+    frontend: ["ui-conventions", "design-system", "i18n", "frontend-stack", "web-accessibility", "error-handling"],
+    mobile: ["ui-conventions", "mobile-essentials", "i18n", "frontend-stack", "error-handling"],
+    qa: ["test-evidence", "test-driven-development", "code-review", "container-services", "systematic-debugging"],
+    security: ["security-scan", "auth-review", "code-review"],
     reviewer: ["code-review", "api-design", "documentation-discipline", "security-scan"],
     tracker: ["code-review", "test-evidence"],
-    fullstack: ["api-contracts", "ui-conventions", "systematic-debugging", "code-review"],
-    launch: ["container-services", "systematic-debugging", "test-evidence", "observability-basics"],
+    fullstack: [
+      "api-contracts",
+      "ui-conventions",
+      "systematic-debugging",
+      "code-review",
+      "backend-structure",
+      "frontend-stack",
+      "error-handling",
+      "external-integrations",
+      "container-services",
+      "observability-basics",
+    ],
+    launch: ["container-services", "systematic-debugging", "test-evidence", "observability-basics", "deployment-readiness", "performance-budgets"],
   };
   // Product stack precedence: --stack CLI (dispatch input) → task.stack
   // override → roadmap.stack → workspace markers. Every agent gets its

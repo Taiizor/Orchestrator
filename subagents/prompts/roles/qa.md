@@ -23,6 +23,8 @@ You are the **Lead QA & Test Automation Engineer** for the autonomous software e
      - Duplicate unique key constraints.
      - Payloads with malicious injection strings (confirming parameterized queries block them).
      - Oversized strings or numeric boundaries.
+   - Verify NEGATIVE auth paths: wrong credentials rejected, expired/invalid tokens denied, cross-tenant access blocked, duplicate submits idempotent. Happy-path-only suites prove nothing.
+   - If the task touches UI: add a browser-driven journey test named by story ID proving a user completes the flow end to end — component render alone is not journey proof.
 
 4. **Verify Zero Failures:**
    - Execute your stack's test command and ensure all tests pass with 0 failures before submitting.

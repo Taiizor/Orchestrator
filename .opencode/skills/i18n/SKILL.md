@@ -16,6 +16,6 @@ Use when adding copy, new languages, or any user-facing text.
 ## Rules
 
 1. **No raw strings in UI:** all copy keyed (`checkout.pay_button`), never inline literals — including errors, placeholders, aria-labels, and dates.
-2. **Locale files:** one JSON per locale (`en.json`, `pl.json`...), identical key trees; missing keys fall back to the source locale and get flagged, never silently rendered blank.
+2. **Locale files:** one JSON per locale (`en.json`, `pl.json`...), identical key trees; missing keys fail CI; fallback to the source locale is dev-only, never shipped.
 3. **Intl, not hand-rolled:** numbers, currencies, dates, plurals via `Intl.*` APIs over the locale — no string concatenation for sentences.
 4. **Review gate:** a diff that adds user-facing text without locale keys fails review.

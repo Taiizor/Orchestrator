@@ -20,4 +20,4 @@ Use when creating screens, components, styles, or client-side state.
 3. **States:** every screen handles loading, empty, error, and permission-denied — no blank frames.
 4. **Money display:** `Intl.NumberFormat` over minor units; never sum across currencies without FX — grouped subtotals.
 5. **No backend guessing:** method lists, amounts, and flows come from typed contracts only; capability-gated features hide when ineligible.
-6. **Copy:** use provided copy decks verbatim; mark untranslated strings with `TBD` locale flags.
+6. **Copy:** use provided copy decks verbatim; missing locale keys fail review per `i18n` — no TBD/untranslated strings ship.

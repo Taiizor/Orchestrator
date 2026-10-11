@@ -16,6 +16,6 @@ Use when writing fallible logic — API handlers, services, data fetching, forms
 ## Rules
 
 1. **Backend envelope:** errors return the shared shape (`code`, `message`, per-field `details`); 4xx for caller faults, 5xx for ours; never stack traces or SQL text to clients — log those server-side with a correlation id.
-2. **Never swallow:** no empty `catch`, no ignored rejections; each layer either handles, enriches-and-rethrows, or declares.
+2. **Never swallow:** no empty `catch`, no ignored rejections; catching without rethrow or a typed user-facing error fails review — log-and-continue only at the top-level boundary.
 3. **UI boundaries:** every async flow renders loading → success | friendly-error-with-retry; forms show field-level errors plus a summary.
 4. **Fail fast:** validate at system boundaries (request schemas, function preconditions) and reject with clear messages before side effects.
