@@ -134,13 +134,15 @@ const SECRET_PATTERNS: { name: string; rx: RegExp }[] = [
   { name: "Slack token", rx: /xox[bap]-/ },
   { name: "OpenAI API key", rx: /sk-[A-Za-z0-9]{32,}/ },
   { name: "Anthropic API key", rx: /sk-ant-[A-Za-z0-9_-]{32,}/ },
+  { name: "Stripe live key", rx: /[rs]k_live_[A-Za-z0-9]+/ },
   { name: "Private key block", rx: /-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----/ },
 ];
 // NOTE: no `.env`-string content pattern — filenames are covered by the
 // files rule below, and README-style "copy .env.example to .env" docs must
 // never fail the gate.
 
-const GENERIC_SECRET_RX = /(api[_-]?key|secret|password)\s*[:=]\s*['"]([^'"]+)['"]/i;
+const GENERIC_SECRET_RX =
+  /(api[_-]?key|secret|password|passwd|pwd|client[_-]?secret|access[_-]?token|auth[_-]?token|bearer|jwt)\s*[:=]\s*['"]([^'"]+)['"]/i;
 /** Values that are obviously synthetic fixtures, not leaked credentials. */
 const PLACEHOLDER_VALUE_RX = /(your|example|sample|placeholder|changeme|todo|test|mock|fake|dummy|xxx)/i;
 
@@ -202,16 +204,85 @@ export function scanSecrets(diff: string, files: string[]): string[] {
   }
   // Sensitive filenames — except the canonical `.env.example` template.
   // Match actual .pem or .key extensions, not substring hits like sort.key.ts.
+  // Credential-store files are always reject-grade, anywhere (including the
+  // odd test path — a committed credentials.json is never a fixture).
   if (
     files.some((f) => {
       const m = f.match(/(^|\/)\.env([^/]*)$/i);
       if (m && m[2] !== ".example") return true;
-      return /\.(pem|key)$/i.test(f);
+      if (/\.(pem|key)$/i.test(f)) return true;
+      return /(^|\/)(credentials\.json|secrets?\.ya?ml|secrets?\.json)$/i.test(f);
     })
   ) {
-    hits.push("Sensitive file (.env/.pem/.key) in changeset");
+    hits.push("Sensitive file (.env/.pem/.key/credentials/secrets) in changeset");
   }
   return [...new Set(hits)];
+}
+
+/** SQL keyword on a line that also builds strings → injection-shaped. */
+const SQL_KW_RX = /\b(SELECT|INSERT|UPDATE|DELETE|CREATE\s+TABLE|DROP\s+TABLE|WHERE)\b/i;
+const SQL_CONCAT_RX = /(\+\s*['"`]|[`'"]\s*\+|\$\{|%s|fmt\.Sprintf|format\(|Query\(.*\+|Exec\(.*\+)/;
+
+export function scanSqlInjection(diff: string): string[] {
+  const hits: string[] = [];
+  for (const [file, lines] of addedLinesByFile(diff)) {
+    if (isTestPath(file)) continue;
+    if (!/\.(ts|js|tsx|jsx|go|py|php|rb|java|kt|cs|rs)$/i.test(file)) continue;
+    for (const line of lines) {
+      if (SQL_KW_RX.test(line) && SQL_CONCAT_RX.test(line)) {
+        hits.push(`Possible SQL concatenation in ${file}: ${line.slice(1, 100).trim()}`);
+        break;
+      }
+    }
+  }
+  return hits;
+}
+
+/** Embedded fallback data layers — Docker-always forbids every one of these. */
+const FALLBACK_RX = /better-sqlite3|:memory:|new Database\(\s*['"]|sqlite3?\.open\(\s*['"]|sql\.open\(\s*["']sqlite/i;
+
+export function scanFallbackLayers(diff: string): string[] {
+  const hits: string[] = [];
+  for (const [file, lines] of addedLinesByFile(diff)) {
+    if (isTestPath(file)) continue;
+    if (!/\.(ts|js|tsx|jsx|go|py|php|rb|java|kt|cs|rs)$/i.test(file)) continue;
+    for (const line of lines) {
+      if (FALLBACK_RX.test(line)) {
+        hits.push(`Embedded fallback data layer in ${file}: ${line.slice(1, 100).trim()}`);
+        break;
+      }
+    }
+  }
+  return hits;
+}
+
+/** Heuristic tier (warn-only): mock-money literals and dead UI controls.
+ *  Too context-sensitive to fail closed — a finance test asserting on
+ *  "mock balance" text would false-positive — but reviewers must see them.
+ */
+export function scanDemoSmells(diff: string): string[] {
+  const warns: string[] = [];
+  const mockMoney = /(mock|fake|stub|placeholder|sample|demo)[-_ ]?(balance|fund|money|amount|ledger|payout)/i;
+  for (const [file, lines] of addedLinesByFile(diff)) {
+    if (isTestPath(file)) continue;
+    for (const line of lines) {
+      if (mockMoney.test(line)) {
+        warns.push(`Mock-money literal in ${file} — confirm sandbox-backed proof, not demo funds`);
+        break;
+      }
+    }
+  }
+  for (const [file, lines] of addedLinesByFile(diff)) {
+    if (isTestPath(file)) continue;
+    if (!/\.(tsx|jsx|vue|html|php|tsx?)$/i.test(file)) continue;
+    for (const line of lines) {
+      if (/href\s*=\s*["']#["']/.test(line)) {
+        warns.push(`Dead control href="#" in ${file} — every control must resolve (route/handler/shipped JS)`);
+        break;
+      }
+    }
+  }
+  return [...new Set(warns)];
 }
 
 /** Soft-tier: secret-shaped assignments with placeholder values. Warn only. */
@@ -242,7 +313,7 @@ function touchesApiOrSchema(files: string[]): boolean {
  * under a previous version must be re-evaluated, never skipped by the
  * unchanged-tip optimization.
  */
-export const GATE_VERSION = 7;
+export const GATE_VERSION = 8;
 
 /**
  * Deterministic pre-LLM gate. Fails fast on empty diff, missing progress
@@ -315,6 +386,16 @@ export async function runReviewGate(task: TaskItem, diff: string, progressConten
     failures.push(`Potential secret leak detected: ${secrets.join(", ")}.`);
   }
   for (const w of scanSecretWarnings(diff)) warnings.push(w);
+
+  // Injection + fallback layers fail closed (precise, low-FP patterns).
+  for (const hit of scanSqlInjection(diff)) {
+    failures.push(`Possible SQL injection (unparameterized query): ${hit}.`);
+  }
+  for (const hit of scanFallbackLayers(diff)) {
+    failures.push(`Embedded fallback data layer (Docker-always violation): ${hit}.`);
+  }
+  // Demo smells are heuristic — warn so the (LLM) reviewer sees them.
+  for (const w of scanDemoSmells(diff)) warnings.push(w);
 
   if (!lineageBroken && touchesApiOrSchema(fileList) && !fileList.includes("workspace/CONTRACTS.md")) {
     warnings.push("API/schema/services changed but workspace/CONTRACTS.md not updated (contract drift).");

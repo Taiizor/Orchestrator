@@ -1,5 +1,6 @@
 node_modules/
-bun.lock
+# bun.lock IS committed (reproducible CI with --frozen-lockfile); only the
+# legacy binary lock stays ignored.
 bun.lockb
 .env
 .env.local

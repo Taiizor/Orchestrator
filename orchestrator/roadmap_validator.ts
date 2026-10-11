@@ -50,6 +50,7 @@ export function validateRoadmap(raw: {
     deliverables?: string[];
     verificationCommand?: string;
     stack?: unknown;
+    launchRound?: unknown;
   }[];
   milestones?: { title: string }[];
   services?: (string | { name?: string; image?: string; env?: Record<string, string>; ports?: string[] })[];
@@ -88,6 +89,13 @@ export function validateRoadmap(raw: {
   const ids = tasks.map((t) => t.id);
   const dupes = ids.filter((id, i) => ids.indexOf(id) !== i);
   if (dupes.length > 0) errors.push(`Duplicate task IDs: ${[...new Set(dupes)].join(", ")}.`);
+  // Task IDs flow into branch names (task/<id>), issue titles and run
+  // matching — spaces/slashes/dots break git refs and dispatch correlation.
+  for (const t of tasks) {
+    if (typeof t.id !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(t.id)) {
+      errors.push(`[${String(t.id).slice(0, 40)}] invalid task ID (use letters/digits/_/- only, must not start with -).`);
+    }
+  }
 
   const idSet = new Set(ids);
   for (const t of tasks) {
@@ -113,7 +121,9 @@ export function validateRoadmap(raw: {
     }
     if (!t.verificationCommand) {
       warnings.push(`[${t.id}] has no verificationCommand; proof of completion unenforceable.`);
-    } else if (!isKnownStackCommand(t.verificationCommand)) {
+    } else if (!isKnownStackCommand(t.verificationCommand) && t.role !== "launch") {
+      // Launch tasks run smoke commands (playwright, probe scripts) that
+      // match no product toolchain by design — exempt, never warn.
       warnings.push(
         `[${t.id}] verificationCommand "${t.verificationCommand.slice(0, 60)}" matches no known stack toolchain (bun/go/cargo/dotnet/pytest/phpunit); proof may be unverifiable in CI.`
       );
@@ -228,6 +238,32 @@ export function validateRoadmap(raw: {
     if (!mtasks.some((t) => SERVING_ROLES.has(t.role))) continue;
     if (!mtasks.some((t) => t.role === "launch")) {
       warnings.push(`Milestone "${m.title}" serves HTTP but has no launch-verification task; tak-çalıştır is unproven.`);
+    }
+  }
+
+  // Launch discipline: every launch task carries its round (re-launch
+  // machinery, watchdog and merge keys depend on it), and a milestone must
+  // not hold two launches on the same round (double boot/probe races).
+  // Round 2+ is legitimate (auto re-launch after fixes) — only the
+  // duplication is an error.
+  for (const t of tasks) {
+    if (t.role !== "launch") continue;
+    if (t.launchRound === undefined || t.launchRound === null) {
+      errors.push(`[${t.id}] launch task has no launchRound (set 1; re-launches increment).`);
+    } else if (typeof t.launchRound !== "number" || !Number.isInteger(t.launchRound) || t.launchRound < 1) {
+      errors.push(`[${t.id}] launchRound must be a positive integer, got ${JSON.stringify(t.launchRound)?.slice(0, 20)}.`);
+    }
+  }
+  const rounds = new Map<string, number>();
+  for (const t of tasks) {
+    if (t.role !== "launch" || typeof t.launchRound !== "number") continue;
+    const key = `${t.milestone || ""}::${t.launchRound}`;
+    rounds.set(key, (rounds.get(key) || 0) + 1);
+  }
+  for (const [key, n] of rounds) {
+    if (n > 1) {
+      const [ms, r] = key.split("::");
+      errors.push(`Milestone "${ms}" has ${n} launch tasks on round ${r}; exactly one per round (probe races, double verdicts).`);
     }
   }
 

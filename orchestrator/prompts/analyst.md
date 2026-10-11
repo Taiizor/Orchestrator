@@ -56,7 +56,7 @@ Your compiled specification MUST be organized using the following markdown hiera
 - Engine runtime: Bun (orchestrator only — `bun run orchestrator/engine.ts`).
 - Product stack: roadmap-declared (`bun | go | rust | dotnet | python | php`, default `bun`) — all product build/test commands use this toolchain.
 - Database Architecture: real Docker services everywhere (local + CI: PostgreSQL/Redis/Mongo per declaration, any custom image as `{name, image, env?, ports?}`), clean migration path to production. No fallback data layers.
-- Caching Strategy: Redis via `REDIS_URL`, always present.
+- Caching Strategy: Redis via `REDIS_URL` when the workload needs caching/sessions/queues/rate limiting (declare it; never assume it undeclared).
 - Storage Strategy: S3 API everywhere (Adobe S3Mock in CI, R2/AWS in production).
 
 ## 5. Domain Entities & Database Schema

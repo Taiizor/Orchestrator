@@ -7,6 +7,9 @@ import {
   isAllowedFile,
   scanSecrets,
   scanSecretWarnings,
+  scanSqlInjection,
+  scanFallbackLayers,
+  scanDemoSmells,
   GATE_VERSION
 } from "../orchestrator/review_gate.ts";
 
@@ -112,14 +115,14 @@ describe("Review Gate Module", () => {
     });
 
     it("should flag sensitive filenames and avoid false positives", () => {
-      expect(scanSecrets("", [".env"])).toContain("Sensitive file (.env/.pem/.key) in changeset");
-      expect(scanSecrets("", ["src/cert.pem"])).toContain("Sensitive file (.env/.pem/.key) in changeset");
-      expect(scanSecrets("", ["src/server.key"])).toContain("Sensitive file (.env/.pem/.key) in changeset");
-      expect(scanSecrets("", ["src/sort.key.ts"])).not.toContain("Sensitive file (.env/.pem/.key) in changeset");
+      expect(scanSecrets("", [".env"])).toContain("Sensitive file (.env/.pem/.key/credentials/secrets) in changeset");
+      expect(scanSecrets("", ["src/cert.pem"])).toContain("Sensitive file (.env/.pem/.key/credentials/secrets) in changeset");
+      expect(scanSecrets("", ["src/server.key"])).toContain("Sensitive file (.env/.pem/.key/credentials/secrets) in changeset");
+      expect(scanSecrets("", ["src/sort.key.ts"])).not.toContain("Sensitive file (.env/.pem/.key/credentials/secrets) in changeset");
     });
 
     it("should allow .env.example", () => {
-      expect(scanSecrets("", [".env.example"])).not.toContain("Sensitive file (.env/.pem/.key) in changeset");
+      expect(scanSecrets("", [".env.example"])).not.toContain("Sensitive file (.env/.pem/.key/credentials/secrets) in changeset");
     });
   });
 
@@ -136,6 +139,37 @@ describe("Review Gate Module", () => {
     it("should be a number", () => {
       expect(typeof GATE_VERSION).toBe("number");
       expect(GATE_VERSION).toBeGreaterThan(0);
+    });
+  });
+
+  describe("content scans", () => {
+    const h = (f: string) => `+++ b/${f}`;
+    it("flags SQL concatenation outside tests", () => {
+      const diff = `${h("workspace/api/db.ts")}\n+const q = "SELECT * FROM t WHERE id=" + id;`;
+      expect(scanSqlInjection(diff).length).toBeGreaterThan(0);
+      const param = `${h("workspace/api/db.ts")}\n+const q = await db.query("SELECT * FROM t WHERE id=$1", [id]);`;
+      expect(scanSqlInjection(param)).toEqual([]);
+      const test = `${h("workspace/api/db.test.ts")}\n+const q = "SELECT x" + y;`;
+      expect(scanSqlInjection(test)).toEqual([]);
+    });
+    it("flags embedded fallback layers outside tests", () => {
+      const diff = `${h("workspace/src/db.ts")}\n+import Database from "better-sqlite3";`;
+      expect(scanFallbackLayers(diff).length).toBeGreaterThan(0);
+      const mem = `${h("workspace/api/s.ts")}\n+const db = new Database(':memory:');`;
+      expect(scanFallbackLayers(mem).length).toBeGreaterThan(0);
+      const pg = `${h("workspace/api/s.ts")}\n+const db = new Database(process.env.DATABASE_URL);`;
+      expect(scanFallbackLayers(pg)).toEqual([]);
+    });
+    it("warns on mock-money literals and dead controls (never fails)", () => {
+      const diff = `${h("workspace/web/Bal.tsx")}\n+const mockBalance = 100;\n+<a href="#">x</a>`;
+      expect(scanDemoSmells(diff).length).toBeGreaterThan(0);
+    });
+    it("catches stripe live keys and credential-store filenames", () => {
+      const diff = `${h("workspace/api/pay.ts")}\n+const k = "sk_live_abc123";`;
+      expect(scanSecrets(diff, ["workspace/api/pay.ts"]).join(" ")).toMatch(/Stripe/);
+      expect(scanSecrets("", ["workspace/credentials.json"])).toContain(
+        "Sensitive file (.env/.pem/.key/credentials/secrets) in changeset"
+      );
     });
   });
 

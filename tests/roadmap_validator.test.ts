@@ -233,6 +233,47 @@ describe("Roadmap Validator Module", () => {
       expect(r.errors.some((e) => e.includes("does not depend on the contract task"))).toBe(true);
     });
 
+    it("should error on invalid task IDs", () => {
+      const base = {
+        role: "backend", dependencies: [], targetFiles: ["a"],
+        description: "word ".repeat(25).trim(),
+        deliverables: ["Create a.ts", "Test a.ts"],
+        verificationCommand: "bun test"
+      };
+      for (const badId of ["bad id", "task/001", "../x", "TASK 001", ""]) {
+        const r = validateRoadmap({ tasks: [{ ...base, id: badId }] });
+        expect(r.errors.some((e) => e.includes("invalid task ID"))).toBe(true);
+      }
+      const good = validateRoadmap({ tasks: [{ ...base, id: "TASK-001" }] });
+      expect(good.errors).toEqual([]);
+    });
+
+    it("should enforce launch discipline (round present, unique per milestone)", () => {
+      const mkLaunch = (id: string, milestone: string, round: any) => ({
+        id, role: "launch", dependencies: [], targetFiles: ["workspace/src/index.ts"],
+        milestone,
+        description: "word ".repeat(25).trim(),
+        deliverables: ["Boot app", "Probe surfaces"],
+        verificationCommand: "bun test workspace/tests/smoke",
+        launchRound: round,
+      });
+      const ms = [{ title: "v1" }];
+      const noRound = validateRoadmap({ milestones: ms, tasks: [mkLaunch("t1", "v1", undefined)] });
+      expect(noRound.errors.some((e) => e.includes("no launchRound"))).toBe(true);
+      const badRound = validateRoadmap({ milestones: ms, tasks: [mkLaunch("t1", "v1", 0)] });
+      expect(badRound.errors.some((e) => e.includes("positive integer"))).toBe(true);
+      const dupe = validateRoadmap({
+        milestones: ms,
+        tasks: [mkLaunch("t1", "v1", 1), mkLaunch("t2", "v1", 1)],
+      });
+      expect(dupe.errors.some((e) => e.includes("exactly one per round"))).toBe(true);
+      const ok = validateRoadmap({
+        milestones: ms,
+        tasks: [mkLaunch("t1", "v1", 1), mkLaunch("t2", "v1", 2)],
+      });
+      expect(ok.errors).toEqual([]);
+    });
+
     it("should warn on uncovered input files", () => {
       const tasks = [{
         id: "t1", role: "backend", dependencies: [], targetFiles: ["a"],

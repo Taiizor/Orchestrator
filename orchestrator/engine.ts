@@ -247,6 +247,12 @@ export class OrchestratorEngine {
             targetFiles: t.targetFiles || [],
             // Per-task stack override (split layers); undefined = inherit roadmap.stack.
             stack: typeof t.stack === "string" && t.stack.trim() ? (t.stack.trim().toLowerCase() as any) : undefined,
+            // Launch round survives planning (validator requires it on launch
+            // tasks); invalid values stay undefined so validation flags them.
+            launchRound:
+              typeof t.launchRound === "number" && Number.isInteger(t.launchRound) && t.launchRound >= 1
+                ? t.launchRound
+                : undefined,
             deliverables: Array.isArray((t as any).deliverables)
               ? (t as any).deliverables.filter((d: any) => typeof d === "string" && d.trim()).map((d: string) => d.trim())
               : [],
@@ -299,6 +305,7 @@ export class OrchestratorEngine {
         deliverables: t.deliverables,
         verificationCommand: t.verificationCommand,
         stack: (t as any).stack,
+        launchRound: (t as any).launchRound,
       })),
       milestones: roadmapData.milestones,
       services: roadmapData.services,
@@ -586,6 +593,18 @@ export class OrchestratorEngine {
               `${i + 1}. [${g.area}] ${g.detail}${g.files?.length ? ` (likely: ${g.files.join(", ")})` : ""}${g.log ? `\n   log: ${g.log.slice(0, 500)}` : ""}`
           )
           .join("\n");
+        // Inherit the failed launch's layer: a split-stack fix dispatched on
+        // the roadmap default instead of the failing layer's stack is a
+        // guaranteed fail (go breakage fixed with bun). Gap files scope the
+        // fix; empty when the verdict names none (reviewer judges relevance).
+        const gapFiles = [
+          ...new Set(
+            verdict.gaps
+              .flatMap((g) => g.files || [])
+              .filter((f) => typeof f === "string" && f.startsWith("workspace/"))
+              .slice(0, 12)
+          ),
+        ];
         roadmap.tasks.push({
           id: fixId,
           title: `${LAUNCH_FIX_TITLE_PREFIX} (round ${rounds + 1})`,
@@ -594,7 +613,16 @@ export class OrchestratorEngine {
             `Failing gaps:\n${gapText || "(no gap details reported)"}\n\nEvidence:\n${(verdict.evidence || "").slice(0, 1000)}`,
           role,
           dependencies: [],
-          targetFiles: [],
+          targetFiles: gapFiles,
+          stack: (task as any).stack,
+          deliverables: [
+            `Fix the ${verdict.gaps.length || "reported"} launch gap(s) in ${gapFiles.length > 0 ? gapFiles.join(", ") : "the failing areas"}`,
+            `Prove the fix with ${(task as any).verificationCommand || "the layer toolchain tests"} (0 failures, real output in TASK_PROGRESS.md)`,
+          ],
+          verificationCommand:
+            typeof (task as any).verificationCommand === "string" && (task as any).verificationCommand.trim()
+              ? (task as any).verificationCommand.trim()
+              : undefined,
           status: "PENDING",
           branch: `task/${fixId}`,
           milestone: task.milestone,
@@ -622,6 +650,8 @@ export class OrchestratorEngine {
           role: "launch",
           dependencies: [task.id],
           targetFiles: template?.targetFiles ? [...template.targetFiles] : [],
+          stack: (template as any)?.stack,
+          verificationCommand: (template as any)?.verificationCommand,
           status: "PENDING",
           branch: `task/${relaunchId}`,
           milestone: task.milestone,
@@ -825,6 +855,7 @@ export class OrchestratorEngine {
         deliverables: t.deliverables,
         verificationCommand: t.verificationCommand,
         stack: (t as any).stack,
+        launchRound: (t as any).launchRound,
       })),
       milestones: roadmap.milestones,
       services: roadmap.services,
@@ -1131,9 +1162,12 @@ export class OrchestratorEngine {
       if (gate.warnings.length > 0) {
         console.warn(`⚠️ [${task.id}] gate warnings:\n- ${gate.warnings.join("\n- ")}`);
       }
-      const rejectTask = async (notes: string, fixes: string[]) => {
+      const rejectTask = async (notes: string, fixes: string[], opts?: { burnAttempt?: boolean }) => {
         console.warn(`⚠️ [${task.id}] REJECTED: ${notes}`);
-        task.attempts += 1;
+        // Infra failures (unmergable branch, push races) must not consume the
+        // agent's attempt budget — the work was approved, only delivery broke.
+        const burn = opts?.burnAttempt !== false;
+        if (burn) task.attempts += 1;
         if (tipSha) {
           task.lastReviewSha = tipSha;
           task.lastGateVersion = GATE_VERSION;
@@ -1234,6 +1268,24 @@ export class OrchestratorEngine {
         ]);
         continue;
       }
+      // Reviewer-output floor: an approval with a one-word note ("lgtm")
+      // carries zero checklist evidence — fail closed, same as garbage.
+      if (reviewResult.approved && reviewResult.notes.trim().length < 20) {
+        await rejectTask(
+          `Reviewer approval has no substantive notes (${reviewResult.notes.trim().length} chars; checklist evidence required). Raw head: ${res.stdout.slice(0, 200)}`,
+          ["Ensure reviewer covers all 4 checklist areas in notes"]
+        );
+        continue;
+      }
+      // Approval WITH fixes is incoherent: findings must be addressed, not
+      // merged alongside. Convert to rejection so the fixes get worked.
+      if (reviewResult.approved && reviewResult.suggestedFixes.length > 0) {
+        await rejectTask(
+          `Reviewer approved but listed ${reviewResult.suggestedFixes.length} finding(s): ${reviewResult.notes}`,
+          reviewResult.suggestedFixes
+        );
+        continue;
+      }
 
       if (reviewResult.approved) {
         console.log(`✅ [${task.id}] APPROVED! Integrating branch ${task.branch} into ${CONFIG.INTEGRATION_BRANCH} via PR...`);
@@ -1292,7 +1344,8 @@ export class OrchestratorEngine {
         } else {
           await rejectTask(
             `Approved but integration failed${viaPR ? ` (PR ${viaPR} unmergable, local merge also failed)` : ""}. Manual inspection needed.`,
-            ["Resolve merge conflicts on the task branch and re-queue with /retry"]
+            ["Resolve merge conflicts on the task branch and re-queue with /retry"],
+            { burnAttempt: false }
           );
         }
       } else {
@@ -1338,13 +1391,18 @@ export class OrchestratorEngine {
     // below and `pull --rebase` in the retry loop — stash tracked edits
     // aside first, restore them on the way out (runners are ephemeral).
     await GitManager.run(["git", "stash", "push", "-m", "orchestrator-state-keepout"]);
-    await GitManager.run(["git", "checkout", CONFIG.BASE_BRANCH]);
+    const co = await GitManager.run(["git", "checkout", CONFIG.BASE_BRANCH]);
+    if (co.exitCode !== 0) {
+      console.error("❌ State persist: checkout failed, refusing to commit on the wrong branch.");
+      await GitManager.run(["git", "stash", "pop"]);
+      return;
+    }
     // Freshness first: a long tick (slow LLM reviews) may hold a stale copy.
     // Merge remote truth in BEFORE saving so we never wipe fields like
     // projectNumber that another run persisted meanwhile.
     try {
       await GitManager.run(["git", "fetch", "origin"]);
-      const show = await GitManager.run(["git", "show", "origin/main:" + CONFIG.ROADMAP_FILE]);
+      const show = await GitManager.run(["git", "show", `origin/${CONFIG.BASE_BRANCH}:${CONFIG.ROADMAP_FILE}`]);
       const remote = JSON.parse(show.stdout) as Roadmap;
       Object.assign(roadmap, StateManager.mergeRoadmaps(roadmap, remote));
     } catch {
@@ -1369,7 +1427,7 @@ export class OrchestratorEngine {
       console.warn("⚠️ Rebase conflict on state files — field-merging roadmaps.");
       await GitManager.run(["git", "rebase", "--abort"]);
       try {
-        const show = await GitManager.run(["git", "show", "origin/main:" + CONFIG.ROADMAP_FILE]);
+        const show = await GitManager.run(["git", "show", `origin/${CONFIG.BASE_BRANCH}:${CONFIG.ROADMAP_FILE}`]);
         const remote = JSON.parse(show.stdout) as Roadmap;
         const merged = StateManager.mergeRoadmaps(roadmap, remote);
         Object.assign(roadmap, merged);
@@ -1776,7 +1834,10 @@ export class OrchestratorEngine {
       } else {
         task.status = "PENDING";
         console.warn(`⏰ Watchdog (${why}): [${task.id}] re-queued (${task.attempts}/${task.maxAttempts}).`);
-        task.reviewNotes = `Watchdog (${why}); re-queued. Previous notes preserved below.\n${task.reviewNotes || ""}`;
+        task.reviewNotes = `Watchdog (${why}); re-queued. Previous notes preserved below.\n${task.reviewNotes || ""}`.slice(
+          0,
+          2000
+        );
       }
       task.updatedAt = new Date().toISOString();
       if (roadmap.projectNumber) {
@@ -1862,9 +1923,13 @@ export class OrchestratorEngine {
         // orchestrator never did.
         if (milestoneTasks.length > 0 && milestoneTasks.every((t) => t.reviewNotes?.includes("[ADOPTED]"))) continue;
         if (milestoneTasks.length > 0 && milestoneTasks.every((t) => t.status === "COMPLETED")) {
-          const closed = await IssueManager.closeMilestoneIfCompleted(m.title);
-          if (closed) {
-            const tag = `v0.${i + 1}.0`;
+          const tag = `v0.${i + 1}.0`;
+          // Release is tied to TAG existence, not to this tick's close call:
+          // close-then-release is not atomic, and a crash between them (or
+          // an already-closed milestone) used to lose the release forever.
+          const tagExists = await IssueManager.milestoneTagExists(tag);
+          await IssueManager.closeMilestoneIfCompleted(m.title);
+          if (!tagExists) {
             console.log(`🎉 Milestone "${m.title}" completed! Publishing release ${tag}...`);
             await IssueManager.createMilestoneRelease(
               tag,
@@ -1929,6 +1994,37 @@ export class OrchestratorEngine {
         roadmap.lastBoardSyncAt = new Date().toISOString();
       } else {
         console.log("ℹ️ Board in sync (no status drift); skipping snapshot.");
+      }
+    }
+
+    // FAILED propagation alarm: dependents of a FAILED task sit PENDING
+    // forever (getReadyTasks needs COMPLETED deps) with no signal except a
+    // counter. Escalate ONCE per failed task (marker in reviewNotes) with an
+    // operator call-to-action; never auto-fail dependents (the fix might be
+    // a /revise away, and mass-FAILED would nuke recoverable roadmaps).
+    const blocked = roadmap.tasks.filter(
+      (t) =>
+        t.status === "FAILED" &&
+        !(t.reviewNotes || "").includes("[ESCALATED-dependents]") &&
+        roadmap.tasks.some((d) => d.dependencies.includes(t.id) && d.status !== "COMPLETED" && d.status !== "FAILED")
+    );
+    if (blocked.length > 0) {
+      const issueNum = await IssueManager.syncDashboardIssue(roadmap);
+      if (issueNum) {
+        const stuck = blocked.flatMap((t) =>
+          roadmap.tasks
+            .filter((d) => d.dependencies.includes(t.id) && d.status !== "COMPLETED" && d.status !== "FAILED")
+            .map((d) => `\`${d.id}\``)
+        );
+        await IssueManager.postMilestoneUpdate(
+          issueNum,
+          `🚨 **Blocked downstream:** ${blocked.map((t) => `\`[${t.id}]\``).join(", ")} FAILED with dependents stuck PENDING (${[...new Set(stuck)].join(", ")}). ` +
+            `Fix with \`/retry <TASK-ID>\` (fresh attempt) or \`/revise <TASK-ID> "change"\` (surgical rework), then tick.`
+        );
+        for (const t of blocked) {
+          t.reviewNotes = `${t.reviewNotes || ""}\n[ESCALATED-dependents] Operator notified on dashboard.`.trim();
+          t.updatedAt = new Date().toISOString();
+        }
       }
     }
 

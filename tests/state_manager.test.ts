@@ -126,6 +126,50 @@ describe("State Manager Module", () => {
 
       expect(StateManager.mergeRoadmaps(local, remote).globalStatus).toBe("PAUSED");
     });
+
+    it("preserves linkage fields across writers (no double dispatch / orphan issues)", () => {
+      const lt = createMockTask("t1", "IN_PROGRESS", "2026-10-10T10:00:00Z");
+      (lt as any).dispatchedAt = "2026-10-10T10:00:00Z";
+      (lt as any).runId = 111;
+      const rt = createMockTask("t1", "IN_PROGRESS", "2026-10-10T09:00:00Z");
+      (rt as any).issueNumber = 5;
+      (rt as any).issueUrl = "https://x/5";
+      const local = createMockRoadmap([lt]);
+      const remote = createMockRoadmap([rt]);
+
+      const m = StateManager.mergeRoadmaps(local, remote).tasks[0] as any;
+      expect(m.dispatchedAt).toBe("2026-10-10T10:00:00Z");
+      expect(m.runId).toBe(111);
+      expect(m.issueNumber).toBe(5);
+      expect(m.issueUrl).toBe("https://x/5");
+    });
+
+    it("renames same-ID different-content tasks instead of dropping one", () => {
+      const lt = createMockTask("TASK-9", "PENDING", "2026-10-10T10:00:00Z");
+      (lt as any).createdAt = "2026-10-10T10:00:00Z";
+      (lt as any).title = "Local thing";
+      (lt as any).description = "local content";
+      const rt = createMockTask("TASK-9", "PENDING", "2026-10-10T09:00:00Z");
+      (rt as any).createdAt = "2026-10-10T09:00:00Z";
+      (rt as any).title = "Different thing";
+      (rt as any).description = "remote content";
+      const merged = StateManager.mergeRoadmaps(createMockRoadmap([lt]), createMockRoadmap([rt]));
+      const ids = merged.tasks.map((t) => t.id);
+      expect(new Set(ids).size).toBe(2);
+      expect(ids).toContain("TASK-9");
+    });
+
+    it("unions consumedServiceRequests and keeps max board sync time", () => {
+      const local = createMockRoadmap([]);
+      (local as any).consumedServiceRequests = ["a", "b"];
+      (local as any).lastBoardSyncAt = "2026-10-10T10:00:00Z";
+      const remote = createMockRoadmap([]);
+      (remote as any).consumedServiceRequests = ["b", "c"];
+      (remote as any).lastBoardSyncAt = "2026-10-10T09:00:00Z";
+      const m = StateManager.mergeRoadmaps(local, remote) as any;
+      expect(m.consumedServiceRequests.sort()).toEqual(["a", "b", "c"]);
+      expect(m.lastBoardSyncAt).toBe("2026-10-10T10:00:00Z");
+    });
   });
 
   describe("renderProgressMarkdown", () => {

@@ -142,6 +142,59 @@ export class StateManager {
    * is backfilled from local.
    */
   public static mergeRoadmaps(local: Roadmap, remote: Roadmap): Roadmap {
+    const timeOf = (t: TaskItem): number => Date.parse((t as any).updatedAt || "") || 0;
+    // Duplicate-ID guard: concurrent writers (tick + chatops fast-lane) both
+    // derive TASK-max+1 from stale snapshots and can birth two DIFFERENT
+    // tasks under one ID — the merge would silently keep one and drop the
+    // other. Same id + different createdAt/title = collision: rename the
+    // LOCAL copy to a fresh id (local is the writer being persisted).
+    const usedIds = new Set<string>(remote.tasks.map((t) => t.id));
+    for (const t of local.tasks) usedIds.add(t.id);
+    const freshId = (): string => {
+      const nums = [...usedIds].map((id) => parseInt((String(id).match(/(\d+)/) || ["0", "0"])[1], 10) || 0);
+      const id = `TASK-${String(Math.max(0, ...nums) + 1).padStart(3, "0")}`;
+      usedIds.add(id);
+      return id;
+    };
+    for (const lt of local.tasks) {
+      const rt = remote.tasks.find((r) => r.id === lt.id);
+      if (
+        rt &&
+        (rt.createdAt !== lt.createdAt || rt.title !== lt.title) &&
+        (rt.branch !== lt.branch || (rt.description || "") !== (lt.description || ""))
+      ) {
+        const nid = freshId();
+        console.warn(`⚠️ Task-ID collision on ${lt.id} (concurrent writers); renaming local copy → ${nid}.`);
+        if (!lt.branch || lt.branch === `task/${lt.id}` || lt.branch.startsWith(`task/${lt.id}-`)) {
+          lt.branch = `task/${nid}`;
+        }
+        lt.id = nid;
+        lt.updatedAt = new Date().toISOString();
+      }
+    }
+    // Linkage fields are set once by different writers (dispatch stamps
+    // dispatchedAt/runId, issue-sync stamps issueNumber/url) — a whole-task
+    // newer-wins replace drops the other writer's fields (double dispatch,
+    // orphaned issues). Non-empty wins, tie broken by newer updatedAt.
+    const mergeLinkage = (lt: TaskItem, rt: TaskItem): Partial<TaskItem> => {
+      const out: Partial<TaskItem> = {};
+      const newerFirst = timeOf(lt) >= timeOf(rt);
+      const first = newerFirst ? lt : rt;
+      const second = newerFirst ? rt : lt;
+      for (const k of [
+        "issueNumber",
+        "issueUrl",
+        "projectItemId",
+        "launchVerdict",
+        "launchRound",
+        "dispatchedAt",
+        "runId",
+      ] as const) {
+        const v = (first as any)[k] ?? (second as any)[k];
+        if (v !== undefined) (out as any)[k] = v;
+      }
+      return out;
+    };
     const merged = new Map<string, TaskItem>();
     for (const rt of remote.tasks) merged.set(rt.id, { ...rt });
     for (const lt of local.tasks) {
@@ -159,11 +212,12 @@ export class StateManager {
         // auto-resurrect) overrides an older terminal one. Stale copies still
         // lose — an OLDER non-terminal never beats a newer terminal.
         if (!terminal(newer.status)) {
-          merged.set(lt.id, { ...newer });
+          merged.set(lt.id, { ...newer, ...mergeLinkage(lt, rt) });
           continue;
         }
         merged.set(lt.id, {
           ...(terminal(lt.status) ? lt : rt),
+          ...mergeLinkage(lt, rt),
           reviewNotes: newer.reviewNotes,
           attempts: Math.max(lt.attempts, rt.attempts),
           resurrections: Math.max(lt.resurrections || 0, rt.resurrections || 0),
@@ -175,12 +229,29 @@ export class StateManager {
       const ltTime2 = Date.parse(lt.updatedAt || "") || 0;
       const rtTime2 = Date.parse(rt.updatedAt || "") || 0;
       const newerFirst = ltTime2 >= rtTime2;
-      merged.set(lt.id, { ...(newerFirst ? lt : rt) });
+      merged.set(lt.id, { ...(newerFirst ? lt : rt), ...mergeLinkage(lt, rt) });
     }
     const ordered = [
       ...remote.tasks.map((t) => merged.get(t.id)!),
       ...[...merged.values()].filter((t) => !remote.tasks.some((r) => r.id === t.id)),
     ];
+    // Top-level ledger fields must union, not clobber: consumedServiceRequests
+    // dropped by {...remote} re-ran service auto-adopt every tick (+ dashboard
+    // spam); a dropped lastBoardSyncAt forced full snapshots; dropped
+    // coverage keys re-flagged mapped inputs as uncovered.
+    const unionStrings = (...lists: (string[] | undefined)[]): string[] => [
+      ...new Set(lists.flatMap((l) => (Array.isArray(l) ? l : []))),
+    ];
+    const unionCoverage = (...maps: (Record<string, string[]> | undefined)[]): Record<string, string[]> | undefined => {
+      const out: Record<string, string[]> = {};
+      for (const m of maps) {
+        if (!m || typeof m !== "object") continue;
+        for (const [k, v] of Object.entries(m)) {
+          out[k] = unionStrings(out[k], Array.isArray(v) ? v.filter((x) => typeof x === "string") : []);
+        }
+      }
+      return Object.keys(out).length > 0 ? out : undefined;
+    };
     return {
       ...remote,
       projectNumber: remote.projectNumber ?? local.projectNumber,
@@ -194,6 +265,13 @@ export class StateManager {
         local.globalStatus === "COMPLETED" || remote.globalStatus === "COMPLETED"
           ? "COMPLETED"
           : (local.globalStatus ?? remote.globalStatus),
+      consumedServiceRequests:
+        unionStrings(remote.consumedServiceRequests, local.consumedServiceRequests).length > 0
+          ? unionStrings(remote.consumedServiceRequests, local.consumedServiceRequests)
+          : undefined,
+      lastBoardSyncAt:
+        (remote.lastBoardSyncAt || "") >= (local.lastBoardSyncAt || "") ? remote.lastBoardSyncAt : local.lastBoardSyncAt,
+      coverage: unionCoverage(remote.coverage, local.coverage),
       tasks: ordered,
       updatedAt: new Date().toISOString(),
     };

@@ -120,29 +120,43 @@ export class DiscussionManager {
     const cached = this.threadCache.get(taskId);
     if (cached !== undefined) return cached;
     const [ownerVar, nameVar] = this.repoVars();
-    const res = await GitManager.run([
-      "gh",
-      "api",
-      "graphql",
-      "-F",
-      ownerVar,
-      "-F",
-      nameVar,
-      "-f",
-      "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){discussions(first:30,orderBy:{field:UPDATED_AT,direction:DESC}){nodes{id,number,title}}}}",
-    ]);
-    if (res.exitCode !== 0) {
-      this.scopeHint(res.stderr);
-      return null;
+    // Paginate (not first:30): past 30 discussions an old thread falls out
+    // of view and findOrCreate opens a duplicate, splitting the operator's
+    // replies across two threads. 100/page × 3 pages covers realistic scale;
+    // exact-title match keeps it precise.
+    const nodes: any[] = [];
+    let cursor: string | null = null;
+    for (let page = 0; page < 3; page++) {
+      const after = cursor ? `,after:"${cursor}"` : "";
+      const res = await GitManager.run([
+        "gh",
+        "api",
+        "graphql",
+        "-F",
+        ownerVar,
+        "-F",
+        nameVar,
+        "-f",
+        `query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){discussions(first:100${after},orderBy:{field:UPDATED_AT,direction:DESC}){pageInfo{hasNextPage,endCursor}nodes{id,number,title}}}}`,
+      ]);
+      if (res.exitCode !== 0) {
+        this.scopeHint(res.stderr);
+        return null;
+      }
+      try {
+        const data = JSON.parse(res.stdout).data.repository.discussions;
+        nodes.push(...(data.nodes || []));
+        if (!data.pageInfo?.hasNextPage) break;
+        cursor = data.pageInfo.endCursor;
+      } catch {
+        return null;
+      }
     }
-    try {
-      const nodes = JSON.parse(res.stdout).data.repository.discussions.nodes;
+    {
       const hit = nodes.find((d: any) => String(d.title).startsWith(`[${taskId}]`));
       const found = hit ? { number: hit.number, id: hit.id } : null;
       this.threadCache.set(taskId, found);
       return found;
-    } catch {
-      return null;
     }
   }
 

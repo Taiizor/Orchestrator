@@ -65,7 +65,8 @@ jobs:
           opencode --version || echo "OpenCode installed"
 
       - name: 📦 Install Project Dependencies
-        run: bun install
+        # Frozen lockfile (see orchestrator.yml): never rewrite bun.lock on CI.
+        run: bun install --frozen-lockfile
 
       - name: 💬 Run ChatOps Handler
         env:

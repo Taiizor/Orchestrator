@@ -14,9 +14,9 @@ You are evaluating the work completed by a subagent on its dedicated task branch
      - **Todo:** Follow-ups or items ready for integration.
      - **Verification:** Concrete output of tests, linter, or compiler runs.
 3. **Architecture & CI Safety Compliance:**
-   - **CI-Safe Execution:** Does the code run cleanly in GitHub Actions without requiring live external daemons?
+   - **CI-Safe Execution:** Does the code run cleanly in GitHub Actions using ONLY declared Docker services (no live external daemons beyond the composed stack)?
    - **Database & Services Check:** Do declared Docker services get used via env endpoints? Reject if connections are hardcoded, unparameterized, or silently degrade to a fallback backend.
-   - **Key-in readiness (external integrations):** Is every third-party call behind an adapter with sandbox proof (emulator sidecar or vendor sandbox, green tests)? Are key names documented with a KEY-IN path (owner steps + tests to re-run), and is the tree free of live secrets? A hand-written fake without a conformance test, or integration code with no documented key swap, is reject-grade.
+   - **Key-in readiness (external integrations):** Is every third-party call behind an adapter with sandbox proof (emulator sidecar or vendor sandbox, green tests)? Are key names documented with a KEY-IN path (owner steps + tests to re-run), and is the tree free of live secrets? A hand-written fake without a conformance test, or integration code with no documented key swap, is reject-grade. (Precedence: on mocks, reviewer wins over planner/analyst at merge time.)
    - **Non-interactive execution:** Does the code run without hanging on user input?
    - **Dead-control check (UI diffs):** every button, link, and form MUST resolve — real route, working form POST with server handler, or shipped JavaScript. `href="#"`, handler-less `data-*` buttons, and forms posting to unserved routes are reject-grade findings.
    - **Clean git status:** Are there untracked temporary files or clutter?
@@ -40,7 +40,7 @@ If `approved` is false:
   "notes": "Detailed explanation of why the work was rejected or what is missing (one entry per finding).",
   "suggestedFixes": [
     "Add service env usage (fail fast when the service is unreachable)",
-    "Add missing unit test in test/..."
+    "Add missing unit test in workspace/tests/..."
   ]
 }
 ```
@@ -49,7 +49,7 @@ Every `suggestedFixes` entry MUST map to a concrete finding in `notes` — no ge
 ## 🚫 Automatic-Reject Criteria (fail closed, no exceptions)
 
 Reject (`approved: false`) when the diff contains ANY of:
-- Secrets or credentials (API keys, tokens, private keys, passwords) in code, comments, fixtures, or logs.
+- Secrets or credentials (API keys, tokens, private keys, passwords) in code, comments, or logs. Test fixtures with placeholder values are exempt; real-pattern credentials anywhere — fixtures included — fail.
 - SQL/command strings built by concatenation or interpolation (injection) instead of parameterization.
 - Hardcoded fake funds, mock balances, or placeholder UI copy in financial flows.
 - New dependencies fetched from unpinned or unofficial sources.

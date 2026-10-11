@@ -20,19 +20,17 @@ on:
           - setup
           - chatops
           - services
-  repository_dispatch:
-    types: [subagent-completed, wake-orchestrator]
+  # NOTE: no repository_dispatch — nothing in the codebase sends dispatches
+  # (wake-ups use `gh workflow run`). A dead trigger only invites confusion
+  # about which path actually wakes the engine.
 
 jobs:
   orchestrate:
-    # Repo-level kill switch: set the ORCHESTRATOR_ENABLED repo variable to
-    # 0/false/off to stand the engine down (template repos with no project).
-    # Unset/anything-else = on. Null-safe form: a MISSING variable must
-    # evaluate to ON. (Bare `!=` chains return false for missing vars, and
-    # contains() throws on null — both skip every fresh repo.) Mirrors
-    # isEngineEnabled() in orchestrator/config.ts (which is case-insensitive;
-    # keep values lowercase).
-    if: ${{ toJSON(vars.ORCHESTRATOR_ENABLED) == 'null' || vars.ORCHESTRATOR_ENABLED == '' || (vars.ORCHESTRATOR_ENABLED != '0' && vars.ORCHESTRATOR_ENABLED != 'false' && vars.ORCHESTRATOR_ENABLED != 'no' && vars.ORCHESTRATOR_ENABLED != 'off') }}
+    # Repo-level kill switch (engine is case-insensitive, so False/OFF/No
+    # also stand it down at runtime — the gate enumerates common variants so
+    # a capitalized value doesn't spin runners idle for 2 min every tick).
+    # Unset/anything-else = on (null-safe: missing vars must NOT skip).
+    if: ${{ toJSON(vars.ORCHESTRATOR_ENABLED) == 'null' || vars.ORCHESTRATOR_ENABLED == '' || (vars.ORCHESTRATOR_ENABLED != '0' && vars.ORCHESTRATOR_ENABLED != 'false' && vars.ORCHESTRATOR_ENABLED != 'False' && vars.ORCHESTRATOR_ENABLED != 'FALSE' && vars.ORCHESTRATOR_ENABLED != 'no' && vars.ORCHESTRATOR_ENABLED != 'No' && vars.ORCHESTRATOR_ENABLED != 'NO' && vars.ORCHESTRATOR_ENABLED != 'off' && vars.ORCHESTRATOR_ENABLED != 'Off' && vars.ORCHESTRATOR_ENABLED != 'OFF') }}
     concurrency:
       group: orchestrator-singleton
       cancel-in-progress: false
@@ -67,6 +65,23 @@ jobs:
           client-id: ${{ env.CLIENT_ID }}
           private-key: ${{ env.APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
+
+      # Cron pile-up guard: ticks can run 30 min against a 15-min cron, so
+      # queued duplicates would each burn ~2 min of setup discovering idle
+      # state. Exit early when an OLDER orchestrator run is already
+      # queued/active (the engine coalesces again post-setup as backstop).
+      - name: 🚦 Skip When An Older Tick Is Active
+        if: ${{ github.event_name == 'schedule' }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+        run: |
+          OLDER=$(gh run list --workflow orchestrator.yml --limit 10 --json databaseId,status \
+            --jq '[.[] | select((.status == "queued" or .status == "in_progress" or .status == "waiting") and .databaseId < ${{ github.run_id }})] | length')
+          if [ "${OLDER:-0}" != "0" ]; then
+            echo "An older orchestrator run is already active; skipping this scheduled tick."
+            gh run cancel ${{ github.run_id }} || exit 0
+          fi
+          echo "No older active run; proceeding."
 
       - name: 📥 Checkout Repository
         uses: actions/checkout@v7
@@ -119,7 +134,10 @@ jobs:
           path: |
             ~/.bun/install/cache
             ~/.bun/bin/opencode
-          key: ${{ runner.os }}-bun-cache-${{ hashFiles('package.json') }}
+          # Lockfile + CLI pin in the key: a bun.lock-only change or an
+          # @opencode/cli bump must invalidate, or warm runners restore
+          # stale modules / skip the new binary forever.
+          key: ${{ runner.os }}-bun-cache-${{ hashFiles('package.json', 'bun.lock') }}-opencode-2.0.26
           restore-keys: |
             ${{ runner.os }}-bun-cache-
 
@@ -136,7 +154,10 @@ jobs:
           opencode --version || echo "OpenCode installed"
 
       - name: 📦 Install Project Dependencies
-        run: bun install
+        # Frozen lockfile: CI must never resolve-and-rewrite bun.lock (dirty
+        # tree aborts branch checkouts; builds stop being reproducible).
+        # Lock drift fails fast here and gets fixed in a proper commit.
+        run: bun install --frozen-lockfile
 
       - name: 📦 Restore ECC vendor content (cached, keyed by manifest)
         uses: actions/cache@v6

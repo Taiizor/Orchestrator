@@ -423,7 +423,7 @@ export class ProjectManager {
     // 0. Adopt an existing canonical issue when the roadmap lost its linkage
     //    (e.g. fresh plan run) instead of opening a duplicate.
     if (!task.issueNumber || !task.issueUrl) {
-      const found = index ? indexFind(task.id) : await this.findTaskIssue(task.id);
+      const found = index ? indexFind(task.id) || (await this.findTaskIssue(task.id)) : await this.findTaskIssue(task.id);
       if (found) {
         console.log(`♻️ Reusing existing issue #${found.number} for [${task.id}] (no duplicate created).`);
         task.issueNumber = found.number;
@@ -450,14 +450,19 @@ export class ProjectManager {
           }
         }
       } else {
-        // Indexed and absent: treat as gone, adopt canonical by title.
-        console.warn(`⚠️ Recorded issue #${task.issueNumber} for [${task.id}] is gone; searching canonical...`);
-        task.issueNumber = undefined;
-        task.issueUrl = undefined;
-        const found = indexFind(task.id);
-        if (found) {
-          task.issueNumber = found.number;
-          task.issueUrl = found.url;
+        // Indexed and absent: the index caps at N — VERIFY via a targeted
+        // search before declaring the issue gone, or a truncated index
+        // fabricates duplicate issues on long-lived projects.
+        const confirm = await this.findTaskIssue(task.id);
+        if (confirm && confirm.number === task.issueNumber) {
+          task.issueUrl = task.issueUrl || confirm.url;
+        } else if (confirm) {
+          task.issueNumber = confirm.number;
+          task.issueUrl = confirm.url;
+        } else {
+          console.warn(`⚠️ Recorded issue #${task.issueNumber} for [${task.id}] is gone; no canonical found.`);
+          task.issueNumber = undefined;
+          task.issueUrl = undefined;
         }
       }
     }
@@ -582,7 +587,7 @@ export class ProjectManager {
       "--format",
       "json",
       "-L",
-      "100",
+      "200",
     ]);
     if (res.exitCode !== 0) {
       this.hintProjectScope(res.stderr);
@@ -785,7 +790,7 @@ export class ProjectManager {
       "--state",
       "all",
       "--limit",
-      "100",
+      "200",
       "--json",
       "number,url,title,state,milestone",
     ]);

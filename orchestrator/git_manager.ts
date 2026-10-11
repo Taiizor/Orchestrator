@@ -283,25 +283,29 @@ export class GitManager {
     if (!this.isDataMode()) return true;
     const remote = CONFIG.DATA_REMOTE;
     const candidates = [branch, CONFIG.INTEGRATION_BRANCH, CONFIG.BASE_BRANCH];
-    let synced = false;
-    for (const ref of candidates) {
-      await this.remoteGit(remote, ["fetch", remote, ref]);
-      // Checkout paths individually: a data branch may legitimately lack
-      // some of them (e.g. inputs-only seed without workspace/ yet).
-      for (const p of paths) {
+    // Per-PATH across refs: paths live on different branches (inputs-only
+    // seed on main, workspace on develop). Returning after the first hit
+    // left the other paths stale/missing — each path walks all refs.
+    const got = new Set<string>();
+    for (const p of paths) {
+      for (const ref of candidates) {
+        await this.remoteGit(remote, ["fetch", remote, ref]);
+        // Checkout paths individually: a data branch may legitimately lack
+        // some of them (e.g. inputs-only seed without workspace/ yet).
         const res = await this.run(["git", "checkout", `${remote}/${ref}`, "--", p]);
         if (res.exitCode === 0) {
           console.log(`📥 Synced ${p} from ${remote}/${ref}.`);
-          synced = true;
+          got.add(p);
+          break;
         }
       }
-      if (synced) {
-        // Unstage immediately: these files must live in the workdir WITHOUT
-        // entering the index — staged state blocks later `checkout -B`
-        // switches ("would be overwritten") and leaks into unrelated commits.
-        await this.run(["git", "reset", "-q", "--", ...paths]);
-        return true;
-      }
+    }
+    if (got.size > 0) {
+      // Unstage immediately: these files must live in the workdir WITHOUT
+      // entering the index — staged state blocks later `checkout -B`
+      // switches ("would be overwritten") and leaks into unrelated commits.
+      await this.run(["git", "reset", "-q", "--", ...paths]);
+      return true;
     }
     console.log(`ℹ️ No data content found on ${remote} yet (fresh data repo?) — using local templates.`);
     return false;
@@ -460,7 +464,16 @@ export class GitManager {
 
       if (resolved) {
         console.log(`🎉 Merge conflict automatically resolved by AI for ${taskBranch}!`);
-        await this.run(["git", "commit", "-m", `chore(merge): resolve conflicts integrating ${taskBranch}`]);
+        const rc = await this.run(["git", "commit", "-m", `chore(merge): resolve conflicts integrating ${taskBranch}`]);
+        if (rc.exitCode !== 0) {
+          // A failed resolve-commit is NOT an integration: abort so the next
+          // tick retries from a clean tree instead of recording COMPLETED
+          // over unmerged work.
+          console.error(`❌ Resolve commit failed for ${taskBranch}; aborting merge.`);
+          await this.run(["git", "merge", "--abort"]);
+          await this.run(["git", "checkout", startRef]);
+          return false;
+        }
       } else {
         console.error(`❌ Automated conflict resolution could not resolve ${taskBranch} safely. Aborting merge.`);
         await this.run(["git", "merge", "--abort"]);

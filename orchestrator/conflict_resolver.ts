@@ -35,9 +35,33 @@ export class ConflictResolver {
 
       const aiRes = await OpenCodeClient.runWithFallback(prompt, { timeoutMs: 8 * 60 * 1000 });
 
-      // Extract resolved content from markdown code block
-      const codeBlockMatch = aiRes.stdout.match(/```(?:[a-zA-Z0-9_\-]+)?\n([\s\S]*?)```/);
-      const resolvedContent = codeBlockMatch ? codeBlockMatch[1] : aiRes.stdout.trim();
+      // Extract resolved content from markdown code blocks. The model wraps
+      // the file in ONE fence, but resolved CONTENT may itself contain
+      // fences (markdown docs, READMEs) — a non-greedy first-close match
+      // would silently truncate the file mid-content. Prefer the LAST
+      // closing fence; fall back to raw output only when no fence exists.
+      // A resolved file suspiciously smaller than the conflicted input is
+      // rejected outright (truncation is data loss that tests may not catch).
+      let resolvedContent: string;
+      const openIdx = aiRes.stdout.search(/```(?:[a-zA-Z0-9_-]+)?\n/);
+      const closeIdx = aiRes.stdout.lastIndexOf("\n```");
+      if (openIdx >= 0 && closeIdx > openIdx) {
+        const openEnd = aiRes.stdout.indexOf("\n", openIdx) + 1;
+        resolvedContent = aiRes.stdout.slice(openEnd, closeIdx);
+      } else {
+        // No fence pair: strip a lone leading/trailing fence line if the
+        // model fenced sloppily, else take the raw output as-is.
+        resolvedContent = aiRes.stdout
+          .trim()
+          .replace(/^```(?:[a-zA-Z0-9_-]+)?\n/, "")
+          .replace(/\n```$/, "");
+      }
+      if (resolvedContent.length < fileContent.length * 0.3) {
+        console.error(
+          `❌ Conflict resolution for ${filePath} suspiciously short (${resolvedContent.length} vs ${fileContent.length} chars); refusing to commit a truncation.`
+        );
+        return false;
+      }
 
       // Ensure no conflict markers remain
       if (resolvedContent.includes("<<<<<<<") || resolvedContent.includes("=======") || resolvedContent.includes(">>>>>>>")) {

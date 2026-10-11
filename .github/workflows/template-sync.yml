@@ -18,7 +18,9 @@ permissions:
 
 jobs:
   sync:
-    if: vars.TEMPLATE_UPSTREAM != '' || github.repository != 'Taiizor/Orchestrator'
+    # Null-safe: an unset TEMPLATE_UPSTREAM is null (not ''), and null != ''
+    # is TRUE — without the null check the template repo would sync itself.
+    if: github.repository != 'Taiizor/Orchestrator' || (vars.TEMPLATE_UPSTREAM != null && vars.TEMPLATE_UPSTREAM != '')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -58,11 +60,13 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
         run: |
-          BRANCH="chore/template-sync-$(date -u +%Y%m%d)"
+          # Unique branch per run: date-only names collide on same-day reruns
+          # (checkout -b fails, no PR, silent missed sync).
+          BRANCH="chore/template-sync-$(date -u +%Y%m%d)-${GITHUB_RUN_ID:-manual}"
           echo "branch=$BRANCH" >> "$GITHUB_ENV"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git checkout -b "$BRANCH"
+          git checkout -B "$BRANCH"
           if git merge "upstream/main" --allow-unrelated-histories -m "chore(sync): merge template ${UPSTREAM}"; then
             echo "merge=clean" >> "$GITHUB_ENV"
           else

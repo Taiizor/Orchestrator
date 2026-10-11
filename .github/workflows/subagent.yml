@@ -9,7 +9,7 @@ on:
         required: true
         type: string
       role:
-        description: 'Assigned Role (architect, backend, frontend, qa, reviewer)'
+        description: 'Assigned Role (architect, backend, frontend, mobile, qa, security, tracker, reviewer, fullstack, launch)'
         required: true
         type: string
       branch:
@@ -17,9 +17,9 @@ on:
         required: true
         type: string
       stack:
-        description: 'Product stack (bun | go | rust | dotnet | python | php) — observability only; all toolchains are provisioned'
+        description: 'Product stack override (bun | go | rust | dotnet | python | php). Empty = inherit task.stack ?? roadmap.stack (runner resolves). All toolchains are provisioned regardless.'
         required: false
-        default: 'bun'
+        default: ''
         type: string
 
 concurrency:
@@ -37,7 +37,9 @@ jobs:
       OPENCODE_DISABLE_MODELS_FETCH: "true"
       OPENCODE_DISABLE_AUTOUPDATE: "true"
       OPENCODE_DISABLE_LSP_DOWNLOAD: "true"
-    timeout-minutes: 35
+    # Job cap 40 > runner task budget 35: the extra 5 min are headroom for
+    # push/wake/log steps so the killer never lands mid-merge.
+    timeout-minutes: 40
     permissions:
       contents: write
       actions: write
@@ -102,7 +104,10 @@ jobs:
           path: |
             ~/.bun/install/cache
             ~/.bun/bin/opencode
-          key: ${{ runner.os }}-bun-cache-${{ hashFiles('package.json') }}
+          # Lockfile + CLI pin in the key: a bun.lock-only change or an
+          # @opencode/cli bump must invalidate, or warm runners restore
+          # stale modules / skip the new binary forever.
+          key: ${{ runner.os }}-bun-cache-${{ hashFiles('package.json', 'bun.lock') }}-opencode-2.0.26
           restore-keys: |
             ${{ runner.os }}-bun-cache-
 
@@ -119,7 +124,8 @@ jobs:
           opencode --version || echo "OpenCode installed"
 
       - name: 📦 Install Project Dependencies
-        run: bun install
+        # Frozen lockfile (see orchestrator.yml): never rewrite bun.lock on CI.
+        run: bun install --frozen-lockfile
 
       - name: 📦 Restore ECC vendor content (cached, keyed by manifest)
         uses: actions/cache@v6
@@ -250,11 +256,17 @@ jobs:
           GH_CLIENT_ID: ${{ vars.GH_CLIENT_ID || vars.CLIENT_ID || secrets.GH_CLIENT_ID || secrets.CLIENT_ID }}
           GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY || secrets.APP_PRIVATE_KEY }}
         run: |
+          # --stack only when explicitly pinned: an empty input inherits
+          # task.stack ?? roadmap.stack inside the runner. A default 'bun'
+          # here would silently override every non-bun layer (wrong skill,
+          # wrong test gate).
+          EXTRA=""
+          if [ -n "${{ inputs.stack }}" ]; then EXTRA="--stack=${{ inputs.stack }}"; fi
           bun run subagents/runner.ts \
             --taskId="${{ inputs.taskId }}" \
             --role="${{ inputs.role }}" \
             --branch="${{ inputs.branch }}" \
-            --stack="${{ inputs.stack }}"
+            $EXTRA
 
       - name: 📤 Collect OpenCode Logs (on failure)
         if: failure()

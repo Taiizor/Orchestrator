@@ -323,7 +323,30 @@ async function main(): Promise<void> {
     console.error("❌ Installed zero files — check --source (ECC tree with VERSION?) and selectors. Nothing written.");
     process.exit(1);
   }
-  await Bun.write(`${dest}/${MANIFEST_NAME}`, JSON.stringify(manifest, null, 2) + "\n");
+  // Idempotent manifest: a fresh installedAt every run dirties the tracked
+  // pin file, and that dirty tree aborts later branch checkouts ("would be
+  // overwritten"). Skip the write when nothing but the timestamp changed.
+  // NOTE: exists() first — awaiting .text() on a missing file can settle
+  // silently and end the process with no output (same Bun quirk as above).
+  const manifestPath = `${dest}/${MANIFEST_NAME}`;
+  if (await Bun.file(manifestPath).exists()) {
+    try {
+      const prevRaw = await Bun.file(manifestPath).text();
+      const prevManifest = JSON.parse(prevRaw);
+      const same =
+        prevManifest.eccVersion === manifest.eccVersion &&
+        prevManifest.eccCommit === manifest.eccCommit &&
+        JSON.stringify(prevManifest.files) === JSON.stringify(manifest.files);
+      if (same) {
+        console.log(`✅ ECC ${eccVersion} installed repo-scoped → ${dest}/ (${wrote} wrote, ${skipped} unchanged). Manifest unchanged.`);
+        await Bun.write(`${dest}/ATTRIBUTION.md`, ATTRIBUTION);
+        return;
+      }
+    } catch {
+      /* corrupt manifest — write below */
+    }
+  }
+  await Bun.write(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
   await Bun.write(`${dest}/ATTRIBUTION.md`, ATTRIBUTION);
   console.log(`✅ ECC ${eccVersion} installed repo-scoped → ${dest}/ (${wrote} wrote, ${skipped} unchanged). Manifest: ${dest}/${MANIFEST_NAME}`);
 }
