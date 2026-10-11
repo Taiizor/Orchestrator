@@ -1,4 +1,5 @@
 import { CONFIG } from "./config.ts";
+import * as GhQuota from "./gh_quota.ts";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { rmSync, mkdirSync, cpSync } from "node:fs";
@@ -46,13 +47,21 @@ export class GitManager {
       const exitCode = await proc.exited;
       if (timer) clearTimeout(timer);
       if (timedOut) {
-        return {
+        const out = {
           stdout: stdout.trim(),
           stderr: (stderr.trim() + `\n[TIMEOUT after ${timeoutMs}ms: ${cmd[0]}]`).trim(),
           exitCode: 124,
         };
+        if (cmd[0] === "gh") GhQuota.noteApiResult(out.stderr, out.exitCode);
+        return out;
       }
-      return { stdout: stdout.trim(), stderr: stderr.trim(), exitCode };
+      const res = { stdout: stdout.trim(), stderr: stderr.trim(), exitCode };
+      // Quota awareness: 429/rate-limit text opens a cooldown window so
+      // cosmetic callers degrade instead of burning the shared budget.
+      // Local git plumbing never matches (no gh involved) — zero behavior
+      // change for merge/persist/dispatch paths.
+      if (cmd[0] === "gh") GhQuota.noteApiResult(res.stderr, res.exitCode);
+      return res;
     } catch (err: any) {
       return { stdout: "", stderr: err?.message || String(err), exitCode: 1 };
     }

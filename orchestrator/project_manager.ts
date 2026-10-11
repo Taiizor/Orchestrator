@@ -1,9 +1,12 @@
 import { CONFIG } from "./config.ts";
 import { GitManager } from "./git_manager.ts";
+import * as GhQuota from "./gh_quota.ts";
 import type { Roadmap, TaskItem } from "./types.ts";
 
 export class ProjectManager {
   private static projectScopeWarned = false;
+  private static ownerCache: string | null = null;
+  private static repoOwnerCache: string | null | undefined = undefined;
 
   /**
    * Run a `gh project ...` command with the PAT when available.
@@ -11,8 +14,18 @@ export class ProjectManager {
    * calls must NOT burn the user's personal PAT budget — so only board
    * ops go through this path. Falls back to ambient auth when the secret
    * is unset (e.g. local dev with OAuth).
+   *
+   * Quota-gated: while a rate-limit cooldown is open this fails fast with
+   * ZERO calls (callers already treat failure as skip-and-retry-next-tick).
    */
   private static projectGh(args: string[]) {
+    if (GhQuota.isLimited()) {
+      return Promise.resolve({
+        stdout: "",
+        stderr: `GitHub API quota cooldown active (${GhQuota.cooldownRemainingSec()}s left); board op deferred.`,
+        exitCode: 1,
+      });
+    }
     if (CONFIG.PROJECT_TOKEN) {
       return GitManager.run(args, ".", undefined, {
         GH_TOKEN: CONFIG.PROJECT_TOKEN,
@@ -51,19 +64,28 @@ export class ProjectManager {
   /**
    * Get authenticated user login or "@me"
    */
+  /**
+   * Get authenticated user login or "@me". Memoized per process: every
+   * board write previously paid 2 extra API calls (owner + repo owner).
+   */
   public static async getOwner(): Promise<string> {
+    if (this.ownerCache) return this.ownerCache;
     const res = await GitManager.run(["gh", "api", "user", "-q", ".login"]);
-    return res.exitCode === 0 && res.stdout.trim() ? res.stdout.trim() : "@me";
+    this.ownerCache = res.exitCode === 0 && res.stdout.trim() ? res.stdout.trim() : "@me";
+    return this.ownerCache;
   }
 
   /**
    * Owner of the current repository (org login or user login).
    * Org-owned repos REQUIRE org-owned projects: a user-owned board can
    * neither link to an org repo nor accept its issues.
+   * Memoized per process (see getOwner).
    */
   public static async getRepoOwner(): Promise<string | null> {
+    if (this.repoOwnerCache !== undefined) return this.repoOwnerCache;
     const res = await GitManager.run(["gh", "repo", "view", "--json", "owner", "--jq", ".owner.login"]);
-    return res.exitCode === 0 && res.stdout.trim() ? res.stdout.trim() : null;
+    this.repoOwnerCache = res.exitCode === 0 && res.stdout.trim() ? res.stdout.trim() : null;
+    return this.repoOwnerCache;
   }
 
   /**
@@ -382,11 +404,26 @@ export class ProjectManager {
    * Idempotent: reuses the canonical "[TASK-ID]" issue when one exists.
    * Board membership is handled separately by syncBoardState (batched).
    */
-  public static async ensureTaskIssue(task: TaskItem, milestoneTitle?: string): Promise<void> {
+  public static async ensureTaskIssue(
+    task: TaskItem,
+    milestoneTitle?: string,
+    index?: Map<number, { url: string; title: string; state: string; milestone: string }> | null
+  ): Promise<void> {
+    const indexHit = (n: number) => (index && index.get(n)) || null;
+    const indexFind = (taskId: string): { number: number; url: string; state: string } | null => {
+      if (!index) return null;
+      let best: { number: number; url: string; state: string } | null = null;
+      for (const [num, info] of index) {
+        if (info.title.startsWith(`[${taskId}]`) && (!best || num < best.number)) {
+          best = { number: num, url: info.url, state: info.state };
+        }
+      }
+      return best;
+    };
     // 0. Adopt an existing canonical issue when the roadmap lost its linkage
     //    (e.g. fresh plan run) instead of opening a duplicate.
     if (!task.issueNumber || !task.issueUrl) {
-      const found = await this.findTaskIssue(task.id);
+      const found = index ? indexFind(task.id) : await this.findTaskIssue(task.id);
       if (found) {
         console.log(`♻️ Reusing existing issue #${found.number} for [${task.id}] (no duplicate created).`);
         task.issueNumber = found.number;
@@ -397,12 +434,27 @@ export class ProjectManager {
       }
     } else {
       // Verify the recorded issue still exists (cross-repo state or deleted issue)
-      const viewRes = await GitManager.run(["gh", "issue", "view", String(task.issueNumber), "--json", "number,url,state"]);
-      if (viewRes.exitCode !== 0) {
+      const hit = task.issueNumber ? indexHit(task.issueNumber) : null;
+      if (hit) {
+        task.issueUrl = task.issueUrl || hit.url;
+      } else if (!index) {
+        const viewRes = await GitManager.run(["gh", "issue", "view", String(task.issueNumber), "--json", "number,url,state"]);
+        if (viewRes.exitCode !== 0) {
+          console.warn(`⚠️ Recorded issue #${task.issueNumber} for [${task.id}] is gone; searching canonical...`);
+          task.issueNumber = undefined;
+          task.issueUrl = undefined;
+          const found = await this.findTaskIssue(task.id);
+          if (found) {
+            task.issueNumber = found.number;
+            task.issueUrl = found.url;
+          }
+        }
+      } else {
+        // Indexed and absent: treat as gone, adopt canonical by title.
         console.warn(`⚠️ Recorded issue #${task.issueNumber} for [${task.id}] is gone; searching canonical...`);
         task.issueNumber = undefined;
         task.issueUrl = undefined;
-        const found = await this.findTaskIssue(task.id);
+        const found = indexFind(task.id);
         if (found) {
           task.issueNumber = found.number;
           task.issueUrl = found.url;
@@ -412,17 +464,25 @@ export class ProjectManager {
 
     // 1b. Enforce milestone on adopted issues (adoption path skips --milestone)
     if (task.issueNumber && milestoneTitle) {
-      const viewRes = await GitManager.run(["gh", "issue", "view", String(task.issueNumber), "--json", "milestone"]);
-      if (viewRes.exitCode === 0) {
-        try {
-          const current = JSON.parse(viewRes.stdout).milestone?.title;
-          if (current !== milestoneTitle) {
-            await GitManager.run(["gh", "issue", "edit", String(task.issueNumber), "--milestone", milestoneTitle]);
+      const hitMs = task.issueNumber ? indexHit(task.issueNumber)?.milestone : undefined;
+      if (hitMs !== undefined) {
+        if (hitMs !== milestoneTitle) {
+          await GitManager.run(["gh", "issue", "edit", String(task.issueNumber), "--milestone", milestoneTitle]);
+        }
+      } else if (!index) {
+        const viewRes = await GitManager.run(["gh", "issue", "view", String(task.issueNumber), "--json", "milestone"]);
+        if (viewRes.exitCode === 0) {
+          try {
+            const current = JSON.parse(viewRes.stdout).milestone?.title;
+            if (current !== milestoneTitle) {
+              await GitManager.run(["gh", "issue", "edit", String(task.issueNumber), "--milestone", milestoneTitle]);
+            }
+          } catch {
+            /* non-fatal */
           }
-        } catch {
-          /* non-fatal */
         }
       }
+      // Indexed without this issue: creation below carries --milestone.
     }
 
     // 1. Create Issue if none exists
@@ -698,10 +758,53 @@ export class ProjectManager {
    * Post progress comment to the task's linked GitHub Issue.
    * In dual-repo mode issues are public: strip everything after the first
    * line (review notes and details stay in the private workspace).
+   * Cosmetic: skipped silently while a quota cooldown is open.
    */
   public static async postTaskProgressComment(task: TaskItem, comment: string): Promise<void> {
     if (!task.issueNumber) return;
+    if (GhQuota.isLimited()) return;
     const body = GitManager.isDataMode() ? comment.split("\n")[0] : comment;
     await GitManager.run(["gh", "issue", "comment", String(task.issueNumber), "--body", body]);
+  }
+
+  /**
+   * One-call issue index for a whole ensure pass: number → {url, title,
+   * state, milestone title}. Replaces up to 2 `gh issue view` calls per
+   * task (existence verify + milestone enforce) plus per-task searches.
+   * Returns null when the listing itself fails (callers fall back to the
+   * per-task path, which degrades on its own errors).
+   */
+  public static async fetchIssueIndex(): Promise<Map<
+    number,
+    { url: string; title: string; state: string; milestone: string }
+  > | null> {
+    const res = await GitManager.run([
+      "gh",
+      "issue",
+      "list",
+      "--state",
+      "all",
+      "--limit",
+      "100",
+      "--json",
+      "number,url,title,state,milestone",
+    ]);
+    if (res.exitCode !== 0 || !res.stdout.trim()) return null;
+    try {
+      const list = JSON.parse(res.stdout);
+      const map = new Map<number, { url: string; title: string; state: string; milestone: string }>();
+      for (const i of Array.isArray(list) ? list : []) {
+        if (typeof i?.number !== "number") continue;
+        map.set(i.number, {
+          url: String(i.url || ""),
+          title: String(i.title || ""),
+          state: String(i.state || ""),
+          milestone: String(i.milestone?.title || ""),
+        });
+      }
+      return map;
+    } catch {
+      return null;
+    }
   }
 }

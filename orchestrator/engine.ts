@@ -13,6 +13,7 @@ import { validateRoadmap, formatValidation, sanitizeCoverage } from "./roadmap_v
 import { STACKS, normalizeStackId, effectiveTaskStack } from "./stacks.ts";
 import type { StackId } from "./stacks.ts";
 import { initializeGitHubAppAuth } from "./github_app.ts";
+import * as GhQuota from "./gh_quota.ts";
 import type { Roadmap, TaskItem, ReviewResult } from "./types.ts";
 
 /**
@@ -329,8 +330,11 @@ export class OrchestratorEngine {
       await ProjectManager.ensureMilestones(roadmapData.milestones, (t) => this.isMilestoneComplete(roadmapData, t));
     }
     const projectNum = await ProjectManager.ensureProject(roadmapData);
+    // One batched issue index for the whole loop (1 call replaces up to 2
+    // `gh issue view` per task). Null → per-task fallback inside ensure.
+    const planIssueIndex = await ProjectManager.fetchIssueIndex();
     for (const task of roadmapData.tasks) {
-      await ProjectManager.ensureTaskIssue(task, task.milestone);
+      await ProjectManager.ensureTaskIssue(task, task.milestone, planIssueIndex);
     }
     if (projectNum) {
       await ProjectManager.syncBoardState(roadmapData, projectNum);
@@ -1664,6 +1668,14 @@ export class OrchestratorEngine {
     }
     await GitManager.setupGitAuthor();
     await GitManager.run(["git", "fetch", "--all"]);
+    // Quota probe (1 call): when the shared installation budget is nearly
+    // spent, cosmetic API work degrades for this tick while git-based work
+    // (dispatch, merge, persist) proceeds untouched. See gh_quota.ts.
+    try {
+      await GhQuota.checkQuota();
+    } catch {
+      /* probe failure must never block a tick */
+    }
     // Dual-repo: register the private data remote so content-remote reads
     // (diffs, progress files) resolve. No-op in single-repo mode.
     if (GitManager.isDataMode()) {
@@ -1702,9 +1714,11 @@ export class OrchestratorEngine {
     if (hasUnsyncedIssues) {
       console.log("📌 Ensuring GitHub Issues exist for all tasks and are attached to Milestones...");
       const projectNum = await ProjectManager.ensureProject(roadmap);
+      // Batched index: 1 call replaces per-task searches/views below.
+      const tickIssueIndex = await ProjectManager.fetchIssueIndex();
       for (const task of roadmap.tasks) {
         if (needsIssue(task)) {
-          await ProjectManager.ensureTaskIssue(task, task.milestone);
+          await ProjectManager.ensureTaskIssue(task, task.milestone, tickIssueIndex);
         }
       }
       if (projectNum) {
