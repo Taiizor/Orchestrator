@@ -1776,9 +1776,7 @@ export class OrchestratorEngine {
     // fields on an already-COMPLETED roadmap (e.g. empty-diff COMPLETED
     // marking). The quiet branch below must persist those instead of
     // dropping them with the ephemeral runner.
-    const loadedSig = JSON.stringify(
-      roadmap.tasks.map((t) => [t.id, t.status, t.updatedAt, t.reviewNotes])
-    );
+    const loadedSig = JSON.stringify(roadmap.tasks.map((t) => [t.id, t.status, t.updatedAt, t.reviewNotes]));
     // Board-sync saver: snapshot the status signature now; the end-of-tick
     // drift heal is skipped when nothing changed and the last sync is fresh.
     const statusSigBefore = roadmap.tasks.map((t) => `${t.id}:${t.status}`).join(",");
@@ -2001,9 +1999,7 @@ export class OrchestratorEngine {
       // Steady state: celebrated and released before — stay quiet, BUT persist
       // first if this tick changed anything (review transitions on late
       // arrivals must not die with the runner).
-      const loadedSigNow = JSON.stringify(
-        roadmap.tasks.map((t) => [t.id, t.status, t.updatedAt, t.reviewNotes])
-      );
+      const loadedSigNow = JSON.stringify(roadmap.tasks.map((t) => [t.id, t.status, t.updatedAt, t.reviewNotes]));
       if (loadedSigNow !== loadedSig) {
         console.log("ℹ️ Steady state with in-tick changes; persisting before exit.");
         await this.persistRoadmap(roadmap, "chore(orchestrator): steady-state review updates");
