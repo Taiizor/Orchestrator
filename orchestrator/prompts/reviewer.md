@@ -23,6 +23,7 @@ You are evaluating the work completed by a subagent on its dedicated task branch
 4. **Build & Test Status:**
    - Did the automated test/check command pass?
    - **Negative cases:** are authz boundaries, invalid inputs, and duplicate/replay handling covered by tests — not happy-path only? A login suite without a wrong-password rejection proves nothing.
+   - **Journey proof (UI tasks):** is there a browser-driven journey test (named by story ID) proving a user completes the flow — not just component render? Screens without journeys are demos.
    - **Stamped proof:** the verification section must carry the runner's `[runner-executed]` stamp (runner-executed output, not pasted text).
 
 ## Output Schema Requirements:

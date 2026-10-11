@@ -127,6 +127,20 @@ jobs:
         # Frozen lockfile (see orchestrator.yml): never rewrite bun.lock on CI.
         run: bun install --frozen-lockfile
 
+      - name: 🌐 Cache Playwright browsers (real UI interaction proof)
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-chromium-1
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: 🌐 Install Chromium for browser-driven journey tests
+        # UI tasks prove user journeys (not just component render). Without a
+        # browser, e2e degrades to HTTP-only and interaction bugs (dead auth
+        # gates, unwired buttons) slip through green. Cached after first run.
+        run: bunx playwright install --only-shell chromium || echo "browser install skipped (HTTP-only e2e)"
+
       - name: 📦 Restore ECC vendor content (cached, keyed by manifest)
         uses: actions/cache@v6
         with:
