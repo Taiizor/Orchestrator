@@ -177,6 +177,12 @@ describe("Review Gate Module", () => {
       const diff = `${h("workspace/web/Bal.tsx")}\n+const mockBalance = 100;\n+<a href="#">x</a>`;
       expect(scanDemoSmells(diff).length).toBeGreaterThan(0);
     });
+    it("skips minified bundles in content scans (027 dist false-positive)", () => {
+      const diff = `${h("workspace/web/dist/assets/index-SSZJwS87.js")}\n+var Nr=Symbol.for("x");SELECT a+"b";`;
+      expect(scanSqlInjection(diff)).toEqual([]);
+      expect(scanDemoSmells(diff)).toEqual([]);
+      expect(scanFallbackLayers(diff)).toEqual([]);
+    });
     it("catches stripe live keys and credential-store filenames", () => {
       const diff = `${h("workspace/api/pay.ts")}\n+const k = "sk_live_abc123";`;
       expect(scanSecrets(diff, ["workspace/api/pay.ts"]).join(" ")).toMatch(/Stripe/);

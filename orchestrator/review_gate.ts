@@ -181,6 +181,14 @@ export function checkEvidenceStamp(progressContent: string): "ok" | "missing-evi
   return "ok";
 }
 
+/** Build-output dirs: generated bundles trip content heuristics (minified
+ *  SQL keywords, mock-looking strings). Secrets still scan everywhere —
+ *  a bundled key is a leak — but SQL/fallback/demo-content scans skip dist/.
+ */
+function isBuildOutput(file: string): boolean {
+  return /(^|\/)(dist|build|out|coverage|storybook-static)\//.test(file);
+}
+
 /** Paths whose secret-shaped literals are fixtures by definition. */
 function isTestPath(file: string): boolean {
   return (
@@ -199,6 +207,7 @@ export function scanSecrets(diff: string, files: string[]): string[] {
   // Generic assignments with NON-placeholder values, in NON-test files,
   // with single-token values only. Test fixtures, human sentences
   // ("Must mix...") and synthetic values go to warnings or nowhere.
+  // NOTE: NO build-output exemption — a bundled secret is still a leak.
   for (const [file, lines] of addedLinesByFile(diff)) {
     if (isTestPath(file)) continue;
     for (const line of lines) {
@@ -234,7 +243,7 @@ const SQL_CONCAT_RX = /(\+\s*['"`]|[`'"]\s*\+|\$\{|%s|fmt\.Sprintf|format\(|Quer
 export function scanSqlInjection(diff: string): string[] {
   const hits: string[] = [];
   for (const [file, lines] of addedLinesByFile(diff)) {
-    if (isTestPath(file)) continue;
+    if (isTestPath(file) || isBuildOutput(file)) continue;
     if (!/\.(ts|js|tsx|jsx|go|py|php|rb|java|kt|cs|rs)$/i.test(file)) continue;
     for (const line of lines) {
       if (SQL_KW_RX.test(line) && SQL_CONCAT_RX.test(line)) {
@@ -252,7 +261,7 @@ const FALLBACK_RX = /better-sqlite3|:memory:|new Database\(\s*['"]|sqlite3?\.ope
 export function scanFallbackLayers(diff: string): string[] {
   const hits: string[] = [];
   for (const [file, lines] of addedLinesByFile(diff)) {
-    if (isTestPath(file)) continue;
+    if (isTestPath(file) || isBuildOutput(file)) continue;
     if (!/\.(ts|js|tsx|jsx|go|py|php|rb|java|kt|cs|rs)$/i.test(file)) continue;
     for (const line of lines) {
       if (FALLBACK_RX.test(line)) {
@@ -272,7 +281,7 @@ export function scanDemoSmells(diff: string): string[] {
   const warns: string[] = [];
   const mockMoney = /(mock|fake|stub|placeholder|sample|demo)[-_ ]?(balance|fund|money|amount|ledger|payout)/i;
   for (const [file, lines] of addedLinesByFile(diff)) {
-    if (isTestPath(file)) continue;
+    if (isTestPath(file) || isBuildOutput(file)) continue;
     for (const line of lines) {
       if (mockMoney.test(line)) {
         warns.push(`Mock-money literal in ${file} — confirm sandbox-backed proof, not demo funds`);
@@ -281,7 +290,7 @@ export function scanDemoSmells(diff: string): string[] {
     }
   }
   for (const [file, lines] of addedLinesByFile(diff)) {
-    if (isTestPath(file)) continue;
+    if (isTestPath(file) || isBuildOutput(file)) continue;
     if (!/\.(tsx|jsx|vue|html|php|tsx?)$/i.test(file)) continue;
     for (const line of lines) {
       if (/href\s*=\s*["']#["']/.test(line)) {
