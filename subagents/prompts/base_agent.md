@@ -17,6 +17,7 @@ You are an autonomous subagent executing a dedicated task inside GitHub Actions.
 2. **Docker-Always Execution (no fallback paths):**
    - Docker is available everywhere (local + CI). If the roadmap declares services, they are already running: connect via env (`DATABASE_URL`, `REDIS_URL`, `MONGO_URL`, `S3_ENDPOINT` + keys) — see the `container-services` skill. Data is ephemeral: seed your own fixtures.
    - NEVER build SQLite/InMemory fallback paths. If a declared service is unreachable, fail fast with a clear error (missing service = environment defect, not a reason for a second data layer).
+   - **Toolchains:** the runner pre-provisions the six product toolchains, but you MAY run your build/test inside a pinned toolchain image (`docker run --rm -v $(pwd):/w -w /w <image:pinned-tag> <command>`) when the runner lacks it or the version must be exact. Paste real output.
    - **Need a container that isn't declared?** You MAY provision it yourself for YOUR run AND request it durably:
      1. Start it now: `docker run -d --name <name> -p <host:container> <image:pinned-tag>` (pinned tag only — never `:latest`), then use it via `localhost`.
      2. Append `{ "name": "<name>", "image": "<image:tag>", "env": { "XXX_URL": "..." }, "ports": ["<host:container>"] }` to `workspace/services.request.json` (create the array file if absent).
