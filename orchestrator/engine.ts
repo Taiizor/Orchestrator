@@ -1654,9 +1654,7 @@ export class OrchestratorEngine {
     const unscopedActive = roadmap.tasks.some(
       (t) => t.status === "IN_PROGRESS" && (!t.targetFiles || t.targetFiles.length === 0)
     );
-    const dispatchable = unscopedActive
-      ? readyTasks.filter((t) => t.targetFiles && t.targetFiles.length > 0)
-      : readyTasks;
+    const dispatchable = unscopedActive ? readyTasks.filter((t) => t.targetFiles && t.targetFiles.length > 0) : readyTasks;
     {
       const held = readyTasks.length - dispatchable.length;
       if (held > 0) {
