@@ -95,9 +95,36 @@ describe("State Manager Module", () => {
       delete (task as any).updatedAt;
       const local = createMockRoadmap([task]);
       const remote = createMockRoadmap([createMockTask("t1", "COMPLETED", "2026-10-10T09:00:00Z")]);
-      
+
       const merged = StateManager.mergeRoadmaps(local, remote);
       expect(merged.tasks[0].status).toBe("COMPLETED");
+    });
+
+    it("local COMPLETED globalStatus survives a stale IN_PROGRESS remote (finale regression)", () => {
+      const local = createMockRoadmap([]);
+      (local as any).globalStatus = "COMPLETED";
+      const remote = createMockRoadmap([]);
+      (remote as any).globalStatus = "IN_PROGRESS";
+
+      expect(StateManager.mergeRoadmaps(local, remote).globalStatus).toBe("COMPLETED");
+    });
+
+    it("remote COMPLETED globalStatus is adopted by a stale local copy", () => {
+      const local = createMockRoadmap([]);
+      (local as any).globalStatus = "IN_PROGRESS";
+      const remote = createMockRoadmap([]);
+      (remote as any).globalStatus = "COMPLETED";
+
+      expect(StateManager.mergeRoadmaps(local, remote).globalStatus).toBe("COMPLETED");
+    });
+
+    it("non-terminal globalStatus follows the local writer", () => {
+      const local = createMockRoadmap([]);
+      (local as any).globalStatus = "PAUSED";
+      const remote = createMockRoadmap([]);
+      (remote as any).globalStatus = "IN_PROGRESS";
+
+      expect(StateManager.mergeRoadmaps(local, remote).globalStatus).toBe("PAUSED");
     });
   });
 

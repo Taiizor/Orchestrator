@@ -186,6 +186,14 @@ export class StateManager {
       projectNumber: remote.projectNumber ?? local.projectNumber,
       projectUrl: remote.projectUrl ?? local.projectUrl,
       services: remote.services ?? local.services,
+      // Terminal project status sticks: a local COMPLETED (just celebrated)
+      // must survive the freshness-merge against a stale IN_PROGRESS remote.
+      // Without this, every finale persist reverted itself and globalStatus
+      // stayed IN_PROGRESS forever despite a cut v1.0.0 release.
+      globalStatus:
+        local.globalStatus === "COMPLETED" || remote.globalStatus === "COMPLETED"
+          ? "COMPLETED"
+          : (local.globalStatus ?? remote.globalStatus),
       tasks: ordered,
       updatedAt: new Date().toISOString(),
     };
