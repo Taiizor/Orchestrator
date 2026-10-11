@@ -134,7 +134,8 @@ jobs:
           key: ecc-vendor-${{ hashFiles('vendor/ecc/.manifest.json') }}
 
       - name: 🧩 Ensure ECC vendor (release download on cache miss)
-        run: bun run scripts/install-ecc.ts
+        # --all: full agent-facing surface (see orchestrator.yml).
+        run: bun run scripts/install-ecc.ts --all
 
       - name: 🧩 Stage ECC skills (toolchain-style, on-demand depth)
         run: bun run scripts/stage-ecc-skills.ts

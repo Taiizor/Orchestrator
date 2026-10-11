@@ -433,7 +433,7 @@ export class OrchestratorEngine {
    */
   private static async collectForgedSkills(): Promise<string[]> {
     const valid: string[] = [];
-    const cap = CONFIG.MAX_FORGED_SKILLS > 0 ? CONFIG.MAX_FORGED_SKILLS : 50;
+    const cap = CONFIG.MAX_FORGED_SKILLS > 0 ? CONFIG.MAX_FORGED_SKILLS : Number.POSITIVE_INFINITY;
     // Built-in skill names win: a forged duplicate would make skill-tool
     // discovery (which requires unique names across locations) ambiguous.
     const builtin = new Set<string>();
@@ -1593,7 +1593,7 @@ export class OrchestratorEngine {
       const declared = new Set(normalizeServices(roadmap.services || []).map((s) => s.name));
       for (const svc of valid) {
         if (declared.has(svc.name)) continue; // idempotent re-run
-        if (normalizeServices([...(roadmap.services || []), svc]).length > CONFIG.MAX_SERVICES) {
+        if (CONFIG.MAX_SERVICES > 0 && normalizeServices([...(roadmap.services || []), svc]).length > CONFIG.MAX_SERVICES) {
           notes.push(`⚠️ Service "${svc.name}" rejected: service cap reached (MAX_SERVICES=${CONFIG.MAX_SERVICES}).`);
           continue;
         }

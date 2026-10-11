@@ -166,7 +166,10 @@ jobs:
           key: ecc-vendor-${{ hashFiles('vendor/ecc/.manifest.json') }}
 
       - name: 🧩 Ensure ECC vendor (release download on cache miss)
-        run: bun run scripts/install-ecc.ts
+        # --all: vendor the FULL agent-facing surface (skills/rules/agents),
+        # not just the stack-curated subset — agents may load any staged
+        # skill on demand, and a subset vendor would silently hide the rest.
+        run: bun run scripts/install-ecc.ts --all
 
       - name: 🧩 Stage ECC skills (toolchain-style, on-demand depth)
         run: bun run scripts/stage-ecc-skills.ts
