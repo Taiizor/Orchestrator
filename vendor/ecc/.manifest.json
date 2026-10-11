@@ -1,7 +1,7 @@
 {
   "eccVersion": "2.2.3",
   "eccCommit": "",
-  "installedAt": "2026-10-11T12:17:47.661Z",
+  "installedAt": "2026-10-11T12:26:28.375Z",
   "files": {
     "vendor/ecc/skills/x-api/SKILL.md": "997937ac9dc11779c6bb6c16833630836a22f1b2f115482982f6350474fa8ff1",
     "vendor/ecc/skills/workspace-surface-audit/SKILL.md": "ca6eadae6bd303713da56344bedbd8b246fe07bde1d20a26c9f21844d919cd6f",
