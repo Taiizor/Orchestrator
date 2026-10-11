@@ -319,6 +319,7 @@ export class ProjectManager {
       { name: "role:tracker", color: "006B75", description: "Progress audit task" },
       { name: "role:reviewer", color: "C2E0C6", description: "Code review and inspection task" },
       { name: "role:fullstack", color: "5319E7", description: "Fullstack task" },
+      { name: "role:launch", color: "0E8A16", description: "Launch verification task" },
       { name: "dashboard", color: "0E8A16", description: "Orchestrator dashboard issue" },
       { name: "agents", color: "1D76DB", description: "Agent coordination thread" },
       { name: "agent-talk", color: "BFD4F2", description: "Agent discussion thread" },
@@ -466,6 +467,13 @@ export class ProjectManager {
         if (match) {
           task.issueNumber = parseInt(match[1], 10);
         }
+      } else {
+        // Never fail silently: a missing label or milestone rejects creation
+        // (e.g. role:launch absent from ensureLabels) and the task would stay
+        // invisible on issues/board forever while the log looks innocent.
+        console.warn(
+          `⚠️ Issue creation failed for [${task.id}]: ${(issueRes.stdout + issueRes.stderr).slice(0, 300)}`
+        );
       }
       // Polite pacing: GitHub secondary rate limits trigger when creating issues too fast
       await Bun.sleep(1500);
