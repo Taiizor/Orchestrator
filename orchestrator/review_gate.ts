@@ -71,7 +71,36 @@ export function globMatches(pattern: string, file: string): boolean {
   return file === p || file.startsWith(p.endsWith("/") ? p : p + "/");
 }
 
-function isAllowedFile(task: TaskItem, file: string): boolean {
+/** Basename allowlist for build manifests/lockfiles (any depth). */
+const LOCKFILE_BASENAMES = new Set([
+  "go.mod",
+  "go.sum",
+  "go.work",
+  "go.work.sum",
+  "package.json",
+  "package-lock.json",
+  "bun.lock",
+  "bun.lockb",
+  "yarn.lock",
+  "pnpm-lock.yaml",
+  "Cargo.toml",
+  "Cargo.lock",
+  "requirements.txt",
+  "requirements-dev.txt",
+  "poetry.lock",
+  "Pipfile.lock",
+  "composer.json",
+  "composer.lock",
+  "Gemfile.lock",
+  "pom.xml",
+]);
+
+function isLockfile(file: string): boolean {
+  const base = file.split("/").pop() || "";
+  return LOCKFILE_BASENAMES.has(base);
+}
+
+export function isAllowedFile(task: TaskItem, file: string): boolean {
   // Always allow the task's own progress report and shared contracts updates
   if (file === "workspace/TASK_PROGRESS.md") return true;
   if (file === "workspace/CONTRACTS.md") return true;
@@ -84,6 +113,13 @@ function isAllowedFile(task: TaskItem, file: string): boolean {
   if (file === "workspace/services.request.json") return true;
   // Empty directory placeholders are legitimate scaffolding, not scope creep
   if (file.endsWith("/.gitkeep") || file === ".gitkeep") return true;
+  // Build manifests and lockfiles are always in scope: a task that needs a
+  // module where none exists must init it (go.mod, package.json-adjacent
+  // locks), and builds must stay reproducible. Without this, the gate killed
+  // tasks for adding go.mod/go.sum (TASK-007) or web/bun.lock (TASK-013).
+  // Dependency TREES (node_modules/, target/, ...) are still violations —
+  // publish scrubs them before they reach review.
+  if (isLockfile(file)) return true;
   if (file.startsWith("state/")) return false; // state files must only change via orchestrator
   return (task.targetFiles || []).some((pat) => {
     // targetFiles entries are workspace-relative; diff paths are repo-relative
@@ -206,7 +242,7 @@ function touchesApiOrSchema(files: string[]): boolean {
  * under a previous version must be re-evaluated, never skipped by the
  * unchanged-tip optimization.
  */
-export const GATE_VERSION = 6;
+export const GATE_VERSION = 7;
 
 /**
  * Deterministic pre-LLM gate. Fails fast on empty diff, missing progress

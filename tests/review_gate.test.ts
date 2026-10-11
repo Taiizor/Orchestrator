@@ -4,6 +4,7 @@ import {
   missingSections,
   isDefaultProgress,
   globMatches,
+  isAllowedFile,
   scanSecrets,
   scanSecretWarnings,
   GATE_VERSION
@@ -135,6 +136,38 @@ describe("Review Gate Module", () => {
     it("should be a number", () => {
       expect(typeof GATE_VERSION).toBe("number");
       expect(GATE_VERSION).toBeGreaterThan(0);
+    });
+  });
+
+  describe("isAllowedFile", () => {
+    const task = { targetFiles: ["workspace/api/handlers/auth.go"] } as any;
+    it("allows lockfiles and manifests at any depth (TASK-007/013 regression)", () => {
+      for (const f of [
+        "workspace/go.mod",
+        "workspace/go.sum",
+        "workspace/web/bun.lock",
+        "workspace/web/package.json",
+        "workspace/api/Cargo.lock",
+        "workspace/svc/requirements.txt",
+        "workspace/svc/composer.lock",
+      ]) {
+        expect(isAllowedFile(task, f)).toBe(true);
+      }
+    });
+    it("still rejects dependency trees and unrelated sources", () => {
+      for (const f of [
+        "workspace/web/node_modules/.bin/esbuild",
+        "workspace/web/node_modules/react/index.js",
+        "workspace/api/target/debug/app",
+        "workspace/other/thing.go",
+      ]) {
+        expect(isAllowedFile(task, f)).toBe(false);
+      }
+    });
+    it("allows the task's own scope, progress, and contracts", () => {
+      expect(isAllowedFile(task, "workspace/api/handlers/auth.go")).toBe(true);
+      expect(isAllowedFile(task, "workspace/TASK_PROGRESS.md")).toBe(true);
+      expect(isAllowedFile(task, "workspace/CONTRACTS.md")).toBe(true);
     });
   });
 });

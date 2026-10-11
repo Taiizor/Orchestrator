@@ -671,8 +671,15 @@ export class GitManager {
     // thousands of node_modules files (broke diffs, reviews and merges).
     // Same for `.services.env`: per-run rendered CI endpoints, regenerable
     // every run — committing it only adds diff noise and scope-gate hits.
+    // Nested trees too (web/node_modules from a UI task's install): glob
+    // magic covers any depth. Unambiguous junk only — bin/obj are skipped
+    // because source scripts can legitimately live under bin/.
     await this.run(["git", "reset", "-q", `${CONFIG.WORKSPACE_DIR}/node_modules`]);
     await this.run(["git", "reset", "-q", `${CONFIG.WORKSPACE_DIR}/.services.env`]);
+    await this.run(["git", "reset", "-q", "--", ":(glob)**/node_modules/**"]);
+    await this.run(["git", "reset", "-q", "--", ":(glob)**/target/**"]);
+    await this.run(["git", "reset", "-q", "--", ":(glob)**/__pycache__/**"]);
+    await this.run(["git", "reset", "-q", "--", ":(glob)**/.venv/**"]);
     const staged = await this.run(["git", "diff", "--cached", "--name-only"]);
     const files = staged.stdout
       .split("\n")
