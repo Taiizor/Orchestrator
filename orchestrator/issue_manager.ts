@@ -512,6 +512,7 @@ export class IssueManager {
                     targetFiles: t.targetFiles,
                     milestone: t.milestone,
                     stack: (t as any).stack,
+                  status: (t as any).status,
                     launchRound: (t as any).launchRound,
                   })),
                   {
@@ -725,6 +726,7 @@ export class IssueManager {
                   targetFiles: t.targetFiles,
                   milestone: t.milestone,
                   stack: (t as any).stack,
+                  status: (t as any).status,
                   launchRound: (t as any).launchRound,
                 })),
                 candidate,

@@ -274,6 +274,19 @@ describe("Roadmap Validator Module", () => {
       expect(ok.errors).toEqual([]);
     });
 
+    it("should grandfather COMPLETED launches predating the round rule", () => {
+      const old = {
+        id: "t0", role: "launch", dependencies: [], targetFiles: ["workspace/src/index.ts"],
+        milestone: "v1",
+        description: "word ".repeat(25).trim(),
+        deliverables: ["Boot app", "Probe surfaces"],
+        verificationCommand: "bun test",
+        status: "COMPLETED",
+      };
+      const r = validateRoadmap({ milestones: [{ title: "v1" }], tasks: [old] });
+      expect(r.errors).toEqual([]);
+    });
+
     it("should warn on uncovered input files", () => {
       const tasks = [{
         id: "t1", role: "backend", dependencies: [], targetFiles: ["a"],

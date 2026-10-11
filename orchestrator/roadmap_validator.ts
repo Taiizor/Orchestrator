@@ -51,6 +51,7 @@ export function validateRoadmap(raw: {
     verificationCommand?: string;
     stack?: unknown;
     launchRound?: unknown;
+    status?: unknown;
   }[];
   milestones?: { title: string }[];
   services?: (string | { name?: string; image?: string; env?: Record<string, string>; ports?: string[] })[];
@@ -245,9 +246,11 @@ export function validateRoadmap(raw: {
   // machinery, watchdog and merge keys depend on it), and a milestone must
   // not hold two launches on the same round (double boot/probe races).
   // Round 2+ is legitimate (auto re-launch after fixes) — only the
-  // duplication is an error.
+  // duplication is an error. COMPLETED launches predate the rule and are
+  // history, not plannable work: grandfather them instead of blocking every
+  // future /add on old roadmaps.
   for (const t of tasks) {
-    if (t.role !== "launch") continue;
+    if (t.role !== "launch" || t.status === "COMPLETED") continue;
     if (t.launchRound === undefined || t.launchRound === null) {
       errors.push(`[${t.id}] launch task has no launchRound (set 1; re-launches increment).`);
     } else if (typeof t.launchRound !== "number" || !Number.isInteger(t.launchRound) || t.launchRound < 1) {
