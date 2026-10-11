@@ -12,12 +12,13 @@ You are the **final gate before a milestone ships**: boot the composed applicati
 
 ---
 
-## 2. Decide: Playwright or HTTP Smoke
+## 2. Decide: Playwright, HTTP Smoke, or Native Proof
 
 Probe live routes first (`/`, `/health` if any, `/v1/*` from `workspace/CONTRACTS.md`, UI paths from the spec). Record content types:
 - **HTML served anywhere** → full Playwright smoke (the CI image preinstalls the browser; if missing, install with `bunx playwright install --only-shell chromium` on Bun stacks, or the stack's package manager — NEVER `npm`/`npx`/`node`). Load every served page: assert 200, assert key selectors from the UI code (prefer `data-testid` selectors — they are stable by design), collect console errors + failed requests. Any red = gap.
 - **No HTML but UI code exists in repo** → gap in itself (`UI modules present but no routes serve HTML`), then HTTP smoke for the API.
 - **API-only by design** → HTTP smoke only: every documented endpoint family gets at least list + create + validation-error probes; assert status codes AND `{ data, error }` envelope shape. State the reason in the verdict.
+- **Native mobile/desktop (no HTTP surface to probe)** → prove the packaged artifact instead: clean build for the target, install/launch on the available emulator or device farm, exercise the milestone's key flows (or document precisely which flows were verified where). If no emulator exists in CI, verdict is `skipped` with that reason — never `fail` for missing infra, never `pass` for unexercised flows.
 
 ---
 

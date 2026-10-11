@@ -252,10 +252,13 @@ export function validateRoadmap(raw: {
     }
   }
 
-  // Launch coverage: milestones that serve HTTP (backend/frontend/fullstack/
-  // mobile tasks) need a launch-verification task — otherwise nothing ever
+  // Launch coverage: milestones that serve HTTP (backend/frontend/fullstack
+  // tasks) need a launch-verification task — otherwise nothing ever
   // proves tak-çalıştır (unwired-UI class gaps slip through green reviews).
-  const SERVING_ROLES = new Set(["backend", "frontend", "fullstack", "mobile"]);
+  // NOTE: mobile is deliberately excluded — an offline mobile milestone has
+  // no serving surface (planner emits no launch for it); a mobile milestone
+  // WITH a backend is already covered by its backend/fullstack tasks.
+  const SERVING_ROLES = new Set(["backend", "frontend", "fullstack"]);
   for (const m of raw.milestones || []) {
     const mtasks = tasks.filter((t) => t.milestone === m.title);
     if (!mtasks.some((t) => SERVING_ROLES.has(t.role))) continue;

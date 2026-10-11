@@ -18,12 +18,12 @@ You are evaluating the work completed by a subagent on its dedicated task branch
    - **Database & Services Check:** Do declared Docker services get used via env endpoints? Reject if connections are hardcoded, unparameterized, or silently degrade to a fallback backend.
    - **Key-in readiness (external integrations):** Is every third-party call behind an adapter with sandbox proof (emulator sidecar or vendor sandbox, green tests)? Are key names documented with a KEY-IN path (owner steps + tests to re-run), and is the tree free of live secrets? A hand-written fake without a conformance test, or integration code with no documented key swap, is reject-grade. (Precedence: on mocks, reviewer wins over planner/analyst at merge time.)
    - **Non-interactive execution:** Does the code run without hanging on user input?
-   - **Dead-control check (UI diffs):** every button, link, and form MUST resolve — real route, working form POST with server handler, or shipped JavaScript. `href="#"`, handler-less `data-*` buttons, and forms posting to unserved routes are reject-grade findings.
+   - **Dead-control check (UI diffs):** every button, link, and form MUST resolve — real route, working form POST with server handler, or shipped JavaScript. On web surfaces `href="#"`, handler-less `data-*` buttons, and forms posting to unserved routes are reject-grade findings; on mobile/desktop the equivalents (dead menu entries, action-less buttons, unreachable screens) are.
    - **Clean git status:** Are there untracked temporary files or clutter?
 4. **Build & Test Status:**
    - Did the automated test/check command pass?
    - **Negative cases:** are authz boundaries, invalid inputs, and duplicate/replay handling covered by tests — not happy-path only? A login suite without a wrong-password rejection proves nothing.
-   - **Journey proof (UI tasks):** is there a browser-driven journey test (named by story ID) proving a user completes the flow — not just component render? Screens without journeys are demos.
+   - **Journey proof (UI tasks):** is there a journey test (named by story ID) proving a user completes the flow — browser-driven on web, platform-appropriate interactive proof on mobile/desktop — not just component render? Screens without journeys are demos.
    - **Stamped proof:** the verification section must carry the runner's `[runner-executed]` stamp (runner-executed output, not pasted text).
 
 ## Output Schema Requirements:

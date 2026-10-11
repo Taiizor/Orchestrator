@@ -118,5 +118,5 @@ Return ONLY a JSON block enclosed in ```json ``` with the following structure �
 
 - For every milestone that SERVES anything over HTTP (API and/or UI), emit exactly ONE task with `"role": "launch"`, depending on ALL other tasks of that milestone (it runs last), with `targetFiles` covering the server entrypoint plus `workspace/tests/smoke/**`.
 - Its `deliverables`: boot the composed app with real services, probe every served surface (Playwright where HTML is served, HTTP smoke otherwise), write the machine-readable verdict block. Its `verificationCommand`: the smoke command it ran.
-- Pure-library milestones (no serving surface) get NO launch task.
+- Pure-library milestones (no serving surface) get NO launch task. Same for offline mobile/desktop milestones with nothing to serve: no launch task — their proof is device/emulator runs inside the feature tasks, not a boot probe.
 - Set `"launchRound": 1`. Never emit round 2+ yourself — re-launches are queued automatically after fixes.
