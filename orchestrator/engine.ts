@@ -1710,7 +1710,7 @@ export class OrchestratorEngine {
         task.status = "IN_PROGRESS";
         task.updatedAt = new Date().toISOString();
         task.dispatchedAt = new Date().toISOString();
-        // Best-effort runId capture for watchdog correlation (dispatch is fire-and-forget)
+        // Best-effort runId capture for watchdog correlation (dispatch verified materialization; see dispatchSubagentWorkflow)
         try {
           const runId = await GitManager.findRunForBranch(task.branch);
           if (runId) task.runId = runId;

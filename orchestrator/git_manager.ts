@@ -823,8 +823,41 @@ export class GitManager {
       return false;
     }
 
-    console.log(`✅ Workflow successfully dispatched for ${taskId}.`);
-    return true;
+    // Verify a run actually materialized: `gh workflow run` exiting 0 only
+    // means the API accepted the request — GitHub can still drop it
+    // silently (a lost dispatch once left a task IN_PROGRESS with no worker
+    // forever). Poll briefly for the new run; on absence report failure so
+    // the caller keeps the task PENDING for the next tick instead.
+    const since = Date.now() - 10_000;
+    for (let attempt = 1; attempt <= 6; attempt++) {
+      await Bun.sleep(15_000);
+      const list = await this.run([
+        "gh",
+        "run",
+        "list",
+        "--workflow",
+        CONFIG.SUBAGENT_WORKFLOW,
+        "--limit",
+        "10",
+        "--json",
+        "databaseId,name,createdAt",
+      ]);
+      if (list.exitCode === 0) {
+        try {
+          const runs = JSON.parse(list.stdout) as Array<{ databaseId: number; name: string; createdAt: string }>;
+          const hit = runs.find((r) => r.name.includes(taskId) && Date.parse(r.createdAt) >= since);
+          if (hit) {
+            console.log(`✅ Workflow successfully dispatched for ${taskId} (run #${hit.databaseId}).`);
+            return true;
+          }
+        } catch {
+          /* unparseable list — retry */
+        }
+      }
+      console.log(`⏳ Dispatch of ${taskId} not visible yet (attempt ${attempt}/6)...`);
+    }
+    console.error(`❌ No workflow run materialized for ${taskId} after dispatch; keeping task queued.`);
+    return false;
   }
 
   /**
