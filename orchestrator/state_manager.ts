@@ -238,7 +238,24 @@ export class StateManager {
     // Top-level ledger fields must union, not clobber: consumedServiceRequests
     // dropped by {...remote} re-ran service auto-adopt every tick (+ dashboard
     // spam); a dropped lastBoardSyncAt forced full snapshots; dropped
-    // coverage keys re-flagged mapped inputs as uncovered.
+    // coverage keys re-flagged mapped inputs as uncovered. Milestones union by
+    // title for the same reason: a ChatOps /add registers its milestone on
+    // the local copy, and a freshness-merge against a remote snapshot
+    // predating the registration silently dropped it (tasks survived via
+    // id-union while v1.2.0/v1.3.0 vanished, breaking every issue creation).
+    const unionMilestones = (
+      ...lists: ({ title: string; description?: string }[] | undefined)[]
+    ): { title: string; description?: string }[] => {
+      const out = new Map<string, { title: string; description?: string }>();
+      for (const l of lists) {
+        if (!Array.isArray(l)) continue;
+        for (const m of l) {
+          if (!m || typeof m.title !== "string") continue;
+          if (!out.has(m.title)) out.set(m.title, { ...m });
+        }
+      }
+      return [...out.values()];
+    };
     const unionStrings = (...lists: (string[] | undefined)[]): string[] => [
       ...new Set(lists.flatMap((l) => (Array.isArray(l) ? l : []))),
     ];
@@ -252,6 +269,7 @@ export class StateManager {
       }
       return Object.keys(out).length > 0 ? out : undefined;
     };
+    const mergedMilestones = unionMilestones(remote.milestones, local.milestones);
     return {
       ...remote,
       projectNumber: remote.projectNumber ?? local.projectNumber,
@@ -272,6 +290,7 @@ export class StateManager {
       lastBoardSyncAt:
         (remote.lastBoardSyncAt || "") >= (local.lastBoardSyncAt || "") ? remote.lastBoardSyncAt : local.lastBoardSyncAt,
       coverage: unionCoverage(remote.coverage, local.coverage),
+      milestones: mergedMilestones.length > 0 ? mergedMilestones : undefined,
       tasks: ordered,
       updatedAt: new Date().toISOString(),
     };

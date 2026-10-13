@@ -316,7 +316,14 @@ export class ProjectManager {
         console.log(`🏷️ Creating GitHub Milestone: "${m.title}"...`);
         const args = ["gh", "api", "repos/:owner/:repo/milestones", "-f", `title=${m.title}`];
         if (m.description) args.push("-f", `description=${m.description}`);
-        await GitManager.run(args);
+        const created = await GitManager.run(args);
+        if (created.exitCode !== 0) {
+          // Never fail silently: every later `gh issue create --milestone`
+          // rejects when the milestone is missing, leaving tasks invisible.
+          console.warn(
+            `⚠️ GitHub milestone creation failed for "${m.title}": ${(created.stdout + created.stderr).slice(0, 300)}`
+          );
+        }
         await Bun.sleep(800);
       } else if (hit.state === "closed" && !(isComplete?.(m.title) ?? false)) {
         console.log(`🔓 Reopening closed Milestone: "${m.title}" (#${hit.number}) — unfinished tasks remain...`);
@@ -525,7 +532,16 @@ export class ProjectManager {
         createArgs.push("--milestone", milestoneTitle);
       }
 
-      const issueRes = await GitManager.run(createArgs);
+      let issueRes = await GitManager.run(createArgs);
+      if (issueRes.exitCode !== 0 && milestoneTitle && /milestone/i.test(`${issueRes.stdout} ${issueRes.stderr}`)) {
+        // The milestone is missing (creation raced or failed) — create the
+        // issue bare so the task stays visible on issues/board; step 1b
+        // attaches the milestone on a later pass once it exists.
+        console.warn(`⚠️ Milestone "${milestoneTitle}" missing; creating [${task.id}] issue without it.`);
+        const mi = createArgs.indexOf("--milestone");
+        const bareArgs = mi >= 0 ? [...createArgs.slice(0, mi), ...createArgs.slice(mi + 2)] : createArgs;
+        issueRes = await GitManager.run(bareArgs);
+      }
       if (issueRes.exitCode === 0 && issueRes.stdout) {
         task.issueUrl = issueRes.stdout.trim();
         const match = task.issueUrl.match(/\/issues\/(\d+)/);

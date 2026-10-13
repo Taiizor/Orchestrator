@@ -127,6 +127,24 @@ describe("State Manager Module", () => {
       expect(StateManager.mergeRoadmaps(local, remote).globalStatus).toBe("PAUSED");
     });
 
+    it("milestones union by title: locally-registered milestone survives a stale remote", () => {
+      const local = createMockRoadmap([]);
+      (local as any).milestones = [
+        { title: "v1.0.0", description: "base" },
+        { title: "v1.2.0 - Part 3B", description: "Added via ChatOps /add" },
+      ];
+      const remote = createMockRoadmap([]);
+      (remote as any).milestones = [{ title: "v1.0.0", description: "base" }];
+
+      const merged = StateManager.mergeRoadmaps(local, remote);
+      expect((merged.milestones || []).map((m: any) => m.title)).toEqual(["v1.0.0", "v1.2.0 - Part 3B"]);
+    });
+
+    it("milestones stay undefined when both sides lack them", () => {
+      const merged = StateManager.mergeRoadmaps(createMockRoadmap([]), createMockRoadmap([]));
+      expect(merged.milestones).toBeUndefined();
+    });
+
     it("preserves linkage fields across writers (no double dispatch / orphan issues)", () => {
       const lt = createMockTask("t1", "IN_PROGRESS", "2026-10-10T10:00:00Z");
       (lt as any).dispatchedAt = "2026-10-10T10:00:00Z";
