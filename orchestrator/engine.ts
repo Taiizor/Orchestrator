@@ -1527,12 +1527,20 @@ export class OrchestratorEngine {
       for (let attempt = 1; attempt <= 5; attempt++) {
         await StateManager.saveRoadmap(roadmap);
         mirrorIntoWorktree();
-        await wt(["add", "-f", ...carry]);
+        // Stage only paths that actually exist in the scratch worktree: a
+        // single missing path fails the whole `git add` atomically, leaving
+        // nothing staged (adopt has no PROGRESS/COMPILED yet).
+        const present = carry.filter((f) => existsSync(join(wtDir, f)));
+        if (present.length === 0) {
+          console.warn("⚠️ Data state: nothing to stage (no state files present); skipping commit.");
+        } else {
+          await wt(["add", "-f", ...present]);
+        }
         const commit = await wt([...botIdentity, "commit", "-m", message]);
         if (commit.exitCode !== 0 && !/nothing to commit/i.test(commit.stdout + commit.stderr)) {
           console.warn(`⚠️ Data state commit failed: ${(commit.stdout + commit.stderr).slice(0, 300)}`);
         }
-        const push = await GitManager.remoteGit(remote, ["push", remote, `HEAD:${CONFIG.BASE_BRANCH}`], wtDir);
+        const push = await GitManager.remoteGit(remote, ["push", remote, `HEAD:refs/heads/${CONFIG.BASE_BRANCH}`], wtDir);
         if (push.exitCode === 0) return;
         console.warn(`⚠️ Data state push rejected (attempt ${attempt}/5). Re-syncing...`);
         console.warn(`   ↳ push stderr: ${(push.stdout + push.stderr).slice(0, 500)}`);

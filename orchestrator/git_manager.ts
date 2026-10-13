@@ -571,7 +571,7 @@ export class GitManager {
           console.warn(`⚠️ Data tree commit failed:`, (commit.stdout + commit.stderr).slice(0, 300));
           return false;
         }
-        const push = await this.remoteGit(remote, ["push", remote, `HEAD:${branch}`], wtDir);
+        const push = await this.remoteGit(remote, ["push", remote, `HEAD:refs/heads/${branch}`], wtDir);
         if (push.exitCode === 0) return true;
         console.warn(`⚠️ Data tree push rejected (attempt ${attempt}/3). Re-syncing...`);
         if (attempt < 3) {
@@ -651,7 +651,7 @@ export class GitManager {
           console.warn(`⚠️ Data file stage/commit failed for ${relPath} (attempt ${attempt}/3).`);
           return false;
         }
-        const push = await this.remoteGit(remote, ["push", remote, `HEAD:${branch}`], wtDir);
+        const push = await this.remoteGit(remote, ["push", remote, `HEAD:refs/heads/${branch}`], wtDir);
         if (push.exitCode === 0) return true;
         console.warn(`⚠️ Data file push rejected for ${relPath} (attempt ${attempt}/3). Re-syncing...`);
         if (attempt < 3) {
@@ -727,7 +727,7 @@ export class GitManager {
     const remote = this.contentRemote();
     const maxRetries = 3;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      const pushRes = await this.remoteGit(remote, ["push", "-u", remote, `HEAD:${branch}`]);
+      const pushRes = await this.remoteGit(remote, ["push", "-u", remote, `HEAD:refs/heads/${branch}`]);
       if (pushRes.exitCode === 0) return true;
       if (attempt < maxRetries) {
         const delayMs = attempt * 2000 + Math.floor(Math.random() * 1000);
