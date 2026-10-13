@@ -871,6 +871,23 @@ export class OrchestratorEngine {
       console.warn("⚠️ Adopt validation warnings:\n" + formatValidation({ errors: [], warnings: validation.warnings }));
     }
 
+    // Seed the content branch FIRST (plan parity): future task branches fork
+    // from data/develop, so the adopted tree must live there — not just
+    // state. Must run BEFORE the CONTRACTS publish below: the seed mirrors
+    // the runner workdir (which has no CONTRACTS.md yet) via rm+copy, so a
+    // later seed would delete an earlier-published CONTRACTS.md.
+    if (GitManager.isDataMode()) {
+      const seeded = await GitManager.publishWorkspaceTree(
+        CONFIG.INTEGRATION_BRANCH,
+        "chore(adopt): seed adopted workspace content"
+      );
+      console.log(
+        seeded
+          ? `🌱 Adopted workspace content published to data/${CONFIG.INTEGRATION_BRANCH}.`
+          : "⚠️ Workspace content publish failed; task branches may lack a fork point."
+      );
+    }
+
     // Reverse-engineer CONTRACTS.md when the codebase lacks one.
     try {
       await Bun.file("workspace/CONTRACTS.md").text();
@@ -893,6 +910,13 @@ export class OrchestratorEngine {
             doc,
             "docs(adopt): reverse-engineered CONTRACTS.md from as-built code"
           );
+          // Mirror into the runner workdir too: later tree publishes mirror
+          // from here, and must not regress the file into a deletion.
+          try {
+            await Bun.write("workspace/CONTRACTS.md", doc);
+          } catch {
+            /* publish already succeeded; workdir copy is best-effort */
+          }
           console.log(
             ok
               ? `✅ CONTRACTS.md reverse-engineered (${doc.length} chars) and published.`
@@ -938,20 +962,6 @@ export class OrchestratorEngine {
       } else {
         console.warn("⚠️ CONTRACTS reverse-engineering produced no usable document; skipping.");
       }
-    }
-
-    // Seed the content branch (plan parity): future task branches fork from
-    // data/develop, so the adopted tree must live there — not just state.
-    if (GitManager.isDataMode()) {
-      const seeded = await GitManager.publishWorkspaceTree(
-        CONFIG.INTEGRATION_BRANCH,
-        "chore(adopt): seed adopted workspace content"
-      );
-      console.log(
-        seeded
-          ? `🌱 Adopted workspace content published to data/${CONFIG.INTEGRATION_BRANCH}.`
-          : "⚠️ Workspace content publish failed; task branches may lack a fork point."
-      );
     }
 
     await this.persistRoadmap(roadmap, "chore(orchestrator): adopt existing workspace");
