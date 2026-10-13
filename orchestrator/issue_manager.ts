@@ -689,7 +689,7 @@ export class IssueManager {
             `⚠️ Usage: \`/add <role> "title" -- "description" [deps:TASK-001,TASK-002] [milestone:v1.0.0] [stack:go]\`\nRoles: architect|backend|frontend|qa|security|tracker|reviewer|fullstack. Stacks: bun|go|rust|dotnet|python|php (omitted = roadmap default).`
           );
         } else {
-          const [, role, title, description, depStr, milestone, stackParam] = parsed;
+          const [, role, title, description, depStr, milestoneParam, stackParam] = parsed;
           const { validateRoadmap, formatValidation } = await import("./roadmap_validator.ts");
           const { CONFIG } = await import("./config.ts");
           const { STACK_IDS } = await import("./stacks.ts");
@@ -709,12 +709,26 @@ export class IssueManager {
                   .map((d: string) => d.trim())
                   .filter(Boolean)
               : [];
+            // Milestone values arrive quoted (milestone:"v1.1.0 - ..."):
+            // strip the wrapping quotes so tasks reference the real name.
+            const milestoneName = (milestoneParam || "").trim().replace(/^["']|["']$/g, "");
+            // New milestone names auto-register: task issues can only be
+            // assigned to milestones listed on the roadmap.
+            const msList = (roadmap.milestones = roadmap.milestones || []);
+            if (milestoneName && !msList.some((m) => m.title === milestoneName)) {
+              msList.push({ title: milestoneName, description: "Added via ChatOps /add" });
+            }
+            // Contract ownership: the split-stack validator requires a task
+            // whose targetFiles include workspace/CONTRACTS.md, but /add has
+            // no targetFiles param — mentioning CONTRACTS.md in the title or
+            // description claims that ownership.
+            const claimsContract = /CONTRACTS\.md/i.test(`${title} ${description}`);
             const candidate = {
               id: nextId,
               role,
               dependencies: deps,
-              targetFiles: [] as string[],
-              milestone: (milestone || "").trim() || undefined,
+              targetFiles: claimsContract ? ["workspace/CONTRACTS.md"] : ([] as string[]),
+              milestone: milestoneName || undefined,
               stack,
             };
             const check = validateRoadmap({
@@ -748,7 +762,7 @@ export class IssueManager {
                 description,
                 role: role as any,
                 dependencies: deps,
-                targetFiles: [],
+                targetFiles: claimsContract ? ["workspace/CONTRACTS.md"] : [],
                 status: "PENDING",
                 branch: `task/${nextId}`,
                 milestone: candidate.milestone || roadmap.milestones?.[0]?.title,
@@ -757,7 +771,8 @@ export class IssueManager {
                 attempts: 0,
                 maxAttempts: CONFIG.MAX_TASK_ATTEMPTS,
                 reviewNotes:
-                  "[OPERATOR ADDED] via /add. NOTE: no targetFiles scoping — planner normally assigns disjoint paths; watch for conflicts.",
+                  "[OPERATOR ADDED] via /add. NOTE: no targetFiles scoping — planner normally assigns disjoint paths; watch for conflicts." +
+                  (claimsContract ? " Claims workspace/CONTRACTS.md ownership (split-stack contract task)." : ""),
                 createdAt: now,
                 updatedAt: now,
               });
