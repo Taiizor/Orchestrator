@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0A0F1E"/>
+      <stop offset="0.55" stop-color="#0E1528"/>
+      <stop offset="1" stop-color="#151C36"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#22D3EE"/>
+      <stop offset="1" stop-color="#A78BFA"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.84" cy="0.22" r="0.6">
+      <stop offset="0" stop-color="#4F46E5" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#4F46E5" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="dots" width="28" height="28" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.6" fill="#FFFFFF" opacity="0.07"/>
+    </pattern>
+    <linearGradient id="card" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#171E35"/>
+      <stop offset="1" stop-color="#10162A"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#bg)"/>
+  <rect width="1280" height="640" fill="url(#glow)"/>
+  <rect width="1280" height="640" fill="url(#dots)"/>
+  <rect x="0" y="0" width="10" height="640" fill="url(#accent)"/>
+  <rect x="5" y="5" width="1270" height="630" rx="18" fill="none" stroke="#FFFFFF" stroke-opacity="0.08" stroke-width="2"/>
+
+  <!-- eyebrow -->
+  <text x="80" y="108" font-family="Arial, sans-serif" font-size="25" letter-spacing="5" fill="#7DD3FC">OPENCODE &#8226; GITHUB ACTIONS</text>
+
+  <!-- title -->
+  <text x="76" y="232" font-family="Arial, sans-serif" font-weight="700" font-size="102" fill="#FFFFFF">Multi-Agent</text>
+  <text x="76" y="342" font-family="Arial, sans-serif" font-weight="700" font-size="102" fill="url(#accent)">Orchestrator</text>
+
+  <!-- subtitle -->
+  <text x="80" y="402" font-family="Arial, sans-serif" font-size="29" fill="#A6B0C2">Autonomous dev teams in CI: plan, dispatch,</text>
+  <text x="80" y="442" font-family="Arial, sans-serif" font-size="29" fill="#A6B0C2">review and merge &#8212; with proof, not promises.</text>
+
+  <!-- stack chips -->
+  <g font-family="Arial, sans-serif" font-size="21" font-weight="700" fill="#C9D3E3">
+    <rect x="80" y="482" width="86" height="42" rx="21" fill="none" stroke="#3B4763" stroke-width="2"/>
+    <text x="123" y="510" text-anchor="middle">BUN</text>
+    <rect x="180" y="482" width="72" height="42" rx="21" fill="none" stroke="#3B4763" stroke-width="2"/>
+    <text x="216" y="510" text-anchor="middle">GO</text>
+    <rect x="266" y="482" width="98" height="42" rx="21" fill="none" stroke="#3B4763" stroke-width="2"/>
+    <text x="315" y="510" text-anchor="middle">RUST</text>
+    <rect x="378" y="482" width="98" height="42" rx="21" fill="none" stroke="#3B4763" stroke-width="2"/>
+    <text x="427" y="510" text-anchor="middle">.NET</text>
+    <rect x="490" y="482" width="124" height="42" rx="21" fill="none" stroke="#3B4763" stroke-width="2"/>
+    <text x="552" y="510" text-anchor="middle">PYTHON</text>
+    <rect x="628" y="482" width="86" height="42" rx="21" fill="none" stroke="#3B4763" stroke-width="2"/>
+    <text x="671" y="510" text-anchor="middle">PHP</text>
+  </g>
+  <g font-family="Arial, sans-serif" font-size="21" font-weight="700">
+    <rect x="80" y="540" width="236" height="42" rx="21" fill="none" stroke="#22D3EE" stroke-width="2"/>
+    <text x="198" y="568" text-anchor="middle" fill="#7DD3FC">DOCKER-ALWAYS</text>
+    <rect x="330" y="540" width="288" height="42" rx="21" fill="none" stroke="#A78BFA" stroke-width="2"/>
+    <text x="474" y="568" text-anchor="middle" fill="#C4B5FD">KANBAN + CHATOPS</text>
+  </g>
+
+  <!-- live board card -->
+  <rect x="800" y="80" width="400" height="480" rx="20" fill="url(#card)" stroke="#2A3352" stroke-width="2"/>
+  <circle cx="838" cy="122" r="8" fill="#F87171"/>
+  <circle cx="862" cy="122" r="8" fill="#FBBF24"/>
+  <circle cx="886" cy="122" r="8" fill="#34D399"/>
+  <text x="910" y="131" font-family="Consolas, monospace" font-size="22" fill="#8B94A7">live board &#8212; develop</text>
+  <line x1="820" y1="150" x2="1180" y2="150" stroke="#2A3352" stroke-width="2"/>
+
+  <g font-family="Consolas, monospace" font-size="23">
+    <circle cx="846" cy="200" r="8" fill="#34D399"/>
+    <text x="868" y="209" fill="#E6EAF2">TASK-001</text>
+    <text x="868" y="238" font-family="Arial, sans-serif" font-size="20" fill="#8B94A7">architect &#8212; contracts</text>
+    <text x="1172" y="209" text-anchor="end" font-family="Arial, sans-serif" font-weight="700" font-size="20" fill="#34D399">DONE</text>
+
+    <circle cx="846" cy="292" r="8" fill="#FBBF24"/>
+    <text x="868" y="301" fill="#E6EAF2">TASK-002</text>
+    <text x="868" y="330" font-family="Arial, sans-serif" font-size="20" fill="#8B94A7">backend &#8212; api + services</text>
+    <text x="1172" y="301" text-anchor="end" font-family="Arial, sans-serif" font-weight="700" font-size="20" fill="#FBBF24">IN REVIEW</text>
+
+    <circle cx="846" cy="384" r="8" fill="#22D3EE"/>
+    <text x="868" y="393" fill="#E6EAF2">TASK-003</text>
+    <text x="868" y="422" font-family="Arial, sans-serif" font-size="20" fill="#8B94A7">frontend &#8212; ui slice</text>
+    <text x="1172" y="393" text-anchor="end" font-family="Arial, sans-serif" font-weight="700" font-size="20" fill="#22D3EE">BUILDING</text>
+
+    <circle cx="846" cy="476" r="8" fill="#64748B"/>
+    <text x="868" y="485" fill="#E6EAF2">TASK-004</text>
+    <text x="868" y="514" font-family="Arial, sans-serif" font-size="20" fill="#8B94A7">qa &#8212; tests + proof</text>
+    <text x="1172" y="485" text-anchor="end" font-family="Arial, sans-serif" font-weight="700" font-size="20" fill="#64748B">QUEUED</text>
+  </g>
+</svg>
