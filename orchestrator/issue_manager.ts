@@ -27,6 +27,97 @@ export function getReviseBlocker(task: { id: string; role: string; status: strin
   return null;
 }
 
+/**
+ * Disposable bot messages: ephemeral acks and syntax guidance, anchored to
+ * the exact formats posted in this file (a non-matching ack degrades to
+ * KEPT — fail-closed — instead of deleting wrongly).
+ */
+export const DISPOSABLE_BOT_PATTERNS: RegExp[] = [
+  /⏸️\s*\*\*Orchestrator Paused:\*\*/,
+  /▶️\s*\*\*Orchestrator Resumed:\*\*/,
+  /🔔\s*\*\*Tick [Rr]equested:\*\*/,
+  /🎯\s*\*\*Directive Applied to/,
+  /🔁\s*\*\*Revision \[/,
+  /➕\s*\*\*Task \[.+?\] queued as PENDING/,
+  /🔄\s*\*\*Task \[.+?\] Re-queued:/,
+  /❓\s*Unknown command/,
+  /🔤\s*Understood\s+`\/[a-z]+`/,
+  /⚠️\s*(?:Usage:|Task Not Found|\*\*Task Not Found:\*\*|\*\*Tick dispatch failed:\*\*)/,
+  /💬\s*\*\*Relayed to \[/,
+  /\[FIX-ROUND:/,
+  /⚠️\s*Discussions unavailable/,
+];
+
+/**
+ * High-value bot messages: single-copy information that exists nowhere
+ * else. Checked FIRST — anything matching here survives even if a
+ * disposable pattern would also match.
+ */
+export const HIGH_VALUE_BOT_PATTERNS: RegExp[] = [
+  /❓\s*\*\*Answer:\*\*/,
+  /📊\s*\*\*Current Status Report:\*\*/,
+  /📜\s*\*\*Run log tail for/,
+  /🔧\s*\*\*Setup Report/,
+  /🚨\s*\*\*(?:Needs a human|Launch verification needs a human)/,
+  /🎉\s*\*\*All tasks have been successfully completed/,
+  /🌅\s*\*\*Auto-resurrect #/,
+];
+
+export interface PrunableComment {
+  /** GraphQL node ID ("IC_...") — the only id `gh issue view` exposes. */
+  id: string;
+  author: { login: string };
+  body: string;
+  createdAt: string;
+  reactionGroups?: { content: string; users?: { totalCount: number } }[];
+}
+
+export interface PruneCandidatesOptions {
+  now?: number;
+  retentionHours?: number;
+  keepRecentCount?: number;
+  maxBatchSize?: number;
+}
+
+function hasRocket(c: PrunableComment): boolean {
+  return (c.reactionGroups || []).some((r) => r.content === "ROCKET" && (r.users?.totalCount || 0) > 0);
+}
+
+function isBotLogin(login: string): boolean {
+  return /\[bot\]$/i.test(login || "") || /github-actions/i.test(login || "");
+}
+
+/**
+ * Pure selection of dashboard comments eligible for pruning (unit-tested).
+ * Eligible iff ALL hold: beyond the trailing-K immunity window, older than
+ * the retention floor, operator commands carry ROCKET, bot messages match a
+ * disposable ack template and no high-value template. Anything unparsable
+ * (bad date, unknown shape) is immune — fail-closed.
+ */
+export function selectPrunableComments(comments: PrunableComment[], opts?: PruneCandidatesOptions): PrunableComment[] {
+  const now = opts?.now ?? Date.now();
+  const retentionMs = (opts?.retentionHours ?? CONFIG.CHATOPS_PRUNE_RETENTION_HOURS) * 3600 * 1000;
+  const keepRecent = opts?.keepRecentCount ?? CONFIG.CHATOPS_PRUNE_KEEP_RECENT;
+  const maxBatch = opts?.maxBatchSize ?? CONFIG.CHATOPS_PRUNE_BATCH_LIMIT;
+  const out: PrunableComment[] = [];
+  for (let i = 0; i < comments.length; i++) {
+    if (i >= comments.length - keepRecent) continue; // trailing immunity
+    const c = comments[i] || ({} as PrunableComment);
+    const age = Date.parse(c.createdAt || "");
+    if (Number.isNaN(age) || now - age < retentionMs) continue;
+    const body = c.body || "";
+    if (isBotLogin(c.author?.login || "")) {
+      if (HIGH_VALUE_BOT_PATTERNS.some((rx) => rx.test(body))) continue;
+      if (!DISPOSABLE_BOT_PATTERNS.some((rx) => rx.test(body))) continue;
+    } else {
+      if (!hasRocket(c)) continue;
+    }
+    out.push(c);
+    if (out.length >= Math.max(1, maxBatch)) break;
+  }
+  return out;
+}
+
 export class IssueManager {
   private static readonly DASHBOARD_TITLE = "🚀 Project Dashboard & Agent Progress Board";
 
@@ -880,7 +971,57 @@ export class IssueManager {
       }
     }
 
+    // Trailing maintenance: prune stale dashboard chatter (bounded,
+    // retention-gated, single-copy content immune). Never affects roadmap
+    // state and never throws — visibility hygiene only.
+    if (CONFIG.CHATOPS_PRUNE_ENABLED) {
+      try {
+        await this.pruneDashboardComments(dashboardNumber, comments as PrunableComment[]);
+      } catch {
+        /* pruning must never break ChatOps */
+      }
+    }
+
     return hasChanges;
+  }
+
+  /**
+   * Delete pruned dashboard comments via GraphQL (the fetch exposes only
+   * node IDs — REST numeric paths are dead). Best-effort per item: 404
+   * continues, 403 warns once and continues, other failures abort the
+   * batch for next cycle. Never throws.
+   */
+  public static async pruneDashboardComments(dashboardNumber: number, comments: PrunableComment[]): Promise<number> {
+    const cands = selectPrunableComments(comments);
+    if (cands.length === 0) return 0;
+    let deleted = 0;
+    let warned403 = false;
+    for (const c of cands) {
+      const mq = `mutation{deleteIssueComment(input:{id:"${c.id}"}){clientMutationId}}`;
+      let res;
+      try {
+        res = await GitManager.run(["gh", "api", "graphql", "-f", `query=${mq}`]);
+      } catch {
+        break;
+      }
+      if (res.exitCode === 0) {
+        deleted++;
+        continue;
+      }
+      const err = `${res.stdout} ${res.stderr}`;
+      if (/404|not found|could not resolve/i.test(err)) continue;
+      if (/403|forbidden|denied/i.test(err)) {
+        if (!warned403) {
+          warned403 = true;
+          console.warn(`⚠️ Comment prune denied (403); skipping batch (token cannot delete these comments).`);
+        }
+        continue;
+      }
+      console.warn(`⚠️ Comment prune request failed; aborting batch for next cycle: ${err.slice(0, 200)}`);
+      break;
+    }
+    if (deleted > 0) console.log(`🧹 Pruned ${deleted} stale dashboard comment(s).`);
+    return deleted;
   }
 
   /**

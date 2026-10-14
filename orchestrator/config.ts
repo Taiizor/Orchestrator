@@ -28,6 +28,16 @@ export const CONFIG = {
   // Service auto-adopt: cap on total roadmap.services (presets + customs).
   // 0 = uncapped (default). Override via MAX_SERVICES.
 
+  // Dashboard comment pruning (docs/dashboard-comment-pruning-plan.md):
+  // processed dashboard chatter older than the retention window is deleted
+  // (GraphQL, batched) to bound payload/UI/log growth. Single-copy content
+  // (/ask, /status, escalations) is never eligible — enforced by pattern
+  // allowlists in issue_manager.ts, not here.
+  CHATOPS_PRUNE_ENABLED: process.env.CHATOPS_PRUNE_ENABLED !== "false",
+  CHATOPS_PRUNE_RETENTION_HOURS: safeInt(process.env.CHATOPS_PRUNE_RETENTION_HOURS, 2),
+  CHATOPS_PRUNE_KEEP_RECENT: safeInt(process.env.CHATOPS_PRUNE_KEEP_RECENT, 10),
+  CHATOPS_PRUNE_BATCH_LIMIT: safeInt(process.env.CHATOPS_PRUNE_BATCH_LIMIT, 10),
+
   // Git & Branching
   BASE_BRANCH: process.env.BASE_BRANCH || "main",
   INTEGRATION_BRANCH: process.env.INTEGRATION_BRANCH || "develop",
