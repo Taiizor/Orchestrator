@@ -191,6 +191,16 @@ describe("OpenCode Client Module", () => {
       expect(bare).not.toContain("--title");
     });
 
+    it("buildCommand appends --fork only with a session that forks", () => {
+      const forked = (OpenCodeClient as any).buildCommand({ model: "a/b" }, undefined, "ses_1", { fork: true });
+      expect(forked).toEqual(["opencode", "run", "--model", "a/b", "--format", "json", "--session", "ses_1", "--fork"]);
+      const noFork = (OpenCodeClient as any).buildCommand({ model: "a/b" }, undefined, "ses_1", { fork: false });
+      expect(noFork).not.toContain("--fork");
+      const noSession = (OpenCodeClient as any).buildCommand({ model: "a/b" }, undefined, undefined, { fork: true });
+      expect(noSession).not.toContain("--fork");
+      expect(noSession).not.toContain("--session");
+    });
+
     it("filterAttachableFiles keeps small files, skips >10MiB", async () => {
       const { tmpdir } = await import("node:os");
       const { join } = await import("node:path");

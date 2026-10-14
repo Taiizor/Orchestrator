@@ -377,7 +377,7 @@ export class OpenCodeClient {
     spec: { model: string; variant?: string },
     files?: string[],
     sessionId?: string,
-    extra?: { agent?: string; title?: string }
+    extra?: { agent?: string; title?: string; fork?: boolean }
   ): string[] {
     // OpenCode v2 CLI takes the variant as a "#suffix" on --model
     // (there is no separate --variant flag): provider/model#variant
@@ -387,7 +387,10 @@ export class OpenCodeClient {
     // of reasoning about bare filenames. Server-side resized per limits.
     for (const f of files || []) cmd.push("--file", f);
     // Continue an existing session instead of starting cold (fallback chain).
+    // --fork copies it first: safe even when the original turn is still busy
+    // server-side after a timeout kill (we never touch the original again).
     if (sessionId) cmd.push("--session", sessionId);
+    if (sessionId && extra?.fork) cmd.push("--fork");
     // --agent selects a configured agent; roles here are prompt-level (no
     // role agents are defined), so callers pass it only for real agent ids.
     if (extra?.agent) cmd.push("--agent", extra.agent);
@@ -457,6 +460,7 @@ export class OpenCodeClient {
       "read the current workspace state, resume exactly where the session left off, and proceed to completion.";
     let lastSessionId: string | undefined;
     let useContinuation = false;
+    let useFork = false;
     let totalCost = 0;
     let totalTokens = 0;
     let totalSteps = 0;
@@ -486,11 +490,13 @@ export class OpenCodeClient {
     for (let i = 0; i < candidateModels.length; i++) {
       const spec = candidateModels[i];
       const label = OpenCodeClient.displaySpec(spec);
-      const sess = useContinuation ? lastSessionId : undefined;
-      if (sess) console.log(`🔁 [OpenCode] Continuing session ${sess} with ${label} instead of restarting.`);
+      const sess = useContinuation || useFork ? lastSessionId : undefined;
+      const fork = useFork && !!sess;
+      if (sess && fork) console.log(`🔁 [OpenCode] Fork-continuing session ${sess} with ${label} (original may still be busy).`);
+      else if (sess) console.log(`🔁 [OpenCode] Continuing session ${sess} with ${label} instead of restarting.`);
       else console.log(`🤖 [OpenCode] Attempting execution with model (${i + 1}/${candidateModels.length}): ${label}...`);
 
-      const cmd = OpenCodeClient.buildCommand(spec, options?.files, sess, cliExtra);
+      const cmd = OpenCodeClient.buildCommand(spec, options?.files, sess, { ...cliExtra, fork });
       const res = await attempt(cmd, sess ? CONTINUATION_PROMPT : prompt, label);
 
       const parsedStdout = OpenCodeClient.extractText(res.stdout);
@@ -536,20 +542,22 @@ export class OpenCodeClient {
         };
       }
 
-      // Fast failure with a live session behind it: the next model continues.
-      // Timeouts cold-restart (the server side may still be busy) — don't
-      // even resolve (saves a bounded lookup on the hottest path).
-      if (!res.timedOut) await ensureSession();
+      // Fast failure with a live session behind it: the next model continues
+      // it directly. Timeouts fork-continue instead: the killed run's server
+      // side may still be busy, and the fork leaves the original untouched.
+      await ensureSession();
       useContinuation = !!lastSessionId && !res.timedOut;
+      useFork = !!lastSessionId && res.timedOut;
 
       // If the "#variant" suffix is unsupported by this model, retry the plain
       // model with default effort before moving to the next fallback model.
       const isVariantError = !!spec.variant && /variant|effort|unknown model/i.test(res.stderr);
       if (isVariantError) {
         console.warn(`⚠️ [OpenCode] Variant "${spec.variant}" rejected for ${spec.model}. Retrying with default effort...`);
-        const vsess = useContinuation ? lastSessionId : undefined;
+        const vsess = useContinuation || useFork ? lastSessionId : undefined;
+        const vfork = useFork && !!vsess;
         const retryRes = await attempt(
-          OpenCodeClient.buildCommand({ model: spec.model }, options?.files, vsess, cliExtra),
+          OpenCodeClient.buildCommand({ model: spec.model }, options?.files, vsess, { ...cliExtra, fork: vfork }),
           vsess ? CONTINUATION_PROMPT : prompt,
           `${spec.model} (default effort)`
         );
@@ -577,8 +585,9 @@ export class OpenCodeClient {
             usage: usageTotal(),
           };
         }
-        if (!retryRes.timedOut) await ensureSession();
+        await ensureSession();
         useContinuation = !!lastSessionId && !retryRes.timedOut;
+        useFork = !!lastSessionId && retryRes.timedOut;
         console.warn(
           `⚠️ [OpenCode] Model ${label} encountered an issue (Exit: ${res.exitCode}, ApiError: ${isApiError}, ContentLength: ${parsedStdout.length}). Falling back to next model...`
         );
@@ -617,8 +626,9 @@ export class OpenCodeClient {
     // Last resort attempt: run without specifying --model flag
     console.log("🔄 [OpenCode] Attempting last-resort execution without explicit --model flag...");
     const fallbackCmd = ["opencode", "run", "--format", "json"];
-    const lsess = useContinuation ? lastSessionId : undefined;
+    const lsess = useContinuation || useFork ? lastSessionId : undefined;
     if (lsess) fallbackCmd.push("--session", lsess);
+    if (lsess && useFork) fallbackCmd.push("--fork");
     if (cliExtra.agent) fallbackCmd.push("--agent", cliExtra.agent);
     if (cliExtra.title) fallbackCmd.push("--title", cliExtra.title);
     const defaultRes = await attempt(fallbackCmd, lsess ? CONTINUATION_PROMPT : prompt, "default effort");
