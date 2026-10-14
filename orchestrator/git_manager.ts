@@ -844,7 +844,12 @@ export class GitManager {
   public static async checkpointTaskBranch(branch: string, taskId: string): Promise<boolean> {
     try {
       const files = await this.stageWorkspaceForPublish();
-      if (files.length === 0) return true;
+      if (files.length === 0) {
+        // Auditable no-op: operators watching the log must be able to tell
+        // "nothing to save" apart from "checkpoint never ran".
+        console.log(`💾 Checkpoint: no changes on ${branch}, skipping.`);
+        return true;
+      }
       const commit = await this.run([
         "git",
         "-c",
