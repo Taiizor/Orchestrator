@@ -107,7 +107,7 @@ jobs:
           # Lockfile + CLI pin in the key: a bun.lock-only change or an
           # @opencode/cli bump must invalidate, or warm runners restore
           # stale modules / skip the new binary forever.
-          key: ${{ runner.os }}-bun-cache-${{ hashFiles('package.json', 'bun.lock') }}-opencode-2.0.26
+          key: ${{ runner.os }}-bun-cache-${{ hashFiles('package.json', 'bun.lock') }}-opencode-2.0.28
           restore-keys: |
             ${{ runner.os }}-bun-cache-
 
@@ -115,7 +115,7 @@ jobs:
         run: |
           if ! command -v opencode &> /dev/null; then
             echo "Installing OpenCode CLI..."
-            bun install -g --trust @opencode/cli@2.0.26
+            bun install -g --trust @opencode/cli@2.0.28
           fi
           echo "$HOME/.bun/bin" >> $GITHUB_PATH
           export PATH="$HOME/.bun/bin:$PATH"
