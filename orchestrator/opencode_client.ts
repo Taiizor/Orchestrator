@@ -1,5 +1,4 @@
 import { CONFIG } from "./config.ts";
-import { GitManager } from "./git_manager.ts";
 
 export interface OpenCodeRunResult {
   stdout: string;
@@ -67,6 +66,112 @@ export class OpenCodeClient {
 
   /** Default per-call model budget (ms) when the caller passes none. */
   public static readonly DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
+
+  /**
+   * Spawn OpenCode with live progress: stdout/stderr stream while the model
+   * works (the old path buffered everything silently until exit/timeout),
+   * with periodic digests to the Actions log and early-abort on quota errors
+   * (a rate-limited model never clears on the same call — fail fast into the
+   * fallback chain instead of burning the whole budget).
+   */
+  private static async runStreaming(
+    cmd: string[],
+    input: string | undefined,
+    timeoutMs: number,
+    label: string,
+    digestMs = 120_000
+  ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+    const outChunks: string[] = [];
+    const errChunks: string[] = [];
+    const decoder = new TextDecoder();
+    let outBytes = 0;
+    let toolEvents = 0;
+    let lastActivity = Date.now();
+    const started = Date.now();
+    const QUOTA_RX = /rate limit|429|quota|exceeded/i;
+    let quotaHit = false;
+    let timedOut = false;
+
+    const proc = Bun.spawn(cmd, {
+      cwd: ".",
+      stdout: "pipe",
+      stderr: "pipe",
+      ...(input !== undefined ? { stdin: new Response(input).body } : {}),
+    });
+
+    const pump = async (stream: unknown, sink: string[], isErr: boolean): Promise<void> => {
+      if (!stream || typeof (stream as ReadableStream<Uint8Array>).getReader !== "function") return;
+      const reader = (stream as ReadableStream<Uint8Array>).getReader();
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const text = decoder.decode(value, { stream: true });
+          sink.push(text);
+          if (!isErr) {
+            outBytes += value.length;
+            for (const line of text.split(/\r?\n/)) {
+              if (/"type"\s*:\s*"[^"]*tool/i.test(line)) toolEvents++;
+            }
+          }
+          lastActivity = Date.now();
+          if (QUOTA_RX.test(text)) quotaHit = true;
+        }
+      } catch {
+        /* stream torn down by kill */
+      } finally {
+        try {
+          reader.releaseLock();
+        } catch {
+          /* already released */
+        }
+      }
+    };
+    const pumps = Promise.all([pump(proc.stdout, outChunks, false), pump(proc.stderr, errChunks, true)]);
+
+    const digestTimer = setInterval(() => {
+      const elapsed = Math.round((Date.now() - started) / 1000);
+      const idle = Math.round((Date.now() - lastActivity) / 1000);
+      console.log(
+        `⏳ [OpenCode] ${label} alive: ${elapsed}s elapsed, ${(outBytes / 1024).toFixed(0)}KB out, ~${toolEvents} tool events, last activity ${idle}s ago.`
+      );
+    }, digestMs);
+    (digestTimer as unknown as { unref?: () => void }).unref?.();
+
+    const killTimer = setTimeout(() => {
+      timedOut = true;
+      try {
+        proc.kill();
+      } catch {
+        /* already exited */
+      }
+    }, timeoutMs);
+
+    // Quota watcher: poll for the flag (the exit promise alone would park
+    // here until process end and defeat the early-abort).
+    const quotaWatcher = (async () => {
+      for (;;) {
+        if (quotaHit || timedOut) return;
+        const raced = await Promise.race([proc.exited.then(() => "done"), Bun.sleep(500).then(() => "wait")]);
+        if (raced === "done") return;
+      }
+    })();
+    await quotaWatcher;
+    if (quotaHit && !timedOut) {
+      try {
+        proc.kill();
+      } catch {
+        /* already exited */
+      }
+    }
+    const exitCode = await proc.exited;
+    clearTimeout(killTimer);
+    clearInterval(digestTimer);
+    await pumps;
+    if (timedOut) errChunks.push(`\n[TIMEOUT after ${timeoutMs}ms: ${cmd[0]}]`);
+
+    return { stdout: outChunks.join(""), stderr: errChunks.join(""), exitCode: timedOut ? 124 : exitCode };
+  }
 
   /**
    * Parse "provider/model#variant" into { model, variant }.
@@ -149,7 +254,7 @@ export class OpenCodeClient {
 
       const timeoutMs = options?.timeoutMs ?? OpenCodeClient.DEFAULT_TIMEOUT_MS;
       const cmd = OpenCodeClient.buildCommand(spec, options?.files);
-      const res = await GitManager.run(cmd, ".", prompt, undefined, timeoutMs);
+      const res = await OpenCodeClient.runStreaming(cmd, prompt, timeoutMs, label);
 
       const parsedStdout = OpenCodeClient.extractText(res.stdout);
       const hasContent = parsedStdout.length > 0;
@@ -177,12 +282,11 @@ export class OpenCodeClient {
       const isVariantError = !!spec.variant && /variant|effort|unknown model/i.test(res.stderr);
       if (isVariantError) {
         console.warn(`⚠️ [OpenCode] Variant "${spec.variant}" rejected for ${spec.model}. Retrying with default effort...`);
-        const retryRes = await GitManager.run(
+        const retryRes = await OpenCodeClient.runStreaming(
           OpenCodeClient.buildCommand({ model: spec.model }, options?.files),
-          ".",
           prompt,
-          undefined,
-          options?.timeoutMs ?? OpenCodeClient.DEFAULT_TIMEOUT_MS
+          options?.timeoutMs ?? OpenCodeClient.DEFAULT_TIMEOUT_MS,
+          `${spec.model} (default effort)`
         );
         const retryParsed = OpenCodeClient.extractText(retryRes.stdout);
         if (retryRes.exitCode === 0 && retryParsed.length > 0) {
@@ -222,12 +326,11 @@ export class OpenCodeClient {
     // Last resort attempt: run without specifying --model flag
     console.log("🔄 [OpenCode] Attempting last-resort execution without explicit --model flag...");
     const fallbackCmd = ["opencode", "run", "--format", "json"];
-    const defaultRes = await GitManager.run(
+    const defaultRes = await OpenCodeClient.runStreaming(
       fallbackCmd,
-      ".",
       prompt,
-      undefined,
-      options?.timeoutMs ?? OpenCodeClient.DEFAULT_TIMEOUT_MS
+      options?.timeoutMs ?? OpenCodeClient.DEFAULT_TIMEOUT_MS,
+      "default effort"
     );
     const parsedDefault = OpenCodeClient.extractText(defaultRes.stdout);
     if (defaultRes.exitCode === 0 && parsedDefault.length > 0) {
