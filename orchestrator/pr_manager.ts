@@ -76,6 +76,8 @@ export class PRManager {
       `**Target files:** \`${(task.targetFiles || []).join(", ")}\`\n\n` +
       `---\n*Opened by the Orchestrator after deterministic gate + reviewer approval.*`;
     console.log(`🔀 Opening PR ${task.branch} → ${target}...`);
+    // Heal the merge driver before the first merge can need it (best-effort).
+    await GitManager.ensureProgressMergeDriver();
     const res = await this.gh([
       "gh",
       "pr",

@@ -1,2 +1,10 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Per-task scratch report: every task branch rewrites this file whole, so
+# task→develop merges would otherwise conflict on it every time. It carries
+# no shippable content (the next task overwrites it; history keeps every
+# report), so keep the destination copy on conflict. Data repos inherit this
+# file from the skeleton at creation; long-lived ones are healed by the
+# engine (GitManager.ensureProgressMergeDriver) at PR time.
+workspace/TASK_PROGRESS.md merge=ours

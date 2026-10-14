@@ -676,6 +676,49 @@ export class GitManager {
     }
   }
 
+  /** Merge-driver rule keeping task→develop merges conflict-free on the
+   * per-task scratch report. Builtin `merge=ours` needs no runner config,
+   * unlike custom drivers. */
+  public static readonly PROGRESS_MERGE_RULE = "workspace/TASK_PROGRESS.md merge=ours";
+
+  /**
+   * Full .gitattributes content ensuring the progress-report merge driver.
+   * Pure (unit-tested): returns null when no write is needed.
+   */
+  public static progressMergeDriverContent(existing: string | null): string | null {
+    const rule = GitManager.PROGRESS_MERGE_RULE;
+    if (existing === null || existing.trim().length === 0) {
+      return (
+        `# Auto detect text files and perform LF normalization\n* text=auto\n\n` +
+        `# Per-task scratch report: keep the destination copy on conflict so\n` +
+        `# task merges never block on this regenerable file.\n${rule}\n`
+      );
+    }
+    const normalized = existing.replace(/\r\n/g, "\n");
+    if (normalized.split("\n").some((l) => l.trim() === rule)) return null;
+    return normalized.replace(/\n+$/, "\n") + `\n# Per-task scratch report: keep the destination copy on conflict.\n${rule}\n`;
+  }
+
+  /**
+   * Heal long-lived content branches missing the progress-report merge
+   * driver (e.g. data repos created before the skeleton shipped it).
+   * Data-mode only — single-repo projects inherit it from the template on
+   * develop. Best-effort: returns false (never throws) when the write is
+   * unnecessary or fails; callers proceed with the merge regardless.
+   */
+  public static async ensureProgressMergeDriver(): Promise<boolean> {
+    if (!this.isDataMode()) return true;
+    let existing: string | null = null;
+    try {
+      existing = await this.showFile(CONFIG.INTEGRATION_BRANCH, ".gitattributes");
+    } catch {
+      return false;
+    }
+    const content = GitManager.progressMergeDriverContent(existing);
+    if (content === null) return true;
+    return this.publishFileToData(".gitattributes", content, "chore(data): ensure TASK_PROGRESS.md merge driver");
+  }
+
   /**
    * Publish a task branch's data content (inputs//workspace/) to the content
    * remote. Force-adds gitignored paths (-f) so agent output travels while
