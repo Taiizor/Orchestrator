@@ -420,7 +420,7 @@ async function main() {
   }
 
   const res = await OpenCodeClient.runWithFallback(prompt, {
-    timeoutMs: 30 * 60 * 1000,
+    timeoutMs: 45 * 60 * 1000,
     files: referencedFiles.length > 0 ? referencedFiles : undefined,
   });
   console.log("OpenCode Output Summary:", res.stdout ? res.stdout.slice(-1000) : "No stdout");

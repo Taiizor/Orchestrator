@@ -32,7 +32,7 @@ Every subagent MUST adhere to these environmental rules:
    - **No Fallbacks:** SQLite/InMemory adapter paths are forbidden. A missing service fails fast with a clear error.
    - **Auto-adopt:** an agent needing an undeclared container starts it for its own run and appends `{name, image, env?, ports?}` to `workspace/services.request.json`; the next tick validates (pinned image required) and merges it into `roadmap.services` — durable from run #2, reported on the dashboard.
    - **Production:** same env names, secret-managed values; S3 speaks S3 everywhere (Adobe S3Mock in CI, R2/AWS in production), so code runs unchanged.
-3. **Timeouts & Execution:** Every subagent workflow has a strict **40-minute timeout** (`timeout-minutes: 40` in `subagent.yml`; each model call inside it is capped at 30 minutes with fallback to the next model).
+3. **Timeouts & Execution:** Every subagent workflow has a strict **60-minute timeout** (`timeout-minutes: 60` in `subagent.yml`; each model call inside it is capped at 45 minutes with fallback to the next model; the stale-run watchdog stands down past 70 minutes so it never cancels healthy long runs).
    - Tasks must be atomic, focused, and completed well within this window.
 4. **Non-Interactive Execution:** You are running in a headless CI/CD runner.
    - Never run commands that prompt for user confirmation (`y/n`, input prompts). Always use `--yes`, `-y`, or non-interactive flags.

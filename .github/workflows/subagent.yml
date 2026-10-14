@@ -37,9 +37,9 @@ jobs:
       OPENCODE_DISABLE_MODELS_FETCH: "true"
       OPENCODE_DISABLE_AUTOUPDATE: "true"
       OPENCODE_DISABLE_LSP_DOWNLOAD: "true"
-    # Job cap 40 > runner task budget 35: the extra 5 min are headroom for
-    # push/wake/log steps so the killer never lands mid-merge.
-    timeout-minutes: 40
+    # Job cap 60 > model-call budget 45: the extra 15 min are headroom for
+    # fallback models, push/wake/log steps so the killer never lands mid-work.
+    timeout-minutes: 60
     permissions:
       contents: write
       actions: write
