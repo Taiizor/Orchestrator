@@ -3,6 +3,30 @@ import { CONFIG } from "./config.ts";
 import { StateManager } from "./state_manager.ts";
 import type { Roadmap } from "./types.ts";
 
+/**
+ * /revise target guard (pure, unit-tested). A revision task depends on its
+ * target and the scheduler only dispatches tasks whose dependencies are
+ * COMPLETED (StateManager.getReadyTasks) — revising a FAILED task queues a
+ * revision that waits forever, so FAILED targets are rejected with a /retry
+ * pointer instead. Returns the reply message, or null when the target may
+ * be revised.
+ */
+export function getReviseBlocker(task: { id: string; role: string; status: string }): string | null {
+  if (task.role === "launch") {
+    return (
+      `⚠️ **Cannot revise a launch task:** launch verification re-runs through its own loop (fail → fix → re-launch with round tracking). ` +
+      `Use \`/retry ${task.id}\` for a fresh attempt, or \`/revise\` the fix task that feeds it.`
+    );
+  }
+  if (task.status === "FAILED") {
+    return (
+      `⚠️ **Cannot revise a FAILED task:** the revision would depend on \`${task.id}\`, and the scheduler only dispatches tasks whose dependencies are COMPLETED — it would wait forever. ` +
+      `Use \`/retry ${task.id}\` for a fresh attempt first; once it COMPLETES you can \`/revise\` it.`
+    );
+  }
+  return null;
+}
+
 export class IssueManager {
   private static readonly DASHBOARD_TITLE = "🚀 Project Dashboard & Agent Progress Board";
 
@@ -490,13 +514,9 @@ export class IssueManager {
             await this.acknowledgeComment(dashboardNumber, commentId, `⚠️ **Task Not Found:** No task with ID \`${taskId}\`.`);
           } else {
             console.log(`🔁 ChatOps command received: /revise for ${taskId}: ${instruction}`);
-            if (task.role === "launch") {
-              await this.acknowledgeComment(
-                dashboardNumber,
-                commentId,
-                `⚠️ **Cannot revise a launch task:** launch verification re-runs through its own loop (fail → fix → re-launch with round tracking). ` +
-                  `Use \`/retry ${taskId}\` for a fresh attempt, or \`/revise\` the fix task that feeds it.`
-              );
+            const blocker = getReviseBlocker(task);
+            if (blocker) {
+              await this.acknowledgeComment(dashboardNumber, commentId, blocker);
             } else {
               const { validateRoadmap, formatValidation } = await import("./roadmap_validator.ts");
               const { CONFIG } = await import("./config.ts");
