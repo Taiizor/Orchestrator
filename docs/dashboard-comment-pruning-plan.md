@@ -124,7 +124,7 @@ export function selectPrunableComments(
 | **Issue Scope** | Issue #1 (Dashboard) only | Task issues and discussions preserve historical audit trails. |
 | **Trailing Immunity** | Last $K$ comments (default: 10) are strictly immune | Operators actively reading recent conversation or command feedback will never see it vanish. |
 | **Age Retention** | Older than $T$ hours (default: 2 hours) | Prevents instant deletion. Gives humans ample time to see bot acks even if traffic is low. |
-| **Content Classification** | Bot: Matches `DISPOSABLE_BOT_PATTERNS` and NOT `HIGH_VALUE_BOT_PATTERNS`. User: MUST carry `ROCKET`. | Never delete an unprocessed command or single-copy content (/ask, /status). |
+| **Content Classification** | HIGH_VALUE checked FIRST for every author (bot identity comes in shapes no login regex covers); then Bot needs DISPOSABLE match, User needs `ROCKET`. | Never delete single-copy content (/ask, /status) or unprocessed commands. |
 | **Batch Cap** | Maximum $M$ deletions per cycle (default: 10) | Prevents burst API rate-limit exhaustion if a backlog exists. |
 
 ---

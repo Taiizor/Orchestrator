@@ -63,6 +63,17 @@ describe("Dashboard Comment Pruning", () => {
     expect(out).toEqual([]);
   });
 
+  it("high-value content is immune regardless of author login", () => {
+    const machineUser = mk({
+      id: "IC_m",
+      author: { login: "soferity-orchestrator" },
+      body: "📜 **Run log tail for [TASK-016]:**\n```\nlogs",
+      reactionGroups: rocket,
+    });
+    const out = selectPrunableComments([machineUser], { now: NOW, keepRecentCount: 0 });
+    expect(out).toEqual([]);
+  });
+
   it("ignores unparsable entries fail-closed", () => {
     const bad = mk({ id: "IC_bad", createdAt: "not-a-date" });
     const noAuthor = { id: "IC_noa", body: "/tick", createdAt: old, reactionGroups: rocket } as PrunableComment;

@@ -106,8 +106,11 @@ export function selectPrunableComments(comments: PrunableComment[], opts?: Prune
     const age = Date.parse(c.createdAt || "");
     if (Number.isNaN(age) || now - age < retentionMs) continue;
     const body = c.body || "";
+    // Single-copy content is immune regardless of author: bot identity comes
+    // in shapes no login regex covers (e.g. machine-user `*-orchestrator`
+    // accounts), and a quoted answer must never die as if it were a command.
+    if (HIGH_VALUE_BOT_PATTERNS.some((rx) => rx.test(body))) continue;
     if (isBotLogin(c.author?.login || "")) {
-      if (HIGH_VALUE_BOT_PATTERNS.some((rx) => rx.test(body))) continue;
       if (!DISPOSABLE_BOT_PATTERNS.some((rx) => rx.test(body))) continue;
     } else {
       if (!hasRocket(c)) continue;
