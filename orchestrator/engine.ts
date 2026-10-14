@@ -2237,6 +2237,9 @@ export class OrchestratorEngine {
     // Human /retry resets the budget (see issue_manager).
     for (const task of roadmap.tasks) {
       if (task.status !== "FAILED") continue;
+      // Human-escalated failures stay parked: resurrecting them would
+      // re-dispatch agents into secrets or exhausted fix budgets.
+      if ((task.reviewNotes || "").includes("[NEEDS-HUMAN]")) continue;
       const res = task.resurrections || 0;
       if (res >= CONFIG.FAILED_AUTO_RESURRECT_MAX) continue;
       const failMs = Date.parse(task.failedAt || task.updatedAt);

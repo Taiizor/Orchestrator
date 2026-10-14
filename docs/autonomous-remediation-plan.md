@@ -96,7 +96,9 @@ On gate failure with a known-kind diagnosis (exactly one kind, no `secret`):
 `unknown` kind: single reviewer call constrained to output a prescription in
 the same shape (or `human`). The prescription then feeds either an
 engine-side fix or one in-place round — never a separate task. Reviewer
-never approves; it only diagnoses.
+never approves; it only diagnoses. `secret` and budget-exhausted
+escalations mark FAILED with `[NEEDS-HUMAN]`, which the overnight
+auto-resurrect skips — escalated tasks stay parked for a human.
 
 Visibility: no per-fix board card exists by design (single task), so the
 engine posts a dashboard comment per fix round (`[FIX-ROUND: <kind>]`
