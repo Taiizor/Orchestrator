@@ -246,7 +246,13 @@ export function scanSqlInjection(diff: string): string[] {
     if (isTestPath(file) || isBuildOutput(file)) continue;
     if (!/\.(ts|js|tsx|jsx|go|py|php|rb|java|kt|cs|rs)$/i.test(file)) continue;
     for (const line of lines) {
-      if (SQL_KW_RX.test(line) && SQL_CONCAT_RX.test(line)) {
+      // Strip the diff marker before testing: addedLinesByFile retains the
+      // leading "+", so without this the `\+\s*['"`]` alternative matches
+      // EVERY indented line that merely starts with a string literal
+      // (e.g. `+        "SELECT ... WHERE x = $1"`) — a false positive that
+      // failed fully-parameterized queries (TASK-002/TASK-004 class).
+      const content = line.startsWith("+") ? line.slice(1) : line;
+      if (SQL_KW_RX.test(content) && SQL_CONCAT_RX.test(content)) {
         hits.push(`Possible SQL concatenation in ${file}: ${line.slice(1, 100).trim()}`);
         break;
       }
@@ -330,7 +336,7 @@ function touchesApiOrSchema(files: string[]): boolean {
  * under a previous version must be re-evaluated, never skipped by the
  * unchanged-tip optimization.
  */
-export const GATE_VERSION = 9;
+export const GATE_VERSION = 10;
 
 /**
  * Deterministic pre-LLM gate. Fails fast on empty diff, missing progress

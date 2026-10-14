@@ -183,6 +183,21 @@ describe("Review Gate Module", () => {
       expect(scanDemoSmells(diff)).toEqual([]);
       expect(scanFallbackLayers(diff)).toEqual([]);
     });
+    it("does not flag indented parameterized SQL (diff-marker false positive)", () => {
+      const indented = [
+        `${h("workspace/src/services/store.ts")}\n+        \`INSERT INTO hunts`,
+        `${h("workspace/src/services/store.ts")}\n+      "SELECT * FROM players WHERE hunt_id = $1 ORDER BY joined_at ASC"`,
+        `${h("workspace/src/api/handler.ts")}\n+      "SELECT id FROM players WHERE hunt_id = $1 AND token_hash = $2"`,
+        `${h("workspace/src/db/queries.ts")}\n+    \`SELECT p.id AS player_id,`,
+      ];
+      for (const diff of indented) expect(scanSqlInjection(diff)).toEqual([]);
+    });
+    it("still flags real concatenation and interpolation", () => {
+      const concat = `${h("workspace/src/a.ts")}\n+const q = "SELECT * FROM t WHERE id = " + id;`;
+      expect(scanSqlInjection(concat).length).toBeGreaterThan(0);
+      const interp = `${h("workspace/src/a.ts")}\n+const q = \`SELECT * FROM t WHERE id = \${id}\`;`;
+      expect(scanSqlInjection(interp).length).toBeGreaterThan(0);
+    });
     it("catches stripe live keys and credential-store filenames", () => {
       const diff = `${h("workspace/api/pay.ts")}\n+const k = "sk_live_abc123";`;
       expect(scanSecrets(diff, ["workspace/api/pay.ts"]).join(" ")).toMatch(/Stripe/);
