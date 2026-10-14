@@ -434,7 +434,7 @@ async function main() {
   }
 
   const res = await OpenCodeClient.runWithFallback(prompt, {
-    timeoutMs: 45 * 60 * 1000,
+    timeoutMs: 60 * 60 * 1000,
     files: attachableFiles.length > 0 ? attachableFiles : undefined,
     // Session title for `session list` operability (which run owns what).
     // No --agent: no role agents are defined (roles specialize via prompts),

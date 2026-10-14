@@ -168,8 +168,7 @@ describe("OpenCode Client Module", () => {
       expect(without).not.toContain("--session");
     });
 
-    it("buildCommand appends --agent and --title only when given", () => {
-      const full = (OpenCodeClient as any).buildCommand({ model: "a/b" }, ["f.png"], undefined, {
+    it("buildCommand appends --agent and --title only when given", () => {      const full = (OpenCodeClient as any).buildCommand({ model: "a/b" }, ["f.png"], undefined, {
         agent: "build",
         title: "[TASK-1] t",
       });
@@ -214,6 +213,19 @@ describe("OpenCode Client Module", () => {
       const { kept, skipped } = await OpenCodeClient.filterAttachableFiles([missing]);
       expect(kept).toEqual([missing]);
       expect(skipped).toEqual([]);
+    });
+
+    it("parseSessionListId reads array, object, and raw-id shapes", () => {
+      expect(
+        OpenCodeClient.parseSessionListId(JSON.stringify([{ id: "ses_aaa", title: "t" }, { id: "ses_bbb" }]))
+      ).toBe("ses_aaa");
+      expect(OpenCodeClient.parseSessionListId(JSON.stringify({ sessions: [{ sessionID: "ses_ccc" }] }))).toBe(
+        "ses_ccc"
+      );
+      expect(OpenCodeClient.parseSessionListId(`{"id": "ses_ddd"}`)).toBe("ses_ddd");
+      expect(OpenCodeClient.parseSessionListId("[]")).toBeUndefined();
+      expect(OpenCodeClient.parseSessionListId("not json at all")).toBeUndefined();
+      expect(OpenCodeClient.parseSessionListId("")).toBeUndefined();
     });
   });
 });

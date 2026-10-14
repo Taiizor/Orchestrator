@@ -9,9 +9,9 @@ export const CONFIG = {
   MAX_CONCURRENT_SUBAGENTS: safeInt(process.env.MAX_CONCURRENT_SUBAGENTS, 5),
   MAX_TASK_ATTEMPTS: safeInt(process.env.MAX_TASK_ATTEMPTS, 3),
   // Watchdog: cancel subagent runs older than this (minutes) and re-queue the task.
-  // Must stay above the subagent workflow timeout (60m): a lower value would
+  // Must stay above the subagent workflow timeout (75m): a lower value would
   // cancel healthy long runs instead of only dead ones.
-  STALE_RUN_TIMEOUT_MINUTES: safeInt(process.env.STALE_RUN_TIMEOUT_MINUTES, 70),
+  STALE_RUN_TIMEOUT_MINUTES: safeInt(process.env.STALE_RUN_TIMEOUT_MINUTES, 85),
   // Fast dead-task recovery: IN_PROGRESS + silence since before dispatch +
   // zero active runs anywhere = worker gone (fast fail, infra kill).
   // Frees the task in minutes instead of waiting out STALE_RUN_TIMEOUT.

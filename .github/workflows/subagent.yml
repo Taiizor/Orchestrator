@@ -37,9 +37,9 @@ jobs:
       OPENCODE_DISABLE_MODELS_FETCH: "true"
       OPENCODE_DISABLE_AUTOUPDATE: "true"
       OPENCODE_DISABLE_LSP_DOWNLOAD: "true"
-    # Job cap 60 > model-call budget 45: the extra 15 min are headroom for
+    # Job cap 75 > model-call budget 60: the extra 15 min are headroom for
     # fallback models, push/wake/log steps so the killer never lands mid-work.
-    timeout-minutes: 60
+    timeout-minutes: 75
     permissions:
       contents: write
       actions: write

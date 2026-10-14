@@ -79,6 +79,56 @@ export class OpenCodeClient {
   /** Default per-call model budget (ms) when the caller passes none. */
   public static readonly DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 
+  /** Newest session id from `session list` JSON output, if parseable. */
+  public static parseSessionListId(rawStdout: string): string | undefined {
+    const trimmed = rawStdout.trim();
+    if (!trimmed) return undefined;
+    try {
+      const data = JSON.parse(trimmed);
+      const list = Array.isArray(data) ? data : data.sessions || data.data;
+      if (Array.isArray(list)) {
+        for (const item of list) {
+          const id = (item as any)?.id || (item as any)?.sessionID;
+          if (typeof id === "string" && id) return id;
+        }
+      }
+    } catch {
+      /* fall through to regex */
+    }
+    const m = trimmed.match(/"id"\s*:\s*"(ses_[^"]+)"/) || trimmed.match(/"id"\s*:\s*"([^"]+)"/);
+    return m ? m[1] : undefined;
+  }
+
+  /**
+   * Resolve the newest local session (best-effort, bounded). Used when the
+   * event stream yields no session id (older CLI envelopes): the store is
+   * on the same machine, newest-first, so index 0 is the failed attempt's
+   * session. Must be called BEFORE starting the next attempt (which would
+   * create a newer, empty session on top).
+   */
+  private static async resolveLatestSession(timeoutMs = 30_000): Promise<string | undefined> {
+    try {
+      const proc = Bun.spawn(["opencode", "session", "list", "--format", "json", "-n", "1"], {
+        cwd: ".",
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const timer = setTimeout(() => {
+        try {
+          proc.kill();
+        } catch {
+          /* already exited */
+        }
+      }, timeoutMs);
+      const stdout = await new Response(proc.stdout).text();
+      await proc.exited;
+      clearTimeout(timer);
+      return OpenCodeClient.parseSessionListId(stdout);
+    } catch {
+      return undefined;
+    }
+  }
+
   /** First non-empty sessionID in a JSON event stream, if any. */
   public static extractSessionId(rawStdout: string): string | undefined {
     for (const line of rawStdout.split(/\r?\n/)) {
@@ -399,7 +449,7 @@ export class OpenCodeClient {
 
     // Session-aware fallback: when an attempt fails fast (NOT a timeout —
     // the server side may still be busy then), the next model continues the
-    // same session instead of redoing 45 minutes of reasoning from scratch.
+    // same session instead of redoing 60 minutes of reasoning from scratch.
     // The session id rides on every JSON event line; cold restarts keep the
     // full prompt because the new session has no history.
     const CONTINUATION_PROMPT =
@@ -421,6 +471,17 @@ export class OpenCodeClient {
     };
     const usageTotal = () => ({ cost: totalCost, tokens: totalTokens, steps: totalSteps });
     const cliExtra = { agent: options?.agent, title: options?.title };
+    // Stream parsing misses the id on older CLI envelopes: fall back to the
+    // local session store (same machine, newest-first). Must run BEFORE the
+    // next attempt starts, which would create a newer empty session on top.
+    const ensureSession = async (): Promise<void> => {
+      if (lastSessionId) return;
+      const listed = await OpenCodeClient.resolveLatestSession();
+      if (listed) {
+        console.log(`🔁 [OpenCode] Stream yielded no session id; resolved newest local session ${listed}.`);
+        lastSessionId = listed;
+      }
+    };
 
     for (let i = 0; i < candidateModels.length; i++) {
       const spec = candidateModels[i];
@@ -476,7 +537,9 @@ export class OpenCodeClient {
       }
 
       // Fast failure with a live session behind it: the next model continues.
-      // Timeouts cold-restart (the server side may still be busy).
+      // Timeouts cold-restart (the server side may still be busy) — don't
+      // even resolve (saves a bounded lookup on the hottest path).
+      if (!res.timedOut) await ensureSession();
       useContinuation = !!lastSessionId && !res.timedOut;
 
       // If the "#variant" suffix is unsupported by this model, retry the plain
@@ -514,6 +577,7 @@ export class OpenCodeClient {
             usage: usageTotal(),
           };
         }
+        if (!retryRes.timedOut) await ensureSession();
         useContinuation = !!lastSessionId && !retryRes.timedOut;
         console.warn(
           `⚠️ [OpenCode] Model ${label} encountered an issue (Exit: ${res.exitCode}, ApiError: ${isApiError}, ContentLength: ${parsedStdout.length}). Falling back to next model...`
