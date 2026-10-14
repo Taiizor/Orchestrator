@@ -44,7 +44,10 @@ export interface FailureDiagnosis {
   files: string[];
   prescription: string; // concrete fix instruction for the agent
 }
-export function classifyGateFailure(failures: string[]): FailureDiagnosis[]
+export function classifyGateFailure(
+  failures: string[],
+  opts?: { diff?: string; outOfScope?: string[] } // full untruncated file lists beat message parsing; diff re-tests SQL hits
+): FailureDiagnosis[]
 ```
 
 Mapping (regex on the gate's own failure strings — stable contract):
@@ -56,7 +59,7 @@ Mapping (regex on the gate's own failure strings — stable contract):
 | `Out-of-scope files` listing only build-output (`dist|build|coverage|out|storybook-static`) | `build-output` | `git rm -r` the listed dirs; never emit build output inside `workspace/` (use `$RUNNER_TEMP`) |
 | `Out-of-scope files` listing only dependency trees or runtime junk (`vendor|node_modules|.nuxt|storage/logs|bootstrap/cache`) | `vendor-junk` | `git rm -r` the listed paths; extend the publish exclusion list so `add -f` can never stage them again |
 | `Test evidence present but no [runner-executed] stamp` | `unstamped-proof` | attach the runner's stamped proof (already automated in the runner); do not retry for content |
-| merge conflict confined to `workspace/TASK_PROGRESS.md` | `progress-conflict` | resolve with `--ours` (develop copy — scratch report by design); never manual-merge this file |
+| merge conflict confined to `workspace/TASK_PROGRESS.md` | `progress-conflict` | keep the integration-branch copy: the `.gitattributes merge=ours` driver (ensured before every merge) prevents it; the `--ours` code fallback in `mergeTaskBranch` covers driver-less branches |
 | `Out-of-scope files` otherwise | `unknown` | → reviewer agent once (see §3.2) |
 | `Potential secret leak` | `secret` | → human immediately (never auto-touch secrets) |
 | `Empty diff` | `empty-diff` | mark COMPLETED (already integrated) — current behavior, keep |
@@ -116,8 +119,8 @@ Extend `orchestrator/roadmap_validator.ts` (runs on `plan` and `/add`):
 
 - If a task's `deliverables`/`description` require test files (`tests/**`,
   `*.test.*`) but `targetFiles` excludes them → validation ERROR naming both.
-- If a non-QA task's `verificationCommand` needs suites it may not write →
-  ERROR (either widen scope or drop the deliverable).
+- If a non-QA, non-launch task's `verificationCommand` needs suites it may not write →
+  ERROR (either widen scope or drop the deliverable; launch exempt like the toolchain warning).
 - If `targetFiles` is non-empty yet excludes `workspace/CONTRACTS.md` while
   the task touches data-model/API/service areas (any product layout, e.g.
   `src/api/**`, `src/db/**`, `src/services/**`, `workspace/<layer>/**`)

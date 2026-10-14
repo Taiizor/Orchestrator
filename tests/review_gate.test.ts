@@ -5,12 +5,16 @@ import {
   isDefaultProgress,
   globMatches,
   isAllowedFile,
+  isGeneratedJunkPath,
+  isTestPath,
   checkEvidenceStamp,
   scanSecrets,
   scanSecretWarnings,
   scanSqlInjection,
   scanFallbackLayers,
   scanDemoSmells,
+  classifyGateFailure,
+  priorFixRounds,
   GATE_VERSION
 } from "../orchestrator/review_gate.ts";
 
@@ -152,6 +156,105 @@ describe("Review Gate Module", () => {
     it("should be a number", () => {
       expect(typeof GATE_VERSION).toBe("number");
       expect(GATE_VERSION).toBeGreaterThan(0);
+    });
+    it("is 11 after the remediation-loop rule changes", () => {
+      expect(GATE_VERSION).toBe(11);
+    });
+  });
+
+  describe("isGeneratedJunkPath", () => {
+    it("flags dependency trees, build output, and runtime junk", () => {
+      for (const f of [
+        "workspace/node_modules/foo/index.js",
+        "workspace/Son.Dash/vendor/aws/sdk.php",
+        "workspace/Son.Front/.nuxt/app.config.mjs",
+        "workspace/web/dist/bundle.js",
+        "workspace/Son.Dash/storage/logs/laravel.log",
+        "workspace/Son.Dash/storage/framework/views/x.php",
+        "workspace/Son.Dash/bootstrap/cache/services.php",
+        "workspace/Son.Dash/.phpunit.result.cache",
+      ]) {
+        expect(isGeneratedJunkPath(f)).toBe(true);
+      }
+    });
+    it("keeps product code and about-adjacent names", () => {
+      for (const f of [
+        "workspace/src/api/handler.ts",
+        "workspace/Son.Dash/app/Models/Anime.php",
+        "workspace/docs/about.md",
+        "workspace/outbox/worker.ts",
+      ]) {
+        expect(isGeneratedJunkPath(f)).toBe(false);
+      }
+    });
+  });
+
+  describe("classifyGateFailure", () => {
+    it("routes empty diff, stamp, and secret failures", () => {
+      expect(classifyGateFailure(["Empty diff: task branch has no changes vs develop."]).map((d) => d.kind)).toEqual([
+        "empty-diff",
+      ]);
+      expect(
+        classifyGateFailure(["Test evidence present but no [runner-executed] stamp: proof must come from elsewhere."]).map(
+          (d) => d.kind
+        )
+      ).toEqual(["unstamped-proof"]);
+      expect(classifyGateFailure(["Potential secret leak detected: Generic secret assignment."]).map((d) => d.kind)).toEqual([
+        "secret",
+      ]);
+    });
+    it("calls placeholder-only SQL hits an engine false positive", () => {
+      const failures = [
+        "Possible SQL injection (unparameterized query): Possible SQL concatenation in workspace/src/db.ts: const q = await db.query(\"SELECT * FROM t WHERE id=$1\", [id]).",
+      ];
+      expect(classifyGateFailure(failures).map((d) => d.kind)).toEqual(["sql-false-positive"]);
+    });
+    it("leaves real concatenation to the normal reject path", () => {
+      const failures = [
+        'Possible SQL injection (unparameterized query): Possible SQL concatenation in workspace/src/db.ts: const q = "SELECT * FROM t WHERE id = " + id.',
+      ];
+      expect(classifyGateFailure(failures)).toEqual([]);
+    });
+    it("routes tests-only scope to test-scope with files", () => {
+      const failures = ["Out-of-scope files modified (workspace/tests/a.test.ts, workspace/tests/b.test.ts). Allowed: x."];
+      const [d] = classifyGateFailure(failures);
+      expect(d.kind).toBe("test-scope");
+      expect(d.files).toEqual(["workspace/tests/a.test.ts", "workspace/tests/b.test.ts"]);
+    });
+    it("routes junk-only scope to build-output vs vendor-junk", () => {
+      const [b] = classifyGateFailure(["Out-of-scope files modified (workspace/web/dist/a.js). Allowed: x."]);
+      expect(b.kind).toBe("build-output");
+      const [v] = classifyGateFailure(["Out-of-scope files modified (workspace/Son.Dash/vendor/a.php). Allowed: x."]);
+      expect(v.kind).toBe("vendor-junk");
+    });
+    it("prefers the full gate file list over truncated messages", () => {
+      const failures = ["Out-of-scope files modified (workspace/web/dist/a.js, +1 more). Allowed: x."];
+      const [d] = classifyGateFailure(failures, { outOfScope: ["workspace/web/dist/a.js", "workspace/src/api/h.ts"] });
+      expect(d.kind).toBe("unknown");
+    });
+    it("treats truncated message lists as unknown", () => {
+      const [d] = classifyGateFailure(["Out-of-scope files modified (workspace/web/dist/a.js, +2 more). Allowed: x."]);
+      expect(d.kind).toBe("unknown");
+    });
+    it("routes mixed scope to unknown", () => {
+      const [d] = classifyGateFailure(["Out-of-scope files modified (workspace/web/dist/a.js, workspace/src/api/h.ts). Allowed: x."]);
+      expect(d.kind).toBe("unknown");
+    });
+    it("returns [] for unrecognized failures (normal reject path)", () => {
+      expect(classifyGateFailure(["TASK_PROGRESS.md missing sections: doing."])).toEqual([]);
+    });
+  });
+
+  describe("priorFixRounds", () => {
+    it("extracts recorded fix-round kinds", () => {
+      expect(priorFixRounds("[FIX-ROUND: build-output] did x\n[FIX-ROUND: test-scope] did y")).toEqual([
+        "build-output",
+        "test-scope",
+      ]);
+    });
+    it("is empty without markers", () => {
+      expect(priorFixRounds("plain notes")).toEqual([]);
+      expect(priorFixRounds(undefined)).toEqual([]);
     });
   });
 

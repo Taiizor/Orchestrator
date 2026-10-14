@@ -146,6 +146,54 @@ export function validateRoadmap(raw: {
       if (!idSet.has(dep)) errors.push(`[${t.id}] depends on unknown task "${dep}".`);
       if (dep === t.id) errors.push(`[${t.id}] depends on itself.`);
     }
+    // Plan-time contradiction checks (unscoped operator tasks — empty
+    // targetFiles by design — are EXEMPT; flagging them would reject every
+    // /add and freeze the board). COMPLETED history is exempt too: adopted
+    // as-built records cannot be replanned, only future work is checked.
+    const scoped = Array.isArray(t.targetFiles) && t.targetFiles.length > 0;
+    const historical = t.status === "COMPLETED";
+    const scopesTests = (t.targetFiles || []).some((f) => f.toLowerCase().includes("test"));
+    const textNeeds = `${t.description || ""}\n${(t.deliverables || []).join("\n")}`;
+    const mentionsTestFiles = /(^|\/|\s)tests?\/[^\s,;:'"]+|\b[\w./-]+\.(test|spec)\.[a-z]+/i.test(textNeeds);
+    if (!historical && scoped && mentionsTestFiles && !scopesTests) {
+      errors.push(
+        `[${t.id}] description/deliverables require test files but targetFiles exclude them; widen targetFiles to cover the tests or move them to a QA-owned task.`
+      );
+    }
+    if (
+      !historical &&
+      typeof t.verificationCommand === "string" &&
+      t.verificationCommand.trim() &&
+      scoped &&
+      t.role !== "qa" &&
+      t.role !== "launch"
+    ) {
+      const named = t.verificationCommand
+        .split(/\s+/)
+        .map((s) => s.replace(/^["']|["']$/g, ""))
+        .filter((s) => /(^|\/)tests?\//i.test(s) || /\.(test|spec)\.[a-z]+$/i.test(s));
+      const uncovered = named.filter(
+        (n) =>
+          !(t.targetFiles || []).some(
+            (tf) => tf.toLowerCase().includes("test") || n.toLowerCase().startsWith(tf.toLowerCase().replace(/\/(\*\*?)?$/, ""))
+          )
+      );
+      if (named.length > 0 && uncovered.length > 0) {
+        errors.push(
+          `[${t.id}] verificationCommand names test paths outside its scope (${uncovered.slice(0, 3).join(", ")}); widen targetFiles or drop the proof requirement.`
+        );
+      }
+    }
+    if (!historical && scoped) {
+      const normTargets = (t.targetFiles || []).map((f) => f.replace(/\\/g, "/"));
+      const touchesDataLayer = normTargets.some((f) => /(^|\/)(api|db|database|models?|services?|schema|migrations?)\//i.test(f));
+      const ownsContracts = normTargets.some((f) => f.includes("workspace/CONTRACTS.md"));
+      if (touchesDataLayer && !ownsContracts) {
+        errors.push(
+          `[${t.id}] touches data-model/API/service areas but targetFiles exclude workspace/CONTRACTS.md; add contract ownership (or a contract-task dependency) so the boundary stays documented.`
+        );
+      }
+    }
   }
 
   // Split layers must meet at a CONSUMED contract: with 2+ effective stacks,

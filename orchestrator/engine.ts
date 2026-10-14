@@ -8,7 +8,17 @@ import { GitManager } from "./git_manager.ts";
 import { OpenCodeClient } from "./opencode_client.ts";
 import { IssueManager } from "./issue_manager.ts";
 import { ProjectManager } from "./project_manager.ts";
-import { GATE_VERSION, hasStructuredProgress, isDefaultProgress, runReviewGate } from "./review_gate.ts";
+import {
+  GATE_VERSION,
+  hasStructuredProgress,
+  isDefaultProgress,
+  runReviewGate,
+  classifyGateFailure,
+  isAllowedFile,
+  isGeneratedJunkPath,
+  priorFixRounds,
+} from "./review_gate.ts";
+import type { GateFailureKind } from "./review_gate.ts";
 import { validateRoadmap, formatValidation, sanitizeCoverage } from "./roadmap_validator.ts";
 import { STACKS, normalizeStackId, effectiveTaskStack } from "./stacks.ts";
 import type { StackId } from "./stacks.ts";
@@ -1053,6 +1063,23 @@ export class OrchestratorEngine {
               //   nothing → IN_REVIEW so the gate rejects with feedback + requeues.
               // - real report + unique commits = already integrated → COMPLETED.
               // (uniqueEarly computed above for the hold check — reused here.)
+              // Launch tasks must prove fresh probe execution: an empty diff
+              // with no fresh verdict block means the agent never ran probes.
+              // Stay IN_REVIEW — never auto-complete, never recycle an old
+              // verdict (docs/autonomous-remediation-plan.md §3.5).
+              if (task.role === "launch") {
+                const { parseLaunchVerdict } = await import("./launch_verdict.ts");
+                if (!parseLaunchVerdict(progressContent)) {
+                  if (task.status !== "IN_REVIEW") {
+                    task.status = "IN_REVIEW";
+                    task.reviewNotes =
+                      "Launch task has no fresh probe verdict block on its branch; run probes and report before review.";
+                    task.updatedAt = new Date().toISOString();
+                    hasChanges = true;
+                  }
+                  continue;
+                }
+              }
               const unique = uniqueEarly;
               if (!isDefaultProgress(progressContent) && unique > 0) {
                 if (task.status !== ("COMPLETED" as string)) {
@@ -1107,7 +1134,7 @@ export class OrchestratorEngine {
       // LLM cost saver: identical tip already verdict → skip re-review.
       // (Verdicts always move the task out of IN_REVIEW, so a repeat here
       // with the same tip means a no-op cycle re-queued it.)
-      const tipSha = await GitManager.branchTipSha(task.branch);
+      let tipSha = await GitManager.branchTipSha(task.branch);
       if (tipSha && task.lastReviewSha === tipSha && task.lastGateVersion === GATE_VERSION) {
         // Stuck-verdict escape: skipped + provably idle + stale dispatch =
         // nobody will push new content; send back for a genuinely fresh
@@ -1163,14 +1190,14 @@ export class OrchestratorEngine {
       }
 
       // Get diff against integration branch
-      const diff = await GitManager.getBranchDiff(task.branch, CONFIG.INTEGRATION_BRANCH);
+      let diff = await GitManager.getBranchDiff(task.branch, CONFIG.INTEGRATION_BRANCH);
 
       // Attempt to read task progress file from branch (content-remote aware)
       const progressContent = await GitManager.showFile(task.branch, `workspace/${CONFIG.TASK_PROGRESS_FILE}`);
-      const taskProgress = progressContent !== null ? progressContent : "No progress file provided.";
+      let taskProgress = progressContent !== null ? progressContent : "No progress file provided.";
 
       // Step 1: Deterministic pre-LLM gate (no LLM cost on obvious failures)
-      const gate = await runReviewGate(task, diff, taskProgress);
+      let gate = await runReviewGate(task, diff, taskProgress);
       if (gate.warnings.length > 0) {
         console.warn(`⚠️ [${task.id}] gate warnings:\n- ${gate.warnings.join("\n- ")}`);
       }
@@ -1225,6 +1252,35 @@ export class OrchestratorEngine {
           }
           hasChanges = true;
           continue;
+        }
+        // Autonomous remediation (docs/autonomous-remediation-plan.md §3.2):
+        // diagnose the gate failure BEFORE blind retry. Mechanical fixes
+        // (scope widening, junk surgery) re-run the gate once in-tick and
+        // continue to review; agent rounds requeue PENDING with attempts
+        // frozen; humans only on budget exhaustion or secrets. Plain reject
+        // (attempt burned) is the last resort below.
+        {
+          const remediation = await OrchestratorEngine.remediateGateFailure(task, roadmap, gate, diff);
+          if (remediation === "requeued" || remediation === "escalated") {
+            hasChanges = true;
+            continue;
+          }
+          if (remediation === "regated") {
+            hasChanges = true;
+            const newTip = await GitManager.branchTipSha(task.branch);
+            if (newTip) tipSha = newTip;
+            diff = await GitManager.getBranchDiff(task.branch, CONFIG.INTEGRATION_BRANCH);
+            const freshProgress = await GitManager.showFile(task.branch, `workspace/${CONFIG.TASK_PROGRESS_FILE}`);
+            if (freshProgress !== null) taskProgress = freshProgress;
+            gate = await runReviewGate(task, diff, taskProgress);
+            if (gate.warnings.length > 0) {
+              console.warn(`⚠️ [${task.id}] re-gate warnings:\n- ${gate.warnings.join("\n- ")}`);
+            }
+            if (!gate.passed) {
+              await rejectTask(`Deterministic gate failed:\n- ${gate.failures.join("\n- ")}`, gate.failures);
+              continue;
+            }
+          }
         }
         await rejectTask(`Deterministic gate failed:\n- ${gate.failures.join("\n- ")}`, gate.failures);
         continue;
@@ -1449,6 +1505,246 @@ export class OrchestratorEngine {
     }
     await GitManager.run(["git", "stash", "pop"]);
     console.error("❌ persistRoadmap: push failed after 3 attempts; changes remain local.");
+  }
+
+  /**
+   * Remove regenerable paths from a task branch via an isolated linked
+   * worktree (never the main checkout). Returns false on any failure —
+   * callers fall back to the normal reject path.
+   */
+  private static async surgicallyRemove(branch: string, paths: string[]): Promise<boolean> {
+    const remote = GitManager.contentRemote();
+    const wtDir = join(tmpdir(), `gate-fix-${process.pid}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`);
+    const wt = async (args: string[]) => GitManager.run(["git", "-C", wtDir, ...args]);
+    const cleanup = async () => {
+      try {
+        await GitManager.run(["git", "worktree", "remove", "--force", wtDir]);
+      } catch {
+        /* ephemeral runner; leftovers die with the VM */
+      }
+      try {
+        await GitManager.run(["git", "worktree", "prune"]);
+      } catch {
+        /* best-effort */
+      }
+    };
+    try {
+      await GitManager.run(["git", "worktree", "prune"]);
+      rmSync(wtDir, { recursive: true, force: true });
+      const add = await GitManager.run(["git", "worktree", "add", "--detach", wtDir, `${remote}/${branch}`]);
+      if (add.exitCode !== 0) return false;
+      const rm = await wt(["rm", "-r", "-q", "--", ...paths]);
+      if (rm.exitCode !== 0) return false;
+      const commit = await wt([
+        "git",
+        "-c",
+        "user.name=github-actions[bot]",
+        "-c",
+        "user.email=github-actions[bot]@users.noreply.github.com",
+        "commit",
+        "-m",
+        `chore(gate-fix): drop regenerable paths from ${branch}`,
+      ]);
+      if (commit.exitCode !== 0) return false;
+      const push = await GitManager.remoteGit(remote, ["push", remote, `HEAD:refs/heads/${branch}`], wtDir);
+      return push.exitCode === 0;
+    } catch {
+      return false;
+    } finally {
+      await cleanup();
+    }
+  }
+
+  /** Dashboard visibility for fix rounds (never breaks the tick). */
+  private static async noteFixDashboard(roadmap: Roadmap, msg: string): Promise<void> {
+    try {
+      if (!roadmap.projectNumber) return;
+      const issueNum = await IssueManager.syncDashboardIssue(roadmap);
+      if (issueNum) await IssueManager.postMilestoneUpdate(issueNum, msg);
+    } catch {
+      /* visibility must never break the tick */
+    }
+  }
+
+  /**
+   * Autonomous gate remediation (docs/autonomous-remediation-plan.md §3.2).
+   * Diagnoses deterministic-gate failures BEFORE blind retry:
+   * - "regated": mechanical fix applied (scope widened / junk surgically
+   *   removed) — caller re-runs the gate once and continues review.
+   * - "requeued": agent round queued (PENDING, attempts frozen) with a
+   *   prescription directive — caller skips normal reject (no burn).
+   * - "escalated": FAILED + human note — caller skips normal reject.
+   * - null: not handled — caller takes the normal reject path (burn).
+   */
+  private static async remediateGateFailure(
+    task: TaskItem,
+    roadmap: Roadmap,
+    gate: { failures: string[]; fileList: string[]; lineageBroken?: boolean },
+    diff: string
+  ): Promise<"regated" | "requeued" | "escalated" | null> {
+    // File-level attribution is impossible without shared history.
+    if (gate.lineageBroken) return null;
+    const oos = gate.fileList.filter((f) => !isAllowedFile(task, f));
+    const diagnoses = classifyGateFailure(gate.failures, { diff, outOfScope: oos });
+    const actionable = diagnoses.filter((d) => d.kind !== "empty-diff");
+    if (actionable.length !== 1) return null;
+    const d = actionable[0];
+    const now = new Date().toISOString();
+
+    const escalate = async (why: string): Promise<"escalated"> => {
+      task.status = "FAILED";
+      task.failedAt = now;
+      task.reviewNotes = `[NEEDS-HUMAN] ${why}\n${task.reviewNotes || ""}`.trim().slice(0, 2000);
+      task.updatedAt = now;
+      if (roadmap.projectNumber) {
+        await ProjectManager.updateItemStatus(roadmap.projectNumber, task, "Failed");
+      }
+      await OrchestratorEngine.noteFixDashboard(roadmap, `🚨 **Needs a human:** [${task.id}] ${why}`);
+      return "escalated";
+    };
+    const prior = priorFixRounds(task.reviewNotes);
+    if (d.kind === "secret") {
+      return escalate("secret-leak flag needs human triage (never auto-touched)");
+    }
+    if (prior.includes(d.kind)) {
+      return escalate(`repeat [FIX-ROUND: ${d.kind}] — fix budget exhausted`);
+    }
+    const mark = `[FIX-ROUND: ${d.kind}]`;
+
+    // Zero-LLM mechanical fix: widen scope to cover required test files,
+    // then re-gate in-tick (no agent round, no attempt burned).
+    if (d.kind === "test-scope") {
+      task.targetFiles = [...new Set([...(task.targetFiles || []), ...d.files])];
+      task.reviewNotes = `${mark} Scope widened to cover required test files (${d.files.length}); re-running gate.`.slice(
+        0,
+        2000
+      );
+      task.updatedAt = now;
+      await OrchestratorEngine.noteFixDashboard(
+        roadmap,
+        `🔧 **[FIX-ROUND: test-scope]** [${task.id}]: widened targetFiles (${d.files.length} test path(s)); re-running gate.`
+      );
+      return "regated";
+    }
+    // Zero-LLM mechanical fix: surgically remove regenerable paths from the
+    // branch, then re-gate in-tick.
+    if (d.kind === "build-output" || d.kind === "vendor-junk") {
+      const junk = oos.filter((f) => isGeneratedJunkPath(f));
+      if (junk.length === 0 || junk.length !== oos.length) return null;
+      const ok = await OrchestratorEngine.surgicallyRemove(task.branch, junk);
+      if (!ok) return null;
+      task.reviewNotes = `${mark} Removed ${junk.length} regenerable path(s) from branch; re-running gate.`.slice(0, 2000);
+      task.updatedAt = now;
+      await OrchestratorEngine.noteFixDashboard(
+        roadmap,
+        `🧹 **[FIX-ROUND: ${d.kind}]** [${task.id}]: removed ${junk.length} regenerable path(s); re-running gate.`
+      );
+      return "regated";
+    }
+    // Agent round on the same branch: PENDING with attempts FROZEN (no burn)
+    // plus a prescription directive the agent prompt surfaces.
+    if (d.kind === "unstamped-proof" || d.kind === "sql-false-positive") {
+      const why =
+        d.kind === "sql-false-positive"
+          ? "Scanner residual flag looks like an engine false positive; re-run tests via the runner to refresh proof."
+          : "Re-run the task's test command via the runner so the report carries a stamped proof block.";
+      task.status = "PENDING";
+      task.lastReviewSha = undefined;
+      task.lastGateVersion = undefined;
+      task.launchVerdict = undefined;
+      task.reviewNotes = `${mark} ${why}\nPrevious gate feedback preserved below:\n${task.reviewNotes || "-"}`.slice(0, 2000);
+      task.updatedAt = now;
+      if (roadmap.projectNumber) {
+        await ProjectManager.updateItemStatus(roadmap.projectNumber, task, "Todo");
+      }
+      await OrchestratorEngine.noteFixDashboard(
+        roadmap,
+        `🔁 **[FIX-ROUND: ${d.kind}]** [${task.id}] queued for agent round (attempts frozen).`
+      );
+      return "requeued";
+    }
+    // Unknown: one bounded reviewer call constrained to a prescription
+    // shape (diagnose only, never approve), then reuse the paths above.
+    if (d.kind === "unknown") {
+      const rx = await OrchestratorEngine.diagnoseUnknown(task, gate);
+      if (!rx || rx.kind === "human" || prior.includes(rx.kind)) {
+        return escalate(
+          rx && rx.kind === "human"
+            ? `reviewer diagnosis: human needed (${(rx.prescription || "no detail").slice(0, 200)})`
+            : "unknown gate failure; reviewer diagnosis unusable"
+        );
+      }
+      if (rx.kind === "test-scope") {
+        task.targetFiles = [...new Set([...(task.targetFiles || []), ...rx.files])];
+        task.reviewNotes = `${mark} Scope widened per reviewer diagnosis; re-running gate.`.slice(0, 2000);
+        task.updatedAt = now;
+        return "regated";
+      }
+      if (rx.kind === "build-output" || rx.kind === "vendor-junk") {
+        const junk = rx.files.filter((f) => isGeneratedJunkPath(f));
+        if (junk.length === 0) return escalate("reviewer diagnosis named no removable paths");
+        const ok = await OrchestratorEngine.surgicallyRemove(task.branch, junk);
+        if (!ok) return null;
+        task.reviewNotes = `${mark} Removed reviewer-flagged paths; re-running gate.`.slice(0, 2000);
+        task.updatedAt = now;
+        return "regated";
+      }
+      // Reviewer-named sql/unstamped kinds ride the agent round with marker.
+      task.status = "PENDING";
+      task.lastReviewSha = undefined;
+      task.lastGateVersion = undefined;
+      task.launchVerdict = undefined;
+      task.reviewNotes =
+        `${mark} Reviewer diagnosis: ${rx.prescription}\nPrevious gate feedback preserved below:\n${task.reviewNotes || "-"}`.slice(
+          0,
+          2000
+        );
+      task.updatedAt = now;
+      if (roadmap.projectNumber) {
+        await ProjectManager.updateItemStatus(roadmap.projectNumber, task, "Todo");
+      }
+      return "requeued";
+    }
+    return null;
+  }
+
+  /**
+   * One bounded reviewer call that may ONLY return a prescription
+   * ({kind, files[], prescription} or {kind:"human"}) — diagnose, never
+   * approve. Unparseable output escalates (handled by caller).
+   */
+  private static async diagnoseUnknown(
+    task: TaskItem,
+    gate: { failures: string[]; fileList: string[] }
+  ): Promise<{ kind: GateFailureKind | "human"; files: string[]; prescription: string } | null> {
+    let template: string;
+    try {
+      template = await Bun.file("orchestrator/prompts/reviewer.md").text();
+    } catch {
+      return null;
+    }
+    const prompt =
+      `${template}\n\nYou are diagnosing a deterministic-gate failure, NOT approving work. ` +
+      `Do not evaluate deliverables. Task [${task.id}] ${task.title} failed:\n- ${gate.failures.join("\n- ")}\n\n` +
+      `Changed files (${gate.fileList.length}):\n${gate.fileList.slice(0, 100).join("\n")}\n\n` +
+      `Return ONLY a JSON block enclosed in \`\`\`json \`\`\` with exactly this shape (no prose outside the block):\n` +
+      `\`\`\`json\n{"kind": "test-scope | build-output | vendor-junk | sql-false-positive | unstamped-proof | human", ` +
+      `"files": ["paths the prescription acts on"], "prescription": "one concrete fix instruction"}\n\`\`\`\`\n` +
+      `Rules: "human" when secrets, destructive scope, or genuine uncertainty. Never approve, never waive the gate.`;
+    const res = await OpenCodeClient.runWithFallback(prompt, { timeoutMs: 4 * 60 * 1000 });
+    const jsonMatch = res.stdout.match(/```json([\s\S]*?)```/) || res.stdout.match(/(\{[\s\S]*\})/);
+    if (!jsonMatch) return null;
+    try {
+      const raw = JSON.parse(jsonMatch[1].trim());
+      const kind = String(raw.kind || "");
+      const files = Array.isArray(raw.files) ? raw.files.filter((f: unknown) => typeof f === "string") : [];
+      const prescription = typeof raw.prescription === "string" ? raw.prescription : "";
+      const allowed = ["test-scope", "build-output", "vendor-junk", "sql-false-positive", "unstamped-proof", "human"];
+      if (!allowed.includes(kind)) return null;
+      return { kind: kind as GateFailureKind | "human", files, prescription };
+    } catch {
+      return null;
+    }
   }
 
   /**

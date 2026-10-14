@@ -9,6 +9,8 @@ export interface GateResult {
   warnings: string[];
   fileList: string[];
   diffStat: string;
+  /** True when the branch shares no history with develop (file rules skipped). */
+  lineageBroken?: boolean;
 }
 
 const REQUIRED_SECTIONS = ["done", "doing", "todo", "verification"];
@@ -190,7 +192,7 @@ function isBuildOutput(file: string): boolean {
 }
 
 /** Paths whose secret-shaped literals are fixtures by definition. */
-function isTestPath(file: string): boolean {
+export function isTestPath(file: string): boolean {
   return (
     /(^|\/)(tests?|__tests__|__mocks__|__fixtures__|fixtures?|test-utils|e2e|cypress)\//i.test(file) ||
     /\.(test|spec)\.[a-z]+$/i.test(file)
@@ -234,6 +236,24 @@ export function scanSecrets(diff: string, files: string[]): string[] {
     hits.push("Sensitive file (.env/.pem/.key/credentials/secrets) in changeset");
   }
   return [...new Set(hits)];
+}
+
+/**
+ * Regenerable dependency trees and runtime junk: the same class publish
+ * scrubbing excludes (mirrors publishTaskBranch exclusions — keep in sync).
+ * A committed vendor/ or 200k-line laravel.log trips scanners on
+ * third-party code and payload heuristics; it is never reviewable work.
+ */
+export function isGeneratedJunkPath(file: string): boolean {
+  const norm = file.replace(/\\/g, "/");
+  return (
+    /(^|\/)node_modules\//.test(norm) ||
+    /(^|\/)vendor\//.test(norm) ||
+    /(^|\/)(\.nuxt|\.next|\.output|dist|build|out|coverage|storybook-static)\//.test(norm) ||
+    /(^|\/)storage\/(logs|framework)\//.test(norm) ||
+    /(^|\/)bootstrap\/cache\//.test(norm) ||
+    norm.endsWith(".phpunit.result.cache")
+  );
 }
 
 /** SQL keyword on a line that also builds strings → injection-shaped. */
@@ -330,13 +350,156 @@ function touchesApiOrSchema(files: string[]): boolean {
   );
 }
 
+export type GateFailureKind =
+  | "sql-false-positive"
+  | "test-scope"
+  | "build-output"
+  | "vendor-junk"
+  | "unstamped-proof"
+  | "progress-conflict"
+  | "secret"
+  | "empty-diff"
+  | "unknown";
+
+export interface FailureDiagnosis {
+  kind: GateFailureKind;
+  files: string[];
+  prescription: string;
+}
+
+/** File names listed in an "Out-of-scope files modified (...)" message. */
+function parseListedOutOfScope(text: string): { files: string[]; truncated: boolean } {
+  const m = text.match(/out-of-scope files modified \(([^)]*)\)/i);
+  if (!m) return { files: [], truncated: false };
+  const raw = m[1]
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const truncated = raw.some((s) => /^\+\d+\s+more$/i.test(s));
+  const files = raw.filter((s) => !/^\+\d+\s+more$/i.test(s)).map((s) => s.replace(/^`|`$/g, ""));
+  return { files, truncated };
+}
+
+/**
+ * Code-level string building (real concatenation). Placeholders ($n, %s,
+ * ?, :name) alone do NOT count — with the diff-marker strip live, a hit
+ * carrying only placeholders is an engine bug, never agent SQLi.
+ */
+function hasCodeLevelConcat(code: string): boolean {
+  return /(\+\s*['"`]|[`'"]\s*\+|\$\{|fmt\.Sprintf|(?<!\$)\bformat\(|Query\(.*\+|Exec\(.*\+)/.test(code);
+}
+
+/**
+ * Diagnose deterministic-gate failures into actionable kinds (pure,
+ * unit-tested). Returns [] when no auto-fix applies (normal reject path).
+ * `diff` re-tests SQL hits strictly; `outOfScope` (full, untruncated file
+ * list from the gate) beats message parsing. `progress-conflict` is a
+ * merge-time condition and is never emitted here — listed for completeness.
+ */
+export function classifyGateFailure(failures: string[], opts?: { diff?: string; outOfScope?: string[] }): FailureDiagnosis[] {
+  const out: FailureDiagnosis[] = [];
+  const text = failures.join("\n");
+  if (/empty diff/i.test(text)) {
+    out.push({
+      kind: "empty-diff",
+      files: [],
+      prescription: "Already integrated; mark COMPLETED per existing empty-diff path.",
+    });
+  }
+  if (/no \[runner-executed\] stamp/i.test(text)) {
+    out.push({
+      kind: "unstamped-proof",
+      files: [],
+      prescription:
+        "Re-run the task's test command via the runner so TASK_PROGRESS.md carries a stamped proof block; change nothing else.",
+    });
+  }
+  if (/secret leak/i.test(text)) {
+    out.push({
+      kind: "secret",
+      files: [],
+      prescription: "Escalate to human immediately; never auto-touch secrets.",
+    });
+  }
+  // SQL hits: with marker-strip live, re-test strictly. Only placeholders +
+  // no code-level concat operator = engine false positive (do not retry the
+  // task for it). Anything else is real concatenation → normal reject path.
+  if (/sql injection|sql concatenation/i.test(text)) {
+    const snippets: string[] = [];
+    for (const line of text.split("\n")) {
+      const m = line.match(/possible sql (?:injection[^\n]*?|concatenation) in ([^\n]+)/i);
+      if (m) snippets.push(m[1]);
+    }
+    const hasSqlKw = (s: string) => SQL_KW_RX.test(s);
+    const onlyPlaceholders = (s: string) => !hasCodeLevelConcat(s);
+    const verifiable = snippets.filter(hasSqlKw);
+    if (verifiable.length > 0 && verifiable.every(onlyPlaceholders)) {
+      out.push({
+        kind: "sql-false-positive",
+        files: [],
+        prescription: "Engine scanner bug (residual false positive); flag loudly, do not retry the task for it.",
+      });
+    }
+  }
+  // Out-of-scope routing needs the file set. Truncated message lists hide
+  // files behind "+N more" — never classify on a partial set (would
+  // misroute mixed diffs); the full gate fileList is authoritative.
+  if (/out-of-scope files/i.test(text)) {
+    const parsed = parseListedOutOfScope(text);
+    const oos = opts?.outOfScope && opts.outOfScope.length > 0 ? opts.outOfScope : parsed.files;
+    const partial = !(opts?.outOfScope && opts.outOfScope.length > 0) && (parsed.files.length === 0 || parsed.truncated);
+    if (!partial && oos.length > 0) {
+      const kinds = new Set(oos.map((f) => (isTestPath(f) ? "test" : isGeneratedJunkPath(f) ? "junk" : "code")));
+      if (kinds.size === 1 && kinds.has("test")) {
+        out.push({
+          kind: "test-scope",
+          files: [...oos],
+          prescription:
+            "Relocate the listed tests to a QA-owned task or widen the task's targetFiles; NEVER delete coverage to satisfy the gate.",
+        });
+      } else if (kinds.size === 1 && kinds.has("junk")) {
+        const buildOnly = oos.every((f) => /(^|\/)(dist|build|out|coverage|storybook-static)\//.test(f.replace(/\\/g, "/")));
+        out.push({
+          kind: buildOnly ? "build-output" : "vendor-junk",
+          files: [...oos],
+          prescription:
+            "Remove the listed regenerable paths from the task branch (git rm); extend the publish exclusion list so add -f can never stage them again.",
+        });
+      } else {
+        out.push({
+          kind: "unknown",
+          files: [...oos],
+          prescription: "Mixed or unrecognized scope shape; needs reviewer diagnosis.",
+        });
+      }
+    } else {
+      out.push({
+        kind: "unknown",
+        files: [...oos],
+        prescription: "Out-of-scope set not fully visible; needs reviewer diagnosis.",
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * Fix-round markers already recorded in review notes (budget ledger:
+ * max 1 auto-fix per task+signature).
+ */
+export function priorFixRounds(notes?: string): string[] {
+  const out: string[] = [];
+  for (const m of (notes || "").matchAll(/\[FIX-ROUND: ([^\]]+)\]/g)) out.push(m[1]);
+  return out;
+}
+
 /**
  * Gate ruleset version. Bumped whenever deterministic rules change
  * (scope lists, secret patterns, file filters): old verdicts recorded
  * under a previous version must be re-evaluated, never skipped by the
  * unchanged-tip optimization.
  */
-export const GATE_VERSION = 10;
+export const GATE_VERSION = 11;
 
 /**
  * Deterministic pre-LLM gate. Fails fast on empty diff, missing progress
@@ -435,5 +598,5 @@ export async function runReviewGate(task: TaskItem, diff: string, progressConten
     warnings.push("New Docker service requested but workspace/CONTRACTS.md not updated (env endpoints undocumented).");
   }
 
-  return { passed: failures.length === 0, failures, warnings, fileList, diffStat };
+  return { passed: failures.length === 0, failures, warnings, fileList, diffStat, lineageBroken };
 }

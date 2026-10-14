@@ -434,6 +434,15 @@ export class GitManager {
   }
 
   /**
+   * True when every conflicted path is the per-task scratch report, which
+   * every task branch rewrites (auto-resolvable via --ours, no AI needed).
+   */
+  public static isProgressOnlyConflict(files: string[]): boolean {
+    const progressRel = `${CONFIG.WORKSPACE_DIR}/${CONFIG.TASK_PROGRESS_FILE}`;
+    return files.length > 0 && files.every((f) => f.replace(/\\/g, "/") === progressRel);
+  }
+
+  /**
    * Merge task branch into integration branch cleanly.
    * Content push always targets the content remote (data repo in dual-repo
    * mode) — task/develop branches must never leak to the public origin.
@@ -441,6 +450,11 @@ export class GitManager {
   public static async mergeTaskBranch(taskBranch: string, targetBranch: string, commitMsg: string): Promise<boolean> {
     await this.fetchAll();
     const remote = this.contentRemote();
+    // Heal the progress-report merge driver BEFORE merging: GitHub PR merges
+    // ignore .gitattributes drivers, so the local fallback below is where
+    // the driver actually prevents TASK_PROGRESS.md conflicts. No-op when
+    // present or in single-repo mode.
+    await this.ensureProgressMergeDriver();
     // Import the resolver BEFORE switching branches: afterwards the workdir
     // holds a data-only tree and the module file is unreachable (ENOENT).
     const { ConflictResolver } = await import("./conflict_resolver.ts");
@@ -456,29 +470,63 @@ export class GitManager {
 
     const mergeRes = await this.run(["git", "merge", "--no-ff", `${remote}/${taskBranch}`, "-m", commitMsg]);
     if (mergeRes.exitCode !== 0) {
-      console.warn(
-        `⚠️ Merge conflict detected when merging ${taskBranch} into ${targetBranch}. Invoking AI Conflict Resolver...`
-      );
-
-      const resolved = await ConflictResolver.resolveConflicts();
-
-      if (resolved) {
-        console.log(`🎉 Merge conflict automatically resolved by AI for ${taskBranch}!`);
-        const rc = await this.run(["git", "commit", "-m", `chore(merge): resolve conflicts integrating ${taskBranch}`]);
+      // Progress-only conflicts resolve deterministically: TASK_PROGRESS.md
+      // is a per-task scratch report rewritten by every task, so concurrent
+      // branches ALWAYS conflict on it. Keep the integration-branch copy and
+      // skip the AI resolver (which adds nothing for a scratch file). Any
+      // other conflicted file routes to the resolver below.
+      const conflicted = (await this.run(["git", "diff", "--name-only", "--diff-filter=U"])).stdout
+        .split("\n")
+        .map((f) => f.trim().replace(/\\/g, "/"))
+        .filter(Boolean);
+      const progressRel = `${CONFIG.WORKSPACE_DIR}/${CONFIG.TASK_PROGRESS_FILE}`;
+      if (GitManager.isProgressOnlyConflict(conflicted)) {
+        console.log(
+          `🧹 Progress-only merge conflict on ${taskBranch}; keeping ${targetBranch} copy (scratch report), no AI resolver needed.`
+        );
+        await this.run(["git", "checkout", "--ours", "--", progressRel]);
+        await this.run(["git", "add", "--", progressRel]);
+        const rc = await this.run([
+          "git",
+          "-c",
+          "user.name=github-actions[bot]",
+          "-c",
+          "user.email=github-actions[bot]@users.noreply.github.com",
+          "commit",
+          "-m",
+          `chore(merge): keep ${targetBranch} TASK_PROGRESS.md integrating ${taskBranch}`,
+        ]);
         if (rc.exitCode !== 0) {
-          // A failed resolve-commit is NOT an integration: abort so the next
-          // tick retries from a clean tree instead of recording COMPLETED
-          // over unmerged work.
-          console.error(`❌ Resolve commit failed for ${taskBranch}; aborting merge.`);
+          console.error(`❌ Progress-only resolve commit failed for ${taskBranch}; aborting merge.`);
           await this.run(["git", "merge", "--abort"]);
           await this.run(["git", "checkout", startRef]);
           return false;
         }
       } else {
-        console.error(`❌ Automated conflict resolution could not resolve ${taskBranch} safely. Aborting merge.`);
-        await this.run(["git", "merge", "--abort"]);
-        await this.run(["git", "checkout", startRef]);
-        return false;
+        console.warn(
+          `⚠️ Merge conflict detected when merging ${taskBranch} into ${targetBranch}. Invoking AI Conflict Resolver...`
+        );
+
+        const resolved = await ConflictResolver.resolveConflicts();
+
+        if (resolved) {
+          console.log(`🎉 Merge conflict automatically resolved by AI for ${taskBranch}!`);
+          const rc = await this.run(["git", "commit", "-m", `chore(merge): resolve conflicts integrating ${taskBranch}`]);
+          if (rc.exitCode !== 0) {
+            // A failed resolve-commit is NOT an integration: abort so the next
+            // tick retries from a clean tree instead of recording COMPLETED
+            // over unmerged work.
+            console.error(`❌ Resolve commit failed for ${taskBranch}; aborting merge.`);
+            await this.run(["git", "merge", "--abort"]);
+            await this.run(["git", "checkout", startRef]);
+            return false;
+          }
+        } else {
+          console.error(`❌ Automated conflict resolution could not resolve ${taskBranch} safely. Aborting merge.`);
+          await this.run(["git", "merge", "--abort"]);
+          await this.run(["git", "checkout", startRef]);
+          return false;
+        }
       }
     }
 

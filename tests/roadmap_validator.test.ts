@@ -379,7 +379,75 @@ describe("Roadmap Validator Module", () => {
     it("should return {} for non-objects", () => {
       expect(sanitizeCoverage(null)).toEqual({});
       expect(sanitizeCoverage("x")).toEqual({});
-      expect(sanitizeCoverage([["a", ["t1"]]])).toEqual({});
+      expect(sanitizeCoverage([[["a", ["t1"]]]])).toEqual({});
+    });
+  });
+
+  describe("plan-time contradiction checks", () => {
+    const base = {
+      id: "t1",
+      role: "backend",
+      dependencies: [],
+      description: "A sufficiently long description with more than twenty words to avoid the thin description warning entirely here.",
+      deliverables: ["first deliverable item", "second deliverable item"],
+      verificationCommand: "go test ./...",
+    };
+    it("errors when deliverables require test files outside scope", () => {
+      const result = validateRoadmap({
+        tasks: [{
+          ...base,
+          deliverables: ["add tests in workspace/tests/a.test.ts", "second deliverable item"],
+          targetFiles: ["workspace/src/api/h.ts"],
+        }],
+      });
+      expect(result.errors.some((e) => e.includes("require test files but targetFiles exclude them"))).toBe(true);
+    });
+    it("passes when test files are covered", () => {
+      const result = validateRoadmap({
+        tasks: [{
+          ...base,
+          deliverables: ["add tests in workspace/tests/a.test.ts", "second deliverable item"],
+          targetFiles: ["workspace/src/api/h.ts", "workspace/tests/**"],
+        }],
+      });
+      expect(result.errors.some((e) => e.includes("require test files"))).toBe(false);
+    });
+    it("exempts unscoped operator tasks and COMPLETED history", () => {
+      const unscoped = validateRoadmap({
+        tasks: [{ ...base, deliverables: ["add tests anywhere", "second"], targetFiles: [] }],
+      });
+      expect(unscoped.errors.some((e) => e.includes("require test files"))).toBe(false);
+      const historical = validateRoadmap({
+        tasks: [{
+          ...base,
+          deliverables: ["add tests in workspace/tests/a.test.ts", "second"],
+          targetFiles: ["workspace/src/api/h.ts"],
+          status: "COMPLETED",
+        }],
+      });
+      expect(historical.errors.some((e) => e.includes("require test files"))).toBe(false);
+    });
+    it("errors when verificationCommand names uncovered test paths", () => {
+      const result = validateRoadmap({
+        tasks: [{
+          ...base,
+          verificationCommand: "go test ./... workspace/tests/api.test.go",
+          targetFiles: ["workspace/src/api/h.ts"],
+        }],
+      });
+      expect(result.errors.some((e) => e.includes("names test paths outside its scope"))).toBe(true);
+    });
+    it("errors when data-layer scope lacks CONTRACTS.md ownership", () => {
+      const result = validateRoadmap({
+        tasks: [{ ...base, targetFiles: ["workspace/src/api/h.ts", "workspace/src/db/q.ts"] }],
+      });
+      expect(result.errors.some((e) => e.includes("workspace/CONTRACTS.md"))).toBe(true);
+    });
+    it("passes data-layer scope with contract ownership", () => {
+      const result = validateRoadmap({
+        tasks: [{ ...base, targetFiles: ["workspace/src/api/h.ts", "workspace/CONTRACTS.md"] }],
+      });
+      expect(result.errors.some((e) => e.includes("workspace/CONTRACTS.md"))).toBe(false);
     });
   });
 });
