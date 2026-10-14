@@ -768,11 +768,11 @@ export class GitManager {
   }
 
   /**
-   * Publish a task branch's data content (inputs//workspace/) to the content
-   * remote. Force-adds gitignored paths (-f) so agent output travels while
-   * the public origin never sees a byte of it.
+   * Stage product work (inputs/ + workspace/) with the full junk-scrub
+   * rule set, returning staged paths. Shared by publishTaskBranch and
+   * checkpointTaskBranch so the two can never drift apart.
    */
-  public static async publishTaskBranch(branch: string, commitMsg: string): Promise<boolean> {
+  public static async stageWorkspaceForPublish(): Promise<string[]> {
     // Scrub the index first: file restores above (engine files, state) stage
     // additions the data branch must never absorb. Only inputs/workspace
     // travel in the publish commit.
@@ -828,10 +828,52 @@ export class GitManager {
     await this.run(["git", "reset", "-q", "--", ":(glob)**/out/**"]);
     await this.run(["git", "reset", "-q", "--", ":(glob)**/storybook-static/**"]);
     const staged = await this.run(["git", "diff", "--cached", "--name-only"]);
-    const files = staged.stdout
+    return staged.stdout
       .split("\n")
       .map((f) => f.trim())
       .filter(Boolean);
+  }
+
+  /**
+   * Best-effort checkpoint of current workdir progress onto a task branch.
+   * Called periodically WHILE the agent works: if the workflow timeout kills
+   * the job, the next attempt resumes from the checkpoint instead of
+   * starting over (the runner checks out the existing remote branch).
+   * Never throws; empty stage is fine (returns true, nothing to save).
+   */
+  public static async checkpointTaskBranch(branch: string, taskId: string): Promise<boolean> {
+    try {
+      const files = await this.stageWorkspaceForPublish();
+      if (files.length === 0) return true;
+      const commit = await this.run([
+        "git",
+        "-c",
+        "user.name=github-actions[bot]",
+        "-c",
+        "user.email=github-actions[bot]@users.noreply.github.com",
+        "commit",
+        "-m",
+        `wip(task): automated checkpoint for ${taskId} (partial state)`,
+      ]);
+      if (commit.exitCode !== 0) return false;
+      const remote = this.contentRemote();
+      const push = await this.remoteGit(remote, ["push", remote, `HEAD:refs/heads/${branch}`]);
+      if (push.exitCode === 0) {
+        console.log(`💾 Checkpointed ${files.length} file(s) to ${branch}.`);
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
+  /**
+   * Publish a task branch's data content (inputs//workspace/) to the content
+   * remote. Force-adds gitignored paths (-f) so agent output travels while
+   * the public origin never sees a byte of it.
+   */
+  public static async publishTaskBranch(branch: string, commitMsg: string): Promise<boolean> {
+    const files = await this.stageWorkspaceForPublish();
     if (files.length === 0) {
       // Empty stage: either a no-op republish (branch already carries work)
       // or an agent that produced nothing. Only the former is success.

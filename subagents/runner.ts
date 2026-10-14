@@ -433,14 +433,36 @@ async function main() {
     );
   }
 
-  const res = await OpenCodeClient.runWithFallback(prompt, {
-    timeoutMs: 60 * 60 * 1000,
-    files: attachableFiles.length > 0 ? attachableFiles : undefined,
-    // Session title for `session list` operability (which run owns what).
-    // No --agent: no role agents are defined (roles specialize via prompts),
-    // and invented names would hard-fail every model call.
-    title: `[${task.id}] ${task.title}`,
-  });
+  // Progress checkpoints: every 10 minutes, push current workdir state to
+  // the task branch. If the workflow timeout kills the job, the next attempt
+  // resumes from the checkpoint (the runner checks out the existing remote
+  // branch) instead of starting over. Best-effort, overlap-guarded, and
+  // unref'd so it can never hold the process open.
+  const CHECKPOINT_MS = 10 * 60 * 1000;
+  let checkpointRunning = false;
+  const checkpointTimer = setInterval(() => {
+    if (checkpointRunning) return;
+    checkpointRunning = true;
+    GitManager.checkpointTaskBranch(branch, task.id)
+      .catch(() => {})
+      .finally(() => {
+        checkpointRunning = false;
+      });
+  }, CHECKPOINT_MS);
+  (checkpointTimer as unknown as { unref?: () => void }).unref?.();
+  let res: Awaited<ReturnType<typeof OpenCodeClient.runWithFallback>>;
+  try {
+    res = await OpenCodeClient.runWithFallback(prompt, {
+      timeoutMs: 60 * 60 * 1000,
+      files: attachableFiles.length > 0 ? attachableFiles : undefined,
+      // Session title for `session list` operability (which run owns what).
+      // No --agent: no role agents are defined (roles specialize via prompts),
+      // and invented names would hard-fail every model call.
+      title: `[${task.id}] ${task.title}`,
+    });
+  } finally {
+    clearInterval(checkpointTimer);
+  }
   console.log("OpenCode Output Summary:", res.stdout ? res.stdout.slice(-1000) : "No stdout");
   // Forensic transcript: sanitized session export for the failure artifact
   // (.opencode-logs/ is uploaded on failure, never published to data).
