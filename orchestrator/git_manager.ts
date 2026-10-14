@@ -533,6 +533,13 @@ export class GitManager {
     };
     // Mirror sources: force-add overrides gitignore; node_modules and the
     // per-run services env must never travel (thousands of files / diff noise).
+    // Same for workspace build output (dist/build/coverage/...): regenerable
+    // compiler/bundler artifacts, never reviewable — once flooded a branch
+    // with ~100 dist/ files and failed the scope gate three attempts running.
+    const isBuildOutputPath = (s: string): boolean => {
+      const n = s.replace(/\\/g, "/");
+      return /^(?:\.\/)?workspace\/(dist|build|out|coverage|storybook-static)(\/|$)/.test(n);
+    };
     const mirrorFromWorkdir = async (dst: string) => {
       for (const srcDir of [CONFIG.INPUTS_DIR, CONFIG.WORKSPACE_DIR]) {
         const src = join(".", srcDir);
@@ -541,7 +548,7 @@ export class GitManager {
           rmSync(target, { recursive: true, force: true });
           cpSync(src, target, {
             recursive: true,
-            filter: (s) => !s.includes("node_modules") && !s.endsWith(".services.env"),
+            filter: (s) => !s.includes("node_modules") && !s.endsWith(".services.env") && !isBuildOutputPath(s),
           });
         } catch {
           return false;
@@ -720,6 +727,15 @@ export class GitManager {
     await this.run(["git", "reset", "-q", "--", ":(glob)**/.nuxt/**"]);
     await this.run(["git", "reset", "-q", "--", ":(glob)**/.next/**"]);
     await this.run(["git", "reset", "-q", "--", ":(glob)**/.output/**"]);
+    // Generic build output (tsc/bundlers/coverage): regenerable, never
+    // reviewable — a task that ran `bun build` inside workspace/ once
+    // published ~100 dist/ files and failed the scope gate three attempts
+    // in a row. Mirrors isBuildOutput() in review_gate.ts.
+    await this.run(["git", "reset", "-q", "--", ":(glob)**/dist/**"]);
+    await this.run(["git", "reset", "-q", "--", ":(glob)**/build/**"]);
+    await this.run(["git", "reset", "-q", "--", ":(glob)**/coverage/**"]);
+    await this.run(["git", "reset", "-q", "--", ":(glob)**/out/**"]);
+    await this.run(["git", "reset", "-q", "--", ":(glob)**/storybook-static/**"]);
     const staged = await this.run(["git", "diff", "--cached", "--name-only"]);
     const files = staged.stdout
       .split("\n")
