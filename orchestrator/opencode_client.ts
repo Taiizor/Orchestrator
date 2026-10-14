@@ -79,7 +79,8 @@ export class OpenCodeClient {
     input: string | undefined,
     timeoutMs: number,
     label: string,
-    digestMs = 120_000
+    digestMs = 120_000,
+    quotaIdleMs = 120_000
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
     const outChunks: string[] = [];
     const errChunks: string[] = [];
@@ -88,9 +89,18 @@ export class OpenCodeClient {
     let toolEvents = 0;
     let lastActivity = Date.now();
     const started = Date.now();
-    const QUOTA_RX = /rate limit|429|quota|exceeded/i;
+    // Quota signals must be unambiguous error shapes: bare "429"/"quota"/
+    // "exceeded" appear in innocent output (counts, changelogs, model
+    // chatter) and once killed a healthy run half a second in. Never kill
+    // on words alone: kill only when a signal is followed by 120s of total
+    // silence (a working model keeps emitting tool events; a quota-stalled
+    // one flatlines).
+    const QUOTA_RX =
+      /rate[\s-]?limit\s*(exceeded|error|hit|reached)|status\s*(code\s*)?429|error\s*429|quota\s*(exceeded|error)|insufficient[_\s-]?quota|too many requests|429\s*(too many|rate)/i;
     let quotaHit = false;
+    let quotaSnippet = "";
     let timedOut = false;
+    let quotaKill = false;
 
     const proc = Bun.spawn(cmd, {
       cwd: ".",
@@ -115,7 +125,10 @@ export class OpenCodeClient {
             }
           }
           lastActivity = Date.now();
-          if (QUOTA_RX.test(text)) quotaHit = true;
+          if (!quotaHit && QUOTA_RX.test(text)) {
+            quotaHit = true;
+            quotaSnippet = text.trim().slice(-300);
+          }
         }
       } catch {
         /* stream torn down by kill */
@@ -135,6 +148,17 @@ export class OpenCodeClient {
       console.log(
         `⏳ [OpenCode] ${label} alive: ${elapsed}s elapsed, ${(outBytes / 1024).toFixed(0)}KB out, ~${toolEvents} tool events, last activity ${idle}s ago.`
       );
+      if (quotaHit && !quotaKill && !timedOut && Date.now() - lastActivity > quotaIdleMs) {
+        quotaKill = true;
+        console.warn(
+          `⚠️ [OpenCode] ${label} aborting: quota signal with 120s of silence. Trigger: ${quotaSnippet || "(unavailable)"}`
+        );
+        try {
+          proc.kill();
+        } catch {
+          /* already exited */
+        }
+      }
     }, digestMs);
     (digestTimer as unknown as { unref?: () => void }).unref?.();
 
@@ -147,23 +171,6 @@ export class OpenCodeClient {
       }
     }, timeoutMs);
 
-    // Quota watcher: poll for the flag (the exit promise alone would park
-    // here until process end and defeat the early-abort).
-    const quotaWatcher = (async () => {
-      for (;;) {
-        if (quotaHit || timedOut) return;
-        const raced = await Promise.race([proc.exited.then(() => "done"), Bun.sleep(500).then(() => "wait")]);
-        if (raced === "done") return;
-      }
-    })();
-    await quotaWatcher;
-    if (quotaHit && !timedOut) {
-      try {
-        proc.kill();
-      } catch {
-        /* already exited */
-      }
-    }
     const exitCode = await proc.exited;
     clearTimeout(killTimer);
     clearInterval(digestTimer);

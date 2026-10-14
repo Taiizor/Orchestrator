@@ -65,8 +65,14 @@ describe("OpenCode Client Module", () => {
   describe("runStreaming (private)", () => {
     // Access private method for testing live-spawn behavior (bun -e works
     // on every OS the suite runs on).
-    const runStreaming = (cmd: string[], input: string | undefined, timeoutMs: number, label: string) =>
-      (OpenCodeClient as any).runStreaming(cmd, input, timeoutMs, label, 60_000);
+    const runStreaming = (
+      cmd: string[],
+      input: string | undefined,
+      timeoutMs: number,
+      label: string,
+      digestMs = 60_000,
+      quotaIdleMs = 120_000
+    ) => (OpenCodeClient as any).runStreaming(cmd, input, timeoutMs, label, digestMs, quotaIdleMs);
 
     it("should capture stdout and exit code of a fast command", async () => {
       const res = await runStreaming(["bun", "-e", "console.log('hi-stream')"], undefined, 10_000, "test");
@@ -82,16 +88,36 @@ describe("OpenCode Client Module", () => {
       expect(res.stderr).toContain("TIMEOUT after 1500ms");
     });
 
-    it("should early-abort on quota text instead of burning the budget", async () => {
+    it("should abort a quota-signalled stall after the idle threshold", async () => {
       const started = Date.now();
       const res = await runStreaming(
-        ["bun", "-e", "console.log('429 rate limit hit');setTimeout(()=>{},30000)"],
+        ["bun", "-e", "console.log('rate limit exceeded');setTimeout(()=>{},30000)"],
         undefined,
-        20_000,
-        "test"
+        25_000,
+        "test",
+        500,
+        1_500
       );
+      expect(res.exitCode).not.toBe(0);
       expect(Date.now() - started).toBeLessThan(15_000);
-      expect(`${res.stdout} ${res.stderr}`).toContain("429");
+      expect(`${res.stdout} ${res.stderr}`).toContain("rate limit exceeded");
+    });
+
+    it("should NOT kill on innocent quota-adjacent chatter while work continues", async () => {
+      // Prints the bare word "quota", keeps emitting, exits cleanly: the old
+      // broad matcher killed runs like this half a second in.
+      const started = Date.now();
+      const res = await runStreaming(
+        ["bun", "-e", "console.log('quota info');let i=0;const t=setInterval(()=>{console.log('tick'+(++i));if(i>=3){clearInterval(t);}} ,1000)"],
+        undefined,
+        15_000,
+        "test",
+        500,
+        1_500
+      );
+      expect(res.exitCode).toBe(0);
+      expect(res.stdout).toContain("tick3");
+      expect(Date.now() - started).toBeGreaterThanOrEqual(2_500);
     });
   });
 });
