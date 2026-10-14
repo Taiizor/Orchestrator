@@ -75,7 +75,10 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
         run: |
-          OLDER=$(gh run list --workflow orchestrator.yml --limit 10 --json databaseId,status \
+          # Runs before checkout: no local git repo yet, so pin the repo
+          # explicitly (-R) instead of relying on cwd discovery (which fails
+          # the whole run with "not a git repository").
+          OLDER=$(gh run list --workflow orchestrator.yml --repo ${{ github.repository }} --limit 10 --json databaseId,status \
             --jq '[.[] | select((.status == "queued" or .status == "in_progress" or .status == "waiting") and .databaseId < ${{ github.run_id }})] | length')
           if [ "${OLDER:-0}" != "0" ]; then
             echo "An older orchestrator run is already active; skipping this scheduled tick."
