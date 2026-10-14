@@ -66,9 +66,7 @@ describe("Dashboard Comment Pruning", () => {
   it("ignores unparsable entries fail-closed", () => {
     const bad = mk({ id: "IC_bad", createdAt: "not-a-date" });
     const noAuthor = { id: "IC_noa", body: "/tick", createdAt: old, reactionGroups: rocket } as PrunableComment;
-    expect(selectPrunableComments([bad, noAuthor], { now: NOW, keepRecentCount: 0 }).map((c) => c.id)).toEqual([
-      "IC_noa",
-    ]);
+    expect(selectPrunableComments([bad, noAuthor], { now: NOW, keepRecentCount: 0 }).map((c) => c.id)).toEqual(["IC_noa"]);
   });
 
   it("returns [] for empty input", () => {
