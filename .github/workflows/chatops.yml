@@ -80,6 +80,10 @@ jobs:
           DATA_PAT: ${{ steps.app-token.outputs.token || secrets.DATA_PAT }}
           PUBLIC_FEATURES: ${{ vars.PUBLIC_FEATURES }}
           DATA_FEATURES: ${{ vars.DATA_FEATURES }}
+          CHATOPS_PRUNE_ENABLED: ${{ vars.CHATOPS_PRUNE_ENABLED }}
+          CHATOPS_PRUNE_RETENTION_HOURS: ${{ vars.CHATOPS_PRUNE_RETENTION_HOURS }}
+          CHATOPS_PRUNE_KEEP_RECENT: ${{ vars.CHATOPS_PRUNE_KEEP_RECENT }}
+          CHATOPS_PRUNE_BATCH_LIMIT: ${{ vars.CHATOPS_PRUNE_BATCH_LIMIT }}
           GH_CLIENT_ID: ${{ vars.GH_CLIENT_ID || vars.CLIENT_ID || secrets.GH_CLIENT_ID || secrets.CLIENT_ID }}
           GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY || secrets.APP_PRIVATE_KEY }}
         run: bun run orchestrator/engine.ts --action=chatops
