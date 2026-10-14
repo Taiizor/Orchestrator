@@ -323,7 +323,12 @@ export class OpenCodeClient {
     return a.model === b.model && (a.variant || "") === (b.variant || "");
   }
 
-  private static buildCommand(spec: { model: string; variant?: string }, files?: string[], sessionId?: string): string[] {
+  private static buildCommand(
+    spec: { model: string; variant?: string },
+    files?: string[],
+    sessionId?: string,
+    extra?: { agent?: string; title?: string }
+  ): string[] {
     // OpenCode v2 CLI takes the variant as a "#suffix" on --model
     // (there is no separate --variant flag): provider/model#variant
     const modelArg = spec.variant ? `${spec.model}#${spec.variant}` : spec.model;
@@ -333,6 +338,10 @@ export class OpenCodeClient {
     for (const f of files || []) cmd.push("--file", f);
     // Continue an existing session instead of starting cold (fallback chain).
     if (sessionId) cmd.push("--session", sessionId);
+    // --agent selects a configured agent; roles here are prompt-level (no
+    // role agents are defined), so callers pass it only for real agent ids.
+    if (extra?.agent) cmd.push("--agent", extra.agent);
+    if (extra?.title) cmd.push("--title", extra.title);
     return cmd;
   }
 
@@ -347,7 +356,14 @@ export class OpenCodeClient {
    */
   public static async runWithFallback(
     prompt: string,
-    options?: { preferredModel?: string; preferredVariant?: string; timeoutMs?: number; files?: string[] }
+    options?: {
+      preferredModel?: string;
+      preferredVariant?: string;
+      timeoutMs?: number;
+      files?: string[];
+      agent?: string;
+      title?: string;
+    }
   ): Promise<OpenCodeRunResult> {
     const candidateModels: { model: string; variant?: string }[] = [];
 
@@ -404,6 +420,7 @@ export class OpenCodeClient {
       return res;
     };
     const usageTotal = () => ({ cost: totalCost, tokens: totalTokens, steps: totalSteps });
+    const cliExtra = { agent: options?.agent, title: options?.title };
 
     for (let i = 0; i < candidateModels.length; i++) {
       const spec = candidateModels[i];
@@ -412,7 +429,7 @@ export class OpenCodeClient {
       if (sess) console.log(`🔁 [OpenCode] Continuing session ${sess} with ${label} instead of restarting.`);
       else console.log(`🤖 [OpenCode] Attempting execution with model (${i + 1}/${candidateModels.length}): ${label}...`);
 
-      const cmd = OpenCodeClient.buildCommand(spec, options?.files, sess);
+      const cmd = OpenCodeClient.buildCommand(spec, options?.files, sess, cliExtra);
       const res = await attempt(cmd, sess ? CONTINUATION_PROMPT : prompt, label);
 
       const parsedStdout = OpenCodeClient.extractText(res.stdout);
@@ -469,7 +486,7 @@ export class OpenCodeClient {
         console.warn(`⚠️ [OpenCode] Variant "${spec.variant}" rejected for ${spec.model}. Retrying with default effort...`);
         const vsess = useContinuation ? lastSessionId : undefined;
         const retryRes = await attempt(
-          OpenCodeClient.buildCommand({ model: spec.model }, options?.files, vsess),
+          OpenCodeClient.buildCommand({ model: spec.model }, options?.files, vsess, cliExtra),
           vsess ? CONTINUATION_PROMPT : prompt,
           `${spec.model} (default effort)`
         );
@@ -537,11 +554,10 @@ export class OpenCodeClient {
     console.log("🔄 [OpenCode] Attempting last-resort execution without explicit --model flag...");
     const fallbackCmd = ["opencode", "run", "--format", "json"];
     const lsess = useContinuation ? lastSessionId : undefined;
-    const defaultRes = await attempt(
-      lsess ? [...fallbackCmd, "--session", lsess] : fallbackCmd,
-      lsess ? CONTINUATION_PROMPT : prompt,
-      "default effort"
-    );
+    if (lsess) fallbackCmd.push("--session", lsess);
+    if (cliExtra.agent) fallbackCmd.push("--agent", cliExtra.agent);
+    if (cliExtra.title) fallbackCmd.push("--title", cliExtra.title);
+    const defaultRes = await attempt(fallbackCmd, lsess ? CONTINUATION_PROMPT : prompt, "default effort");
     const parsedDefault = OpenCodeClient.extractText(defaultRes.stdout);
     if (defaultRes.exitCode === 130) {
       console.warn("🛑 [OpenCode] Last resort exited 130 (external cancel); stopping.");

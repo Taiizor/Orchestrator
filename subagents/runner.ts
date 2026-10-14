@@ -436,8 +436,52 @@ async function main() {
   const res = await OpenCodeClient.runWithFallback(prompt, {
     timeoutMs: 45 * 60 * 1000,
     files: attachableFiles.length > 0 ? attachableFiles : undefined,
+    // Session title for `session list` operability (which run owns what).
+    // No --agent: no role agents are defined (roles specialize via prompts),
+    // and invented names would hard-fail every model call.
+    title: `[${task.id}] ${task.title}`,
   });
   console.log("OpenCode Output Summary:", res.stdout ? res.stdout.slice(-1000) : "No stdout");
+  // Forensic transcript: sanitized session export for the failure artifact
+  // (.opencode-logs/ is uploaded on failure, never published to data).
+  // Size-capped: full transcripts with tool dumps can run to megabytes.
+  if (res.sessionId) {
+    try {
+      const exp = await GitManager.run(
+        ["opencode", "session", "export", res.sessionId, "--sanitize"],
+        ".",
+        undefined,
+        undefined,
+        90_000
+      );
+      const doc = (exp.stdout || "").trim();
+      if (exp.exitCode === 0 && doc) {
+        if (doc.length > 5 * 1024 * 1024) {
+          console.warn(`⚠️ Session export for ${res.sessionId} is ${(doc.length / 1048576).toFixed(1)} MiB; skipping archive.`);
+        } else {
+          await Bun.write(`.opencode-logs/session-${task.id}-${res.sessionId.slice(0, 12)}.json`, doc);
+          console.log(`📦 Session transcript archived for forensics (${(doc.length / 1024).toFixed(0)}KB).`);
+        }
+      }
+    } catch {
+      /* best-effort forensics; never fail the task on archive errors */
+    }
+  }
+  // Ground-truth spend snapshot for cost tracking (best-effort).
+  try {
+    const stats = await GitManager.run(
+      ["opencode", "stats", "--json", "--cost", "--project", "."],
+      ".",
+      undefined,
+      undefined,
+      30_000
+    );
+    if (stats.exitCode === 0 && stats.stdout.trim()) {
+      console.log(`💰 Project spend snapshot: ${stats.stdout.trim().slice(0, 500)}`);
+    }
+  } catch {
+    /* best-effort; per-chain usage above is the fallback signal */
+  }
   if (res.exitCode !== 0) {
     console.error(
       "OpenCode process exited with error:",

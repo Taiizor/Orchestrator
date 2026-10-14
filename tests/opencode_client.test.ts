@@ -168,6 +168,30 @@ describe("OpenCode Client Module", () => {
       expect(without).not.toContain("--session");
     });
 
+    it("buildCommand appends --agent and --title only when given", () => {
+      const full = (OpenCodeClient as any).buildCommand({ model: "a/b" }, ["f.png"], undefined, {
+        agent: "build",
+        title: "[TASK-1] t",
+      });
+      expect(full).toEqual([
+        "opencode",
+        "run",
+        "--model",
+        "a/b",
+        "--format",
+        "json",
+        "--file",
+        "f.png",
+        "--agent",
+        "build",
+        "--title",
+        "[TASK-1] t",
+      ]);
+      const bare = (OpenCodeClient as any).buildCommand({ model: "a/b" }, undefined, undefined, {});
+      expect(bare).not.toContain("--agent");
+      expect(bare).not.toContain("--title");
+    });
+
     it("filterAttachableFiles keeps small files, skips >10MiB", async () => {
       const { tmpdir } = await import("node:os");
       const { join } = await import("node:path");

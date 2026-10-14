@@ -256,6 +256,13 @@ jobs:
             echo "Service env exported."
           fi
 
+      - name: 🖥️ Start OpenCode background server (optional)
+        run: |
+          # Persistent server: CLI calls attach to it instead of booting one
+          # per model attempt (project scan + model discovery each time).
+          # Best-effort — per-call servers remain the fallback.
+          timeout 90 opencode service start 2>&1 | tail -n 3 || echo "service start unavailable; continuing with per-call servers."
+
       - name: 🤖 Execute Subagent Task
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
