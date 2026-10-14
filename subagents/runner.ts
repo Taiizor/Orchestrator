@@ -478,6 +478,13 @@ async function main() {
     );
     if (stats.exitCode === 0 && stats.stdout.trim()) {
       console.log(`💰 Project spend snapshot: ${stats.stdout.trim().slice(0, 500)}`);
+      // Full numbers go to the failure artifact (.opencode-logs/ is
+      // uploaded on failure); the log line stays a preview.
+      try {
+        await Bun.write(`.opencode-logs/spend-${task.id}.json`, stats.stdout.trim());
+      } catch {
+        /* best-effort */
+      }
     }
   } catch {
     /* best-effort; per-chain usage above is the fallback signal */
