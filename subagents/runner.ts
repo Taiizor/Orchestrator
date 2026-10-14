@@ -424,14 +424,29 @@ async function main() {
   } catch {
     // Attachment is optional; the prompt carries filenames regardless.
   }
+  // The CLI hard-rejects --file attachments over 10 MiB: filter them with a
+  // loud warning instead of failing the whole model call.
+  const { kept: attachableFiles, skipped: oversizedFiles } = await OpenCodeClient.filterAttachableFiles(referencedFiles);
+  for (const s of oversizedFiles) {
+    console.warn(
+      `⚠️ Skipping oversized attachment ${s.path} (${(s.bytes / 1048576).toFixed(1)} MiB > 10 MiB CLI cap); prompt still names it.`
+    );
+  }
 
   const res = await OpenCodeClient.runWithFallback(prompt, {
     timeoutMs: 45 * 60 * 1000,
-    files: referencedFiles.length > 0 ? referencedFiles : undefined,
+    files: attachableFiles.length > 0 ? attachableFiles : undefined,
   });
   console.log("OpenCode Output Summary:", res.stdout ? res.stdout.slice(-1000) : "No stdout");
   if (res.exitCode !== 0) {
-    console.error("OpenCode process exited with error:", res.stderr);
+    console.error(
+      "OpenCode process exited with error:",
+      res.stderr,
+      res.errorDetail ? `Reason: ${res.errorDetail.slice(0, 300)}` : ""
+    );
+    if (res.usage && res.usage.steps > 0) {
+      console.error(`💰 Burned this chain: cost=${res.usage.cost} tokens=${res.usage.tokens} steps=${res.usage.steps}.`);
+    }
     // Present partial work for review if the agent left any; otherwise fail
     // loudly WITHOUT pushing an empty result — an empty "completion" would
     // otherwise loop through review as did-nothing work.

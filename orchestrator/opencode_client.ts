@@ -1,10 +1,22 @@
 import { CONFIG } from "./config.ts";
 
+export interface OpenCodeUsage {
+  cost: number;
+  tokens: number;
+  steps: number;
+}
+
 export interface OpenCodeRunResult {
   stdout: string;
   stderr: string;
   exitCode: number;
   modelUsed: string;
+  /** Captured from the JSON event stream ({..., "sessionID": "..."} on every event). */
+  sessionId?: string;
+  /** First {"type":"error"} event message, when the run failed. */
+  errorDetail?: string;
+  /** Cost/tokens/steps summed over step_finish events (units as reported). */
+  usage?: OpenCodeUsage;
 }
 
 export class OpenCodeClient {
@@ -67,6 +79,99 @@ export class OpenCodeClient {
   /** Default per-call model budget (ms) when the caller passes none. */
   public static readonly DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 
+  /** First non-empty sessionID in a JSON event stream, if any. */
+  public static extractSessionId(rawStdout: string): string | undefined {
+    for (const line of rawStdout.split(/\r?\n/)) {
+      const m = line.match(/"sessionID"\s*:\s*"([^"]+)"/);
+      if (m && m[1]) return m[1];
+    }
+    return undefined;
+  }
+
+  /** First {"type":"error"} event message in a JSON event stream, if any. */
+  public static extractErrorDetail(rawStdout: string): string | undefined {
+    for (const line of rawStdout.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("{")) continue;
+      try {
+        const event = JSON.parse(trimmed);
+        if (String(event?.type || "").toLowerCase() === "error") {
+          const msg = (event as any)?.error?.message;
+          if (typeof msg === "string" && msg.trim()) return msg.trim().slice(0, 500);
+        }
+      } catch {
+        /* not JSON */
+      }
+    }
+    return undefined;
+  }
+
+  /** Cost/tokens/steps summed over step_finish events (units as reported). */
+  public static extractUsage(rawStdout: string): OpenCodeUsage {
+    const out = { cost: 0, tokens: 0, steps: 0 };
+    for (const line of rawStdout.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("{")) continue;
+      try {
+        const event = JSON.parse(trimmed);
+        const type = String(event?.type || "").toLowerCase();
+        if (type !== "step_finish" && type !== "step-finish") continue;
+        const part = (event as any)?.part || {};
+        const cost = Number(part.cost);
+        const tokens = Number(part.tokens);
+        if (Number.isFinite(cost)) out.cost += cost;
+        if (Number.isFinite(tokens)) out.tokens += tokens;
+        out.steps++;
+      } catch {
+        /* not JSON */
+      }
+    }
+    return out;
+  }
+
+  /** Tool name from a tool_use event line, for live digests. */
+  public static toolEventName(line: string): string | undefined {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("{")) return undefined;
+    try {
+      const event = JSON.parse(trimmed);
+      if (
+        !String(event?.type || "")
+          .toLowerCase()
+          .includes("tool")
+      )
+        return undefined;
+      const part = (event as any)?.part || {};
+      const name = part.name || part.tool || part.id || part.title;
+      return typeof name === "string" && name ? String(name).slice(0, 80) : "tool";
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * The CLI rejects --file attachments over 10 MiB with a hard failure.
+   * Filter them out with a loud warning instead of failing the whole run.
+   * Missing files are kept (the CLI reports those loudly by itself).
+   */
+  public static async filterAttachableFiles(
+    files: string[],
+    maxBytes = 10 * 1024 * 1024
+  ): Promise<{ kept: string[]; skipped: { path: string; bytes: number }[] }> {
+    const kept: string[] = [];
+    const skipped: { path: string; bytes: number }[] = [];
+    for (const f of files) {
+      try {
+        const size = Bun.file(f).size;
+        if (Number.isFinite(size) && size > maxBytes) skipped.push({ path: f, bytes: size });
+        else kept.push(f);
+      } catch {
+        kept.push(f);
+      }
+    }
+    return { kept, skipped };
+  }
+
   /**
    * Spawn OpenCode with live progress: stdout/stderr stream while the model
    * works (the old path buffered everything silently until exit/timeout),
@@ -81,12 +186,21 @@ export class OpenCodeClient {
     label: string,
     digestMs = 120_000,
     quotaIdleMs = 120_000
-  ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  ): Promise<{
+    stdout: string;
+    stderr: string;
+    exitCode: number;
+    timedOut: boolean;
+    quotaKilled: boolean;
+    sessionId?: string;
+    usage: OpenCodeUsage;
+  }> {
     const outChunks: string[] = [];
     const errChunks: string[] = [];
     const decoder = new TextDecoder();
     let outBytes = 0;
     let toolEvents = 0;
+    let lastTool = "—";
     let lastActivity = Date.now();
     const started = Date.now();
     // Quota signals must be unambiguous error shapes: bare "429"/"quota"/
@@ -122,6 +236,8 @@ export class OpenCodeClient {
             outBytes += value.length;
             for (const line of text.split(/\r?\n/)) {
               if (/"type"\s*:\s*"[^"]*tool/i.test(line)) toolEvents++;
+              const toolName = OpenCodeClient.toolEventName(line);
+              if (toolName) lastTool = toolName;
             }
           }
           lastActivity = Date.now();
@@ -146,7 +262,7 @@ export class OpenCodeClient {
       const elapsed = Math.round((Date.now() - started) / 1000);
       const idle = Math.round((Date.now() - lastActivity) / 1000);
       console.log(
-        `⏳ [OpenCode] ${label} alive: ${elapsed}s elapsed, ${(outBytes / 1024).toFixed(0)}KB out, ~${toolEvents} tool events, last activity ${idle}s ago.`
+        `⏳ [OpenCode] ${label} alive: ${elapsed}s elapsed, ${(outBytes / 1024).toFixed(0)}KB out, ~${toolEvents} tool events (last: ${lastTool}), last activity ${idle}s ago.`
       );
       if (quotaHit && !quotaKill && !timedOut && Date.now() - lastActivity > quotaIdleMs) {
         quotaKill = true;
@@ -176,8 +292,17 @@ export class OpenCodeClient {
     clearInterval(digestTimer);
     await pumps;
     if (timedOut) errChunks.push(`\n[TIMEOUT after ${timeoutMs}ms: ${cmd[0]}]`);
+    const stdout = outChunks.join("");
 
-    return { stdout: outChunks.join(""), stderr: errChunks.join(""), exitCode: timedOut ? 124 : exitCode };
+    return {
+      stdout,
+      stderr: errChunks.join(""),
+      exitCode: timedOut ? 124 : exitCode,
+      timedOut,
+      quotaKilled: quotaKill,
+      sessionId: OpenCodeClient.extractSessionId(stdout),
+      usage: OpenCodeClient.extractUsage(stdout),
+    };
   }
 
   /**
@@ -198,7 +323,7 @@ export class OpenCodeClient {
     return a.model === b.model && (a.variant || "") === (b.variant || "");
   }
 
-  private static buildCommand(spec: { model: string; variant?: string }, files?: string[]): string[] {
+  private static buildCommand(spec: { model: string; variant?: string }, files?: string[], sessionId?: string): string[] {
     // OpenCode v2 CLI takes the variant as a "#suffix" on --model
     // (there is no separate --variant flag): provider/model#variant
     const modelArg = spec.variant ? `${spec.model}#${spec.variant}` : spec.model;
@@ -206,6 +331,8 @@ export class OpenCodeClient {
     // Attach files (reference images, docs) so the model SEES them instead
     // of reasoning about bare filenames. Server-side resized per limits.
     for (const f of files || []) cmd.push("--file", f);
+    // Continue an existing session instead of starting cold (fallback chain).
+    if (sessionId) cmd.push("--session", sessionId);
     return cmd;
   }
 
@@ -254,17 +381,57 @@ export class OpenCodeClient {
       modelUsed: "none",
     };
 
+    // Session-aware fallback: when an attempt fails fast (NOT a timeout —
+    // the server side may still be busy then), the next model continues the
+    // same session instead of redoing 45 minutes of reasoning from scratch.
+    // The session id rides on every JSON event line; cold restarts keep the
+    // full prompt because the new session has no history.
+    const CONTINUATION_PROMPT =
+      "Continue the previous session from its current state. Do not restart the task and do not resend prior context: " +
+      "read the current workspace state, resume exactly where the session left off, and proceed to completion.";
+    let lastSessionId: string | undefined;
+    let useContinuation = false;
+    let totalCost = 0;
+    let totalTokens = 0;
+    let totalSteps = 0;
+    const timeoutMs = options?.timeoutMs ?? OpenCodeClient.DEFAULT_TIMEOUT_MS;
+    const attempt = async (cmd: string[], message: string | undefined, label: string) => {
+      const res = await OpenCodeClient.runStreaming(cmd, message, timeoutMs, label);
+      if (res.sessionId) lastSessionId = res.sessionId;
+      totalCost += res.usage.cost;
+      totalTokens += res.usage.tokens;
+      totalSteps += res.usage.steps;
+      return res;
+    };
+    const usageTotal = () => ({ cost: totalCost, tokens: totalTokens, steps: totalSteps });
+
     for (let i = 0; i < candidateModels.length; i++) {
       const spec = candidateModels[i];
       const label = OpenCodeClient.displaySpec(spec);
-      console.log(`🤖 [OpenCode] Attempting execution with model (${i + 1}/${candidateModels.length}): ${label}...`);
+      const sess = useContinuation ? lastSessionId : undefined;
+      if (sess) console.log(`🔁 [OpenCode] Continuing session ${sess} with ${label} instead of restarting.`);
+      else console.log(`🤖 [OpenCode] Attempting execution with model (${i + 1}/${candidateModels.length}): ${label}...`);
 
-      const timeoutMs = options?.timeoutMs ?? OpenCodeClient.DEFAULT_TIMEOUT_MS;
-      const cmd = OpenCodeClient.buildCommand(spec, options?.files);
-      const res = await OpenCodeClient.runStreaming(cmd, prompt, timeoutMs, label);
+      const cmd = OpenCodeClient.buildCommand(spec, options?.files, sess);
+      const res = await attempt(cmd, sess ? CONTINUATION_PROMPT : prompt, label);
 
       const parsedStdout = OpenCodeClient.extractText(res.stdout);
       const hasContent = parsedStdout.length > 0;
+
+      // Exit 130 = external cancel (SIGINT): the operator or CI pulled the
+      // plug — running more models would defeat the cancel. Stop the chain.
+      if (res.exitCode === 130) {
+        console.warn(`🛑 [OpenCode] ${label} exited 130 (external cancel); stopping fallback chain.`);
+        lastResult = {
+          stdout: parsedStdout,
+          stderr: res.stderr,
+          exitCode: res.exitCode,
+          modelUsed: label,
+          sessionId: lastSessionId,
+          usage: usageTotal(),
+        };
+        break;
+      }
 
       // Rate limit or server quota errors only apply if the command failed or stderr indicates an API error
       const isApiError =
@@ -276,25 +443,48 @@ export class OpenCodeClient {
 
       if (res.exitCode === 0 && hasContent) {
         console.log(`✨ [OpenCode] Success with model: ${label} (${parsedStdout.length} chars generated)`);
+        if (totalSteps > 0) {
+          console.log(
+            `💰 [OpenCode] Session spend so far: cost=${totalCost} tokens=${totalTokens} steps=${totalSteps} (units as reported).`
+          );
+        }
         return {
           stdout: parsedStdout,
           stderr: res.stderr,
           exitCode: 0,
           modelUsed: label,
+          sessionId: lastSessionId,
+          usage: usageTotal(),
         };
       }
+
+      // Fast failure with a live session behind it: the next model continues.
+      // Timeouts cold-restart (the server side may still be busy).
+      useContinuation = !!lastSessionId && !res.timedOut;
 
       // If the "#variant" suffix is unsupported by this model, retry the plain
       // model with default effort before moving to the next fallback model.
       const isVariantError = !!spec.variant && /variant|effort|unknown model/i.test(res.stderr);
       if (isVariantError) {
         console.warn(`⚠️ [OpenCode] Variant "${spec.variant}" rejected for ${spec.model}. Retrying with default effort...`);
-        const retryRes = await OpenCodeClient.runStreaming(
-          OpenCodeClient.buildCommand({ model: spec.model }, options?.files),
-          prompt,
-          options?.timeoutMs ?? OpenCodeClient.DEFAULT_TIMEOUT_MS,
+        const vsess = useContinuation ? lastSessionId : undefined;
+        const retryRes = await attempt(
+          OpenCodeClient.buildCommand({ model: spec.model }, options?.files, vsess),
+          vsess ? CONTINUATION_PROMPT : prompt,
           `${spec.model} (default effort)`
         );
+        if (retryRes.exitCode === 130) {
+          console.warn(`🛑 [OpenCode] ${spec.model} exited 130 (external cancel); stopping fallback chain.`);
+          lastResult = {
+            stdout: OpenCodeClient.extractText(retryRes.stdout),
+            stderr: retryRes.stderr,
+            exitCode: retryRes.exitCode,
+            modelUsed: label,
+            sessionId: lastSessionId,
+            usage: usageTotal(),
+          };
+          break;
+        }
         const retryParsed = OpenCodeClient.extractText(retryRes.stdout);
         if (retryRes.exitCode === 0 && retryParsed.length > 0) {
           console.log(`✨ [OpenCode] Success with model: ${spec.model} (default effort, ${retryParsed.length} chars)`);
@@ -303,17 +493,25 @@ export class OpenCodeClient {
             stderr: retryRes.stderr,
             exitCode: 0,
             modelUsed: spec.model,
+            sessionId: lastSessionId,
+            usage: usageTotal(),
           };
         }
+        useContinuation = !!lastSessionId && !retryRes.timedOut;
         console.warn(
           `⚠️ [OpenCode] Model ${label} encountered an issue (Exit: ${res.exitCode}, ApiError: ${isApiError}, ContentLength: ${parsedStdout.length}). Falling back to next model...`
         );
         console.warn(`   ↳ stderr tail: ${(retryRes.stderr || res.stderr || "(empty)").slice(-400)}`);
+        const detail = OpenCodeClient.extractErrorDetail(retryRes.stdout) || OpenCodeClient.extractErrorDetail(res.stdout);
+        if (detail) console.warn(`   ↳ error event: ${detail.slice(0, 300)}`);
         lastResult = {
           stdout: retryParsed,
           stderr: retryRes.stderr || res.stderr,
           exitCode: retryRes.exitCode,
           modelUsed: label,
+          sessionId: lastSessionId,
+          errorDetail: detail,
+          usage: usageTotal(),
         };
         continue;
       }
@@ -322,30 +520,48 @@ export class OpenCodeClient {
         `⚠️ [OpenCode] Model ${label} encountered an issue (Exit: ${res.exitCode}, ApiError: ${isApiError}, ContentLength: ${parsedStdout.length}). Falling back to next model...`
       );
       console.warn(`   ↳ stderr tail: ${(res.stderr || "(empty)").slice(-400)}`);
+      const detail = OpenCodeClient.extractErrorDetail(res.stdout);
+      if (detail) console.warn(`   ↳ error event: ${detail.slice(0, 300)}`);
       lastResult = {
         stdout: parsedStdout,
         stderr: res.stderr,
         exitCode: res.exitCode,
         modelUsed: label,
+        sessionId: lastSessionId,
+        errorDetail: detail,
+        usage: usageTotal(),
       };
     }
 
     // Last resort attempt: run without specifying --model flag
     console.log("🔄 [OpenCode] Attempting last-resort execution without explicit --model flag...");
     const fallbackCmd = ["opencode", "run", "--format", "json"];
-    const defaultRes = await OpenCodeClient.runStreaming(
-      fallbackCmd,
-      prompt,
-      options?.timeoutMs ?? OpenCodeClient.DEFAULT_TIMEOUT_MS,
+    const lsess = useContinuation ? lastSessionId : undefined;
+    const defaultRes = await attempt(
+      lsess ? [...fallbackCmd, "--session", lsess] : fallbackCmd,
+      lsess ? CONTINUATION_PROMPT : prompt,
       "default effort"
     );
     const parsedDefault = OpenCodeClient.extractText(defaultRes.stdout);
+    if (defaultRes.exitCode === 130) {
+      console.warn("🛑 [OpenCode] Last resort exited 130 (external cancel); stopping.");
+      return {
+        stdout: parsedDefault,
+        stderr: defaultRes.stderr,
+        exitCode: defaultRes.exitCode,
+        modelUsed: "opencode-default",
+        sessionId: lastSessionId,
+        usage: usageTotal(),
+      };
+    }
     if (defaultRes.exitCode === 0 && parsedDefault.length > 0) {
       return {
         stdout: parsedDefault,
         stderr: defaultRes.stderr,
         exitCode: 0,
         modelUsed: "opencode-default",
+        sessionId: lastSessionId,
+        usage: usageTotal(),
       };
     }
 

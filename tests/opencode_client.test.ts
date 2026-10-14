@@ -62,8 +62,7 @@ describe("OpenCode Client Module", () => {
     });
   });
 
-  describe("runStreaming (private)", () => {
-    // Access private method for testing live-spawn behavior (bun -e works
+  describe("runStreaming (private)", () => {    // Access private method for testing live-spawn behavior (bun -e works
     // on every OS the suite runs on).
     const runStreaming = (
       cmd: string[],
@@ -118,6 +117,79 @@ describe("OpenCode Client Module", () => {
       expect(res.exitCode).toBe(0);
       expect(res.stdout).toContain("tick3");
       expect(Date.now() - started).toBeGreaterThanOrEqual(2_500);
+    });
+  });
+
+  describe("session helpers", () => {
+    it("extractSessionId finds the first non-empty id", () => {
+      const raw = `{"type":"step_start","timestamp":1,"sessionID":"ses_abc123"}\n{"type":"text","text":"hi"}`;
+      expect(OpenCodeClient.extractSessionId(raw)).toBe("ses_abc123");
+    });
+
+    it("extractSessionId ignores empty ids and plain text", () => {
+      expect(OpenCodeClient.extractSessionId(`{"type":"error","sessionID":""}`)).toBeUndefined();
+      expect(OpenCodeClient.extractSessionId("no json here")).toBeUndefined();
+    });
+
+    it("extractErrorDetail returns the first error message", () => {
+      const raw = `{"type":"step_start","timestamp":1}\n{"type":"error","timestamp":2,"sessionID":"s","error":{"type":"auth","message":"provider logged out"}}`;
+      expect(OpenCodeClient.extractErrorDetail(raw)).toBe("provider logged out");
+    });
+
+    it("extractErrorDetail is undefined without error events", () => {
+      expect(OpenCodeClient.extractErrorDetail(`{"type":"text","text":"ok"}`)).toBeUndefined();
+    });
+
+    it("extractUsage sums cost/tokens/steps over step_finish events", () => {
+      const raw = [
+        `{"type":"step_finish","timestamp":1,"sessionID":"s","part":{"cost":0.5,"tokens":100}}`,
+        `{"type":"step_finish","timestamp":2,"sessionID":"s","part":{"cost":1.5,"tokens":200}}`,
+        `{"type":"text","text":"hi"}`,
+      ].join("\n");
+      expect(OpenCodeClient.extractUsage(raw)).toEqual({ cost: 2, tokens: 300, steps: 2 });
+    });
+
+    it("extractUsage is zeroed without step events", () => {
+      expect(OpenCodeClient.extractUsage("nothing")).toEqual({ cost: 0, tokens: 0, steps: 0 });
+    });
+
+    it("toolEventName reads tool names, ignores other lines", () => {
+      expect(
+        OpenCodeClient.toolEventName(`{"type":"tool_use","timestamp":1,"sessionID":"s","part":{"name":"edit"}}`)
+      ).toBe("edit");
+      expect(OpenCodeClient.toolEventName(`{"type":"text","text":"hi"}`)).toBeUndefined();
+      expect(OpenCodeClient.toolEventName("not json")).toBeUndefined();
+    });
+
+    it("buildCommand appends --session only when given", () => {
+      const withSid = (OpenCodeClient as any).buildCommand({ model: "a/b" }, undefined, "ses_1");
+      expect(withSid).toEqual(["opencode", "run", "--model", "a/b", "--format", "json", "--session", "ses_1"]);
+      const without = (OpenCodeClient as any).buildCommand({ model: "a/b" });
+      expect(without).not.toContain("--session");
+    });
+
+    it("filterAttachableFiles keeps small files, skips >10MiB", async () => {
+      const { tmpdir } = await import("node:os");
+      const { join } = await import("node:path");
+      const dir = join(tmpdir(), `opencode-attach-test-${process.pid}-${Date.now()}`);
+      await Bun.$`mkdir -p ${dir}`.quiet();
+      await Bun.write(join(dir, "small.txt"), "hello");
+      const big = Buffer.alloc(11 * 1024 * 1024, 0);
+      await Bun.write(join(dir, "big.bin"), big);
+      const { kept, skipped } = await OpenCodeClient.filterAttachableFiles([join(dir, "small.txt"), join(dir, "big.bin")]);
+      expect(kept).toEqual([join(dir, "small.txt")]);
+      expect(skipped.length).toBe(1);
+      expect(skipped[0].path).toBe(join(dir, "big.bin"));
+      await Bun.$`rm -rf ${dir}`.quiet();
+    });
+
+    it("filterAttachableFiles keeps missing files (CLI reports those)", async () => {
+      const { tmpdir } = await import("node:os");
+      const { join } = await import("node:path");
+      const missing = join(tmpdir(), `opencode-nope-${Date.now()}`, "missing.txt");
+      const { kept, skipped } = await OpenCodeClient.filterAttachableFiles([missing]);
+      expect(kept).toEqual([missing]);
+      expect(skipped).toEqual([]);
     });
   });
 });
