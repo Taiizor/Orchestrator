@@ -56,7 +56,7 @@ jobs:
         run: |
           if ! command -v opencode &> /dev/null; then
             echo "Installing OpenCode CLI..."
-            bun install -g --trust @opencode/cli@2.0.29
+            bun install -g --trust @opencode/cli@2.0.30
           fi
           echo "$HOME/.bun/bin" >> $GITHUB_PATH
           export PATH="$HOME/.bun/bin:$PATH"
