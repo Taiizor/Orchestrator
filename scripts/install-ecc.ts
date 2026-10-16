@@ -168,11 +168,7 @@ function defaultJobs(dest: string): { srcRel: string; dstRel: string }[] {
   return jobs;
 }
 
-function extraJobs(
-  dest: string,
-  kind: "skills" | "agents" | "rules",
-  ids: string[]
-): { srcRel: string; dstRel: string }[] {
+function extraJobs(dest: string, kind: "skills" | "agents" | "rules", ids: string[]): { srcRel: string; dstRel: string }[] {
   return ids.map((id) => {
     const clean = id.trim().replace(/\.md$/, "");
     const rel = kind === "agents" ? `agents/${clean}.md` : kind === "rules" ? `rules/${clean}.md` : `skills/${clean}/SKILL.md`;
@@ -254,7 +250,11 @@ async function main(): Promise<void> {
         bad++;
       }
     }
-    console.log(bad === 0 ? `✅ Verified ${Object.keys(manifest.files || {}).length} files (ECC ${manifest.eccVersion}).` : `❌ ${bad} problem(s). Re-run install (or --force).`);
+    console.log(
+      bad === 0
+        ? `✅ Verified ${Object.keys(manifest.files || {}).length} files (ECC ${manifest.eccVersion}).`
+        : `❌ ${bad} problem(s). Re-run install (or --force).`
+    );
     process.exit(bad === 0 ? 0 : 1);
   }
 
@@ -301,7 +301,12 @@ async function main(): Promise<void> {
     const content = await srcFile.text();
     manifest.files[j.dstRel] = sha256(content);
     const dstFile = Bun.file(j.dstRel);
-    if (!values.force && (await dstFile.exists()) && prev[j.dstRel] === manifest.files[j.dstRel] && sha256(await dstFile.text()) === manifest.files[j.dstRel]) {
+    if (
+      !values.force &&
+      (await dstFile.exists()) &&
+      prev[j.dstRel] === manifest.files[j.dstRel] &&
+      sha256(await dstFile.text()) === manifest.files[j.dstRel]
+    ) {
       skipped++;
       continue;
     }
@@ -338,7 +343,9 @@ async function main(): Promise<void> {
         prevManifest.eccCommit === manifest.eccCommit &&
         JSON.stringify(prevManifest.files) === JSON.stringify(manifest.files);
       if (same) {
-        console.log(`✅ ECC ${eccVersion} installed repo-scoped → ${dest}/ (${wrote} wrote, ${skipped} unchanged). Manifest unchanged.`);
+        console.log(
+          `✅ ECC ${eccVersion} installed repo-scoped → ${dest}/ (${wrote} wrote, ${skipped} unchanged). Manifest unchanged.`
+        );
         await Bun.write(`${dest}/ATTRIBUTION.md`, ATTRIBUTION);
         return;
       }
@@ -348,7 +355,9 @@ async function main(): Promise<void> {
   }
   await Bun.write(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
   await Bun.write(`${dest}/ATTRIBUTION.md`, ATTRIBUTION);
-  console.log(`✅ ECC ${eccVersion} installed repo-scoped → ${dest}/ (${wrote} wrote, ${skipped} unchanged). Manifest: ${dest}/${MANIFEST_NAME}`);
+  console.log(
+    `✅ ECC ${eccVersion} installed repo-scoped → ${dest}/ (${wrote} wrote, ${skipped} unchanged). Manifest: ${dest}/${MANIFEST_NAME}`
+  );
 }
 
 if (import.meta.main) {

@@ -30,8 +30,18 @@ describe("repo-scoped ECC installer", () => {
 
   it("installs to a scratch dest, verifies, and re-runs as a no-op", async () => {
     const dest = join(tmpdir(), `ecc-install-test-${process.pid}-${Date.now()}`).replace(/\\/g, "/");
-    const first = await runInstaller(["--source", "tests/fixtures/ecc", "--dest", dest,
-      "--rules", "demo-rule", "--skills", "demo-skill", "--agents", "demo-agent"]);
+    const first = await runInstaller([
+      "--source",
+      "tests/fixtures/ecc",
+      "--dest",
+      dest,
+      "--rules",
+      "demo-rule",
+      "--skills",
+      "demo-skill",
+      "--agents",
+      "demo-agent",
+    ]);
     expect(first.exit).toBe(0);
     expect(first.out).toMatch(/3 wrote/);
 
@@ -47,8 +57,18 @@ describe("repo-scoped ECC installer", () => {
     expect(verify.exit).toBe(0);
     expect(verify.out).toMatch(/Verified 3 files/);
 
-    const rerun = await runInstaller(["--source", "tests/fixtures/ecc", "--dest", dest,
-      "--rules", "demo-rule", "--skills", "demo-skill", "--agents", "demo-agent"]);
+    const rerun = await runInstaller([
+      "--source",
+      "tests/fixtures/ecc",
+      "--dest",
+      dest,
+      "--rules",
+      "demo-rule",
+      "--skills",
+      "demo-skill",
+      "--agents",
+      "demo-agent",
+    ]);
     expect(rerun.exit).toBe(0);
     expect(rerun.out).toMatch(/3 unchanged/);
   }, 60000);
@@ -71,26 +91,34 @@ describe("repo-scoped ECC installer", () => {
 
   // Full default-set install against a local ECC tree (skipped on fresh
   // clones — fixture mechanics above run everywhere).
-  test.skipIf(!HAS_ECC)("installs the full STACK_ECC_REFS set from a local tree", async () => {
-    const dest = join(tmpdir(), `ecc-full-test-${process.pid}-${Date.now()}`).replace(/\\/g, "/");
-    const expected = Object.values(STACK_ECC_REFS).flat().length;
-    const first = await runInstaller(["--dest", dest]);
-    expect(first.exit).toBe(0);
-    expect(first.out).toMatch(new RegExp(`${expected} wrote`));
-    const verify = await runInstaller(["--dest", dest, "--verify"]);
-    expect(verify.exit).toBe(0);
-  }, 120000);
+  test.skipIf(!HAS_ECC)(
+    "installs the full STACK_ECC_REFS set from a local tree",
+    async () => {
+      const dest = join(tmpdir(), `ecc-full-test-${process.pid}-${Date.now()}`).replace(/\\/g, "/");
+      const expected = Object.values(STACK_ECC_REFS).flat().length;
+      const first = await runInstaller(["--dest", dest]);
+      expect(first.exit).toBe(0);
+      expect(first.out).toMatch(new RegExp(`${expected} wrote`));
+      const verify = await runInstaller(["--dest", dest, "--verify"]);
+      expect(verify.exit).toBe(0);
+    },
+    120000
+  );
 
   // Live release download (network; opt-in only — never in CI).
-  test.skipIf(!LIVE)("installs from the release tarball", async () => {
-    const dest = join(tmpdir(), `ecc-live-test-${process.pid}-${Date.now()}`).replace(/\\/g, "/");
-    const expected = Object.values(STACK_ECC_REFS).flat().length;
-    const first = await runInstaller(["--release", DEFAULT_ECC_RELEASE, "--dest", dest]);
-    expect(first.exit).toBe(0);
-    expect(first.out).toMatch(new RegExp(`${expected} wrote`));
-    const manifest = (await Bun.file(`${dest}/.manifest.json`).json()) as { eccVersion: string };
-    expect("v" + manifest.eccVersion).toBe(DEFAULT_ECC_RELEASE);
-  }, 300000);
+  test.skipIf(!LIVE)(
+    "installs from the release tarball",
+    async () => {
+      const dest = join(tmpdir(), `ecc-live-test-${process.pid}-${Date.now()}`).replace(/\\/g, "/");
+      const expected = Object.values(STACK_ECC_REFS).flat().length;
+      const first = await runInstaller(["--release", DEFAULT_ECC_RELEASE, "--dest", dest]);
+      expect(first.exit).toBe(0);
+      expect(first.out).toMatch(new RegExp(`${expected} wrote`));
+      const manifest = (await Bun.file(`${dest}/.manifest.json`).json()) as { eccVersion: string };
+      expect("v" + manifest.eccVersion).toBe(DEFAULT_ECC_RELEASE);
+    },
+    300000
+  );
 
   it("refuses a non-ECC source", async () => {
     const { exit, out } = await runInstaller(["--source", ".", "--dest", join(tmpdir(), "ecc-nope").replace(/\\/g, "/")]);

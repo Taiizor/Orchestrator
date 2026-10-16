@@ -20,8 +20,8 @@
     "services:down": "docker compose -f workspace/docker-compose.services.yml down",
     "subagent:run": "bun run subagents/runner.ts",
     "build": "bun build orchestrator/engine.ts orchestrator/git_manager.ts orchestrator/review_gate.ts subagents/runner.ts --outdir ./state/build_check --target bun",
-    "format": "bunx prettier --write \"orchestrator/**/*.ts\" \"subagents/**/*.ts\"",
-    "format:check": "bunx prettier --check \"orchestrator/**/*.ts\" \"subagents/**/*.ts\""
+    "format": "bunx prettier --write \"tests/**/*.ts\" \"scripts/**/*.ts\" \"orchestrator/**/*.ts\" \"subagents/**/*.ts\"",
+    "format:check": "bunx prettier --check \"tests/**/*.ts\" \"scripts/**/*.ts\" \"orchestrator/**/*.ts\" \"subagents/**/*.ts\""
   },
   "keywords": [
     "opencode",

@@ -70,13 +70,15 @@ export interface StageResult {
   skills: string[];
 }
 
-export async function stageEccSkills(opts: {
-  src?: string;
-  dest?: string;
-  prefix?: string;
-  force?: boolean;
-  dryRun?: boolean;
-} = {}): Promise<StageResult> {
+export async function stageEccSkills(
+  opts: {
+    src?: string;
+    dest?: string;
+    prefix?: string;
+    force?: boolean;
+    dryRun?: boolean;
+  } = {}
+): Promise<StageResult> {
   const src = (opts.src || "vendor/ecc/skills").replace(/\\/g, "/");
   const dest = (opts.dest || ".opencode/skills").replace(/\\/g, "/");
   const prefix = opts.prefix ?? "ecc-";
@@ -160,7 +162,9 @@ async function main(): Promise<void> {
   } else if (res.skipped) {
     console.log("♻️ ECC skills already staged (vendor manifest unchanged).");
   } else {
-    console.log(`✅ Staged ${res.staged} ECC skills → ${values.dest || ".opencode/skills"}/ (prefix '${values.prefix || "ecc-"}').`);
+    console.log(
+      `✅ Staged ${res.staged} ECC skills → ${values.dest || ".opencode/skills"}/ (prefix '${values.prefix || "ecc-"}').`
+    );
   }
 }
 

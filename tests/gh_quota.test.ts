@@ -1,5 +1,11 @@
 import { describe, it, expect } from "bun:test";
-import { isLimited, noteApiResult, quotaFromPayload, resetQuotaForTests, cooldownRemainingSec } from "../orchestrator/gh_quota.ts";
+import {
+  isLimited,
+  noteApiResult,
+  quotaFromPayload,
+  resetQuotaForTests,
+  cooldownRemainingSec,
+} from "../orchestrator/gh_quota.ts";
 import { ProjectManager } from "../orchestrator/project_manager.ts";
 import { GitManager } from "../orchestrator/git_manager.ts";
 

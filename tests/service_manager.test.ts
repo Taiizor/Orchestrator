@@ -5,7 +5,7 @@ import {
   normalizeServices,
   renderComposeYaml,
   serviceEnv,
-  renderEnvFile
+  renderEnvFile,
 } from "../orchestrator/service_manager.ts";
 
 describe("Service Manager Module", () => {
@@ -40,7 +40,7 @@ describe("Service Manager Module", () => {
         name: "Custom-API",
         image: "my-api:latest",
         env: { FOO: "bar" },
-        ports: ["8080:80"]
+        ports: ["8080:80"],
       };
       const normalized = normalizeServices([custom]);
       expect(normalized.length).toBe(1);
@@ -64,13 +64,13 @@ describe("Service Manager Module", () => {
       expect(yaml).toContain("postgres:");
       expect(yaml).toContain("image: postgres:16-alpine");
       expect(yaml).toContain("POSTGRES_USER: postgres");
-      expect(yaml).toContain("test: [\"CMD-SHELL\",\"pg_isready -U postgres\"]");
+      expect(yaml).toContain('test: ["CMD-SHELL","pg_isready -U postgres"]');
     });
 
     it("should generate minimal valid YAML for empty specs", () => {
       const yaml = renderComposeYaml([]);
       expect(yaml).toContain("services:");
-      expect(yaml.split("\n").filter(l => l.trim().length > 0).length).toBe(3); // comments + services:
+      expect(yaml.split("\n").filter((l) => l.trim().length > 0).length).toBe(3); // comments + services:
     });
   });
 

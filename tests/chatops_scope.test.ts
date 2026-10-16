@@ -1,8 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import {
-  initialTargetFilesForOperatorTask,
-  resolveReviseDependencies,
-} from "../orchestrator/issue_manager.ts";
+import { initialTargetFilesForOperatorTask, resolveReviseDependencies } from "../orchestrator/issue_manager.ts";
 import { validateRoadmap } from "../orchestrator/roadmap_validator.ts";
 
 describe("operator task scoping (/add)", () => {
@@ -14,10 +11,14 @@ describe("operator task scoping (/add)", () => {
 
   it("keeps split-stack validation green for unscoped tasks anchored on the owner", () => {
     const mk = (id: string, stack: string, targetFiles: string[], cmd: string, deps: string[] = []) => ({
-      id, role: "backend", dependencies: deps, targetFiles,
+      id,
+      role: "backend",
+      dependencies: deps,
+      targetFiles,
       description: "word ".repeat(25).trim(),
       deliverables: ["Create x", "Test x"],
-      verificationCommand: cmd, stack,
+      verificationCommand: cmd,
+      stack,
     });
     const r = validateRoadmap({
       stack: "go",
@@ -34,11 +35,7 @@ describe("revise dependency inheritance (/revise)", () => {
   it("waits for the target and everything the target waited for", () => {
     // TASK-048 precedent: a bun revise depending only on its target loses the
     // contract-task anchor and is DAG-rejected.
-    expect(resolveReviseDependencies("TASK-047", ["TASK-009", "TASK-043"])).toEqual([
-      "TASK-047",
-      "TASK-009",
-      "TASK-043",
-    ]);
+    expect(resolveReviseDependencies("TASK-047", ["TASK-009", "TASK-043"])).toEqual(["TASK-047", "TASK-009", "TASK-043"]);
   });
 
   it("dedupes and tolerates missing dep lists", () => {
@@ -48,10 +45,14 @@ describe("revise dependency inheritance (/revise)", () => {
 
   it("passes split-stack validation with inherited contract anchor", () => {
     const mk = (id: string, stack: string, targetFiles: string[], cmd: string, deps: string[] = []) => ({
-      id, role: "frontend", dependencies: deps, targetFiles,
+      id,
+      role: "frontend",
+      dependencies: deps,
+      targetFiles,
       description: "word ".repeat(25).trim(),
       deliverables: ["Create x", "Test x"],
-      verificationCommand: cmd, stack,
+      verificationCommand: cmd,
+      stack,
     });
     const r = validateRoadmap({
       stack: "go",

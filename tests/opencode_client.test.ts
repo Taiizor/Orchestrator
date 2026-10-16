@@ -12,7 +12,7 @@ describe("OpenCode Client Module", () => {
       const stream = `{"type": "delta", "delta": "hello"}\n{"type": "delta", "delta": " world"}`;
       expect(OpenCodeClient.extractText(stream)).toBe("hello world");
     });
-    
+
     it("should handle array content blocks with text fields", () => {
       const stream = `{"type": "message", "content": [{"text": "hello "}, {"text": "world"}]}`;
       expect(OpenCodeClient.extractText(stream)).toBe("hello world");
@@ -38,8 +38,7 @@ describe("OpenCode Client Module", () => {
 
   describe("parseModelSpec (private)", () => {
     // Access private method for testing pure logic
-    const parseModelSpec = (input: string, fallback?: string) => 
-      (OpenCodeClient as any).parseModelSpec(input, fallback);
+    const parseModelSpec = (input: string, fallback?: string) => (OpenCodeClient as any).parseModelSpec(input, fallback);
 
     it("should parse 'provider/model' without variant", () => {
       expect(parseModelSpec("provider/model")).toEqual({ model: "provider/model" });
@@ -62,7 +61,8 @@ describe("OpenCode Client Module", () => {
     });
   });
 
-  describe("runStreaming (private)", () => {    // Access private method for testing live-spawn behavior (bun -e works
+  describe("runStreaming (private)", () => {
+    // Access private method for testing live-spawn behavior (bun -e works
     // on every OS the suite runs on).
     const runStreaming = (
       cmd: string[],
@@ -107,7 +107,11 @@ describe("OpenCode Client Module", () => {
       // broad matcher killed runs like this half a second in.
       const started = Date.now();
       const res = await runStreaming(
-        ["bun", "-e", "console.log('quota info');let i=0;const t=setInterval(()=>{console.log('tick'+(++i));if(i>=3){clearInterval(t);}} ,1000)"],
+        [
+          "bun",
+          "-e",
+          "console.log('quota info');let i=0;const t=setInterval(()=>{console.log('tick'+(++i));if(i>=3){clearInterval(t);}} ,1000)",
+        ],
         undefined,
         15_000,
         "test",
@@ -154,9 +158,9 @@ describe("OpenCode Client Module", () => {
     });
 
     it("toolEventName reads tool names, ignores other lines", () => {
-      expect(
-        OpenCodeClient.toolEventName(`{"type":"tool_use","timestamp":1,"sessionID":"s","part":{"name":"edit"}}`)
-      ).toBe("edit");
+      expect(OpenCodeClient.toolEventName(`{"type":"tool_use","timestamp":1,"sessionID":"s","part":{"name":"edit"}}`)).toBe(
+        "edit"
+      );
       expect(OpenCodeClient.toolEventName(`{"type":"text","text":"hi"}`)).toBeUndefined();
       expect(OpenCodeClient.toolEventName("not json")).toBeUndefined();
     });
@@ -168,7 +172,8 @@ describe("OpenCode Client Module", () => {
       expect(without).not.toContain("--session");
     });
 
-    it("buildCommand appends --agent and --title only when given", () => {      const full = (OpenCodeClient as any).buildCommand({ model: "a/b" }, ["f.png"], undefined, {
+    it("buildCommand appends --agent and --title only when given", () => {
+      const full = (OpenCodeClient as any).buildCommand({ model: "a/b" }, ["f.png"], undefined, {
         agent: "build",
         title: "[TASK-1] t",
       });
@@ -226,12 +231,10 @@ describe("OpenCode Client Module", () => {
     });
 
     it("parseSessionListId reads array, object, and raw-id shapes", () => {
-      expect(
-        OpenCodeClient.parseSessionListId(JSON.stringify([{ id: "ses_aaa", title: "t" }, { id: "ses_bbb" }]))
-      ).toBe("ses_aaa");
-      expect(OpenCodeClient.parseSessionListId(JSON.stringify({ sessions: [{ sessionID: "ses_ccc" }] }))).toBe(
-        "ses_ccc"
+      expect(OpenCodeClient.parseSessionListId(JSON.stringify([{ id: "ses_aaa", title: "t" }, { id: "ses_bbb" }]))).toBe(
+        "ses_aaa"
       );
+      expect(OpenCodeClient.parseSessionListId(JSON.stringify({ sessions: [{ sessionID: "ses_ccc" }] }))).toBe("ses_ccc");
       expect(OpenCodeClient.parseSessionListId(`{"id": "ses_ddd"}`)).toBe("ses_ddd");
       expect(OpenCodeClient.parseSessionListId("[]")).toBeUndefined();
       expect(OpenCodeClient.parseSessionListId("not json at all")).toBeUndefined();

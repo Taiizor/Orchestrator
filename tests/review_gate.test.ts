@@ -15,7 +15,7 @@ import {
   scanDemoSmells,
   classifyGateFailure,
   priorFixRounds,
-  GATE_VERSION
+  GATE_VERSION,
 } from "../orchestrator/review_gate.ts";
 
 describe("Review Gate Module", () => {
@@ -123,7 +123,9 @@ describe("Review Gate Module", () => {
       expect(scanSecrets("", [".env"])).toContain("Sensitive file (.env/.pem/.key/credentials/secrets) in changeset");
       expect(scanSecrets("", ["src/cert.pem"])).toContain("Sensitive file (.env/.pem/.key/credentials/secrets) in changeset");
       expect(scanSecrets("", ["src/server.key"])).toContain("Sensitive file (.env/.pem/.key/credentials/secrets) in changeset");
-      expect(scanSecrets("", ["src/sort.key.ts"])).not.toContain("Sensitive file (.env/.pem/.key/credentials/secrets) in changeset");
+      expect(scanSecrets("", ["src/sort.key.ts"])).not.toContain(
+        "Sensitive file (.env/.pem/.key/credentials/secrets) in changeset"
+      );
     });
 
     it("should allow .env.example", () => {
@@ -205,7 +207,7 @@ describe("Review Gate Module", () => {
     });
     it("calls placeholder-only SQL hits an engine false positive", () => {
       const failures = [
-        "Possible SQL injection (unparameterized query): Possible SQL concatenation in workspace/src/db.ts: const q = await db.query(\"SELECT * FROM t WHERE id=$1\", [id]).",
+        'Possible SQL injection (unparameterized query): Possible SQL concatenation in workspace/src/db.ts: const q = await db.query("SELECT * FROM t WHERE id=$1", [id]).',
       ];
       expect(classifyGateFailure(failures).map((d) => d.kind)).toEqual(["sql-false-positive"]);
     });
@@ -237,7 +239,9 @@ describe("Review Gate Module", () => {
       expect(d.kind).toBe("unknown");
     });
     it("routes mixed scope to unknown", () => {
-      const [d] = classifyGateFailure(["Out-of-scope files modified (workspace/web/dist/a.js, workspace/src/api/h.ts). Allowed: x."]);
+      const [d] = classifyGateFailure([
+        "Out-of-scope files modified (workspace/web/dist/a.js, workspace/src/api/h.ts). Allowed: x.",
+      ]);
       expect(d.kind).toBe("unknown");
     });
     it("returns [] for unrecognized failures (normal reject path)", () => {

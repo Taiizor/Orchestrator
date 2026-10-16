@@ -1,9 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import {
-  isPinnedImage,
-  parseServiceRequests,
-  renderComposeYaml,
-} from "../orchestrator/service_manager.ts";
+import { isPinnedImage, parseServiceRequests, renderComposeYaml } from "../orchestrator/service_manager.ts";
 
 describe("service auto-adopt", () => {
   it("accepts pinned tags and digests, rejects latest/floating", () => {
@@ -17,7 +13,12 @@ describe("service auto-adopt", () => {
 
   it("validates a well-formed request list", () => {
     const { valid, rejected } = parseServiceRequests([
-      { name: "elastic", image: "docker.elastic.co/elasticsearch/elasticsearch:8.13.0", env: { ELASTIC_URL: "http://localhost:9200" }, ports: ["9200:9200"] },
+      {
+        name: "elastic",
+        image: "docker.elastic.co/elasticsearch/elasticsearch:8.13.0",
+        env: { ELASTIC_URL: "http://localhost:9200" },
+        ports: ["9200:9200"],
+      },
     ]);
     expect(rejected).toEqual([]);
     expect(valid.length).toBe(1);
@@ -45,9 +46,7 @@ describe("service auto-adopt", () => {
   });
 
   it("renders multi-port customs under a single ports key", () => {
-    const yaml = renderComposeYaml([
-      { name: "broker", image: "rabbitmq:3.13-management", ports: ["5672:5672", "15672:15672"] },
-    ]);
+    const yaml = renderComposeYaml([{ name: "broker", image: "rabbitmq:3.13-management", ports: ["5672:5672", "15672:15672"] }]);
     expect(yaml.match(/ports:/g)?.length).toBe(1);
     expect(yaml).toContain('- "5672:5672"');
     expect(yaml).toContain('- "15672:15672"');

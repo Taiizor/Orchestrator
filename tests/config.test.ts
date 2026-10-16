@@ -54,9 +54,9 @@ describe("Config Module", () => {
   it("validateConfig should warn if GITHUB_TOKEN is not set", () => {
     const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
     (CONFIG as any).GITHUB_TOKEN = "";
-    
+
     validateConfig();
-    
+
     expect(warnSpy).toHaveBeenCalledWith("⚠️ GITHUB_TOKEN is not set — GitHub API calls will fail with 401/403.");
     warnSpy.mockRestore();
   });
@@ -65,19 +65,21 @@ describe("Config Module", () => {
     const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
     (CONFIG as any).DATA_REPO = "owner/repo";
     (CONFIG as any).DATA_PAT = "";
-    
+
     validateConfig();
-    
-    expect(warnSpy).toHaveBeenCalledWith("⚠️ DATA_REPO is set but DATA_PAT is empty — dual-repo git operations will fail with auth errors.");
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      "⚠️ DATA_REPO is set but DATA_PAT is empty — dual-repo git operations will fail with auth errors."
+    );
     warnSpy.mockRestore();
   });
 
   it("validateConfig should warn if PROJECT_TOKEN is not set", () => {
     const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
     (CONFIG as any).PROJECT_TOKEN = "";
-    
+
     validateConfig();
-    
+
     expect(warnSpy).toHaveBeenCalledWith("⚠️ GH_PROJECT_TOKEN is not set — GitHub Projects v2 board sync will be skipped.");
     warnSpy.mockRestore();
   });

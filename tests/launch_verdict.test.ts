@@ -1,10 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import {
-  parseLaunchVerdict,
-  inferFixRole,
-  countLaunchFixRounds,
-  MAX_LAUNCH_ROUNDS,
-} from "../orchestrator/launch_verdict.ts";
+import { parseLaunchVerdict, inferFixRole, countLaunchFixRounds, MAX_LAUNCH_ROUNDS } from "../orchestrator/launch_verdict.ts";
 
 describe("Launch Verdict Module", () => {
   it("should parse a pass verdict", () => {

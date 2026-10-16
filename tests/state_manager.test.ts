@@ -47,10 +47,7 @@ describe("State Manager Module", () => {
     });
 
     it("should exclude non-PENDING tasks", () => {
-      const roadmap = createMockRoadmap([
-        createMockTask("t1", "FAILED"),
-        createMockTask("t2", "COMPLETED"),
-      ]);
+      const roadmap = createMockRoadmap([createMockTask("t1", "FAILED"), createMockTask("t2", "COMPLETED")]);
       const ready = StateManager.getReadyTasks(roadmap, 5);
       expect(ready.length).toBe(0);
     });
@@ -60,7 +57,7 @@ describe("State Manager Module", () => {
     it("terminal state (COMPLETED) wins over older non-terminal", () => {
       const local = createMockRoadmap([createMockTask("t1", "IN_PROGRESS", "2026-10-10T09:00:00Z")]);
       const remote = createMockRoadmap([createMockTask("t1", "COMPLETED", "2026-10-10T10:00:00Z")]);
-      
+
       const merged = StateManager.mergeRoadmaps(local, remote);
       expect(merged.tasks[0].status).toBe("COMPLETED");
     });
@@ -68,7 +65,7 @@ describe("State Manager Module", () => {
     it("both terminal: newer updatedAt wins (local vs remote)", () => {
       const local = createMockRoadmap([createMockTask("t1", "FAILED", "2026-10-10T10:00:00Z")]);
       const remote = createMockRoadmap([createMockTask("t1", "COMPLETED", "2026-10-10T09:00:00Z")]);
-      
+
       const merged = StateManager.mergeRoadmaps(local, remote);
       expect(merged.tasks[0].status).toBe("FAILED");
     });
@@ -76,7 +73,7 @@ describe("State Manager Module", () => {
     it("newer non-terminal (resurrection) overrides older terminal", () => {
       const local = createMockRoadmap([createMockTask("t1", "PENDING", "2026-10-10T10:00:00Z")]);
       const remote = createMockRoadmap([createMockTask("t1", "FAILED", "2026-10-10T09:00:00Z")]);
-      
+
       const merged = StateManager.mergeRoadmaps(local, remote);
       expect(merged.tasks[0].status).toBe("PENDING");
     });
@@ -84,10 +81,10 @@ describe("State Manager Module", () => {
     it("tasks only in local or remote are preserved", () => {
       const local = createMockRoadmap([createMockTask("t1", "PENDING")]);
       const remote = createMockRoadmap([createMockTask("t2", "COMPLETED")]);
-      
+
       const merged = StateManager.mergeRoadmaps(local, remote);
       expect(merged.tasks.length).toBe(2);
-      expect(merged.tasks.map(t => t.id).sort()).toEqual(["t1", "t2"]);
+      expect(merged.tasks.map((t) => t.id).sort()).toEqual(["t1", "t2"]);
     });
 
     it("handles undefined updatedAt causing NaN Date.parse", () => {
@@ -192,10 +189,7 @@ describe("State Manager Module", () => {
 
   describe("renderProgressMarkdown", () => {
     it("produces valid markdown including task counts", () => {
-      const roadmap = createMockRoadmap([
-        createMockTask("t1", "COMPLETED"),
-        createMockTask("t2", "PENDING"),
-      ]);
+      const roadmap = createMockRoadmap([createMockTask("t1", "COMPLETED"), createMockTask("t2", "PENDING")]);
       const md = StateManager.renderProgressMarkdown(roadmap);
       expect(md).toContain("1 / 2 tasks");
       expect(md).toContain("1 pending");
@@ -203,9 +197,7 @@ describe("State Manager Module", () => {
     });
 
     it("redact mode hides titles and branches", () => {
-      const roadmap = createMockRoadmap([
-        createMockTask("t1", "COMPLETED"),
-      ]);
+      const roadmap = createMockRoadmap([createMockTask("t1", "COMPLETED")]);
       const md = StateManager.renderProgressMarkdown(roadmap, { redact: true });
       expect(md).not.toContain("Title");
       expect(md).not.toContain("Branch");

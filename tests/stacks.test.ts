@@ -2,7 +2,19 @@ import { describe, it, expect } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdirSync } from "node:fs";
-import { STACKS, STACK_IDS, STACK_ECC_REFS, STACK_ESSENTIAL_SKILLS, STACK_ECC_SKILL_IDS, TEST_EVIDENCE_RX, isKnownStackCommand, normalizeStackId, commandStack, effectiveTaskStack, detectWorkspaceStacks } from "../orchestrator/stacks.ts";
+import {
+  STACKS,
+  STACK_IDS,
+  STACK_ECC_REFS,
+  STACK_ESSENTIAL_SKILLS,
+  STACK_ECC_SKILL_IDS,
+  TEST_EVIDENCE_RX,
+  isKnownStackCommand,
+  normalizeStackId,
+  commandStack,
+  effectiveTaskStack,
+  detectWorkspaceStacks,
+} from "../orchestrator/stacks.ts";
 import { validateRoadmap } from "../orchestrator/roadmap_validator.ts";
 
 describe("stacks registry", () => {
@@ -15,7 +27,15 @@ describe("stacks registry", () => {
   });
 
   it("accepts every toolchain as test evidence", () => {
-    for (const s of ["bun test 5 pass", "go test ok", "cargo test test result: ok", "dotnet test Passed!", "pytest 3 passed", "phpunit OK (5 tests)", "FAILURES! Tests: 3"]) {
+    for (const s of [
+      "bun test 5 pass",
+      "go test ok",
+      "cargo test test result: ok",
+      "dotnet test Passed!",
+      "pytest 3 passed",
+      "phpunit OK (5 tests)",
+      "FAILURES! Tests: 3",
+    ]) {
       expect(TEST_EVIDENCE_RX.test(s)).toBe(true);
     }
   });

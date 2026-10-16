@@ -1,7 +1,8 @@
 import { describe, it, expect } from "bun:test";
 import { GitManager } from "../orchestrator/git_manager.ts";
 
-describe("progressMergeDriverContent", () => {  it("writes a fresh file when absent", () => {
+describe("progressMergeDriverContent", () => {
+  it("writes a fresh file when absent", () => {
     for (const existing of [null, "", "   \n  "]) {
       const out = GitManager.progressMergeDriverContent(existing);
       expect(out).not.toBeNull();

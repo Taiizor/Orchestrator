@@ -12,31 +12,31 @@ describe("Roadmap Validator Module", () => {
       const result = validateRoadmap({
         tasks: [
           { id: "task1", role: "backend", dependencies: [], targetFiles: ["src/a.ts"] },
-          { id: "task1", role: "frontend", dependencies: [], targetFiles: ["src/b.ts"] }
-        ]
+          { id: "task1", role: "frontend", dependencies: [], targetFiles: ["src/b.ts"] },
+        ],
       });
-      expect(result.errors.some(e => e.includes("Duplicate task IDs: task1"))).toBe(true);
+      expect(result.errors.some((e) => e.includes("Duplicate task IDs: task1"))).toBe(true);
     });
 
     it("should error on invalid roles", () => {
       const result = validateRoadmap({
-        tasks: [{ id: "task1", role: "magician", dependencies: [], targetFiles: ["src/a.ts"] }]
+        tasks: [{ id: "task1", role: "magician", dependencies: [], targetFiles: ["src/a.ts"] }],
       });
-      expect(result.errors.some(e => e.includes("invalid role \"magician\""))).toBe(true);
+      expect(result.errors.some((e) => e.includes('invalid role "magician"'))).toBe(true);
     });
 
     it("should error on self-dependency", () => {
       const result = validateRoadmap({
-        tasks: [{ id: "task1", role: "backend", dependencies: ["task1"], targetFiles: ["src/a.ts"] }]
+        tasks: [{ id: "task1", role: "backend", dependencies: ["task1"], targetFiles: ["src/a.ts"] }],
       });
-      expect(result.errors.some(e => e.includes("depends on itself"))).toBe(true);
+      expect(result.errors.some((e) => e.includes("depends on itself"))).toBe(true);
     });
 
     it("should error on unknown dependency", () => {
       const result = validateRoadmap({
-        tasks: [{ id: "task1", role: "backend", dependencies: ["ghost_task"], targetFiles: ["src/a.ts"] }]
+        tasks: [{ id: "task1", role: "backend", dependencies: ["ghost_task"], targetFiles: ["src/a.ts"] }],
       });
-      expect(result.errors.some(e => e.includes("unknown task \"ghost_task\""))).toBe(true);
+      expect(result.errors.some((e) => e.includes('unknown task "ghost_task"'))).toBe(true);
     });
 
     it("should detect dependency cycle (A->B->C->A)", () => {
@@ -44,10 +44,10 @@ describe("Roadmap Validator Module", () => {
         tasks: [
           { id: "A", role: "backend", dependencies: ["B"], targetFiles: ["src/a.ts"] },
           { id: "B", role: "backend", dependencies: ["C"], targetFiles: ["src/b.ts"] },
-          { id: "C", role: "backend", dependencies: ["A"], targetFiles: ["src/c.ts"] }
-        ]
+          { id: "C", role: "backend", dependencies: ["A"], targetFiles: ["src/c.ts"] },
+        ],
       });
-      expect(result.errors.some(e => e.includes("Dependency cycle detected"))).toBe(true);
+      expect(result.errors.some((e) => e.includes("Dependency cycle detected"))).toBe(true);
     });
 
     it("should allow diamond dependency (A->B, A->C, B->D, C->D)", () => {
@@ -56,8 +56,8 @@ describe("Roadmap Validator Module", () => {
           { id: "D", role: "backend", dependencies: [], targetFiles: ["src/d.ts"] },
           { id: "B", role: "backend", dependencies: ["D"], targetFiles: ["src/b.ts"] },
           { id: "C", role: "backend", dependencies: ["D"], targetFiles: ["src/c.ts"] },
-          { id: "A", role: "backend", dependencies: ["B", "C"], targetFiles: ["src/a.ts"] }
-        ]
+          { id: "A", role: "backend", dependencies: ["B", "C"], targetFiles: ["src/a.ts"] },
+        ],
       });
       expect(result.errors.length).toBe(0);
     });
@@ -65,15 +65,15 @@ describe("Roadmap Validator Module", () => {
     it("should error on unknown service string", () => {
       const result = validateRoadmap({
         tasks: [{ id: "t1", role: "backend", dependencies: [], targetFiles: ["a.ts"] }],
-        services: ["magic_db"]
+        services: ["magic_db"],
       });
-      expect(result.errors.some(e => e.includes("Unknown CI service \"magic_db\""))).toBe(true);
+      expect(result.errors.some((e) => e.includes('Unknown CI service "magic_db"'))).toBe(true);
     });
 
     it("should allow known service presets", () => {
       const result = validateRoadmap({
         tasks: [{ id: "t1", role: "backend", dependencies: [], targetFiles: ["a.ts"] }],
-        services: ["postgres", "redis", "mongo", "minio", "s3"]
+        services: ["postgres", "redis", "mongo", "minio", "s3"],
       });
       expect(result.errors.length).toBe(0);
     });
@@ -81,78 +81,94 @@ describe("Roadmap Validator Module", () => {
     it("should error on invalid custom service definition", () => {
       const result = validateRoadmap({
         tasks: [{ id: "t1", role: "backend", dependencies: [], targetFiles: ["a.ts"] }],
-        services: [{ name: "custom" }] // missing image
+        services: [{ name: "custom" }], // missing image
       });
-      expect(result.errors.some(e => e.includes("Invalid custom service definition"))).toBe(true);
+      expect(result.errors.some((e) => e.includes("Invalid custom service definition"))).toBe(true);
     });
 
     it("should warn on missing targetFiles", () => {
       const result = validateRoadmap({
-        tasks: [{ id: "t1", role: "backend", dependencies: [], targetFiles: [] as any }]
+        tasks: [{ id: "t1", role: "backend", dependencies: [], targetFiles: [] as any }],
       });
-      expect(result.warnings.some(w => w.includes("has no targetFiles"))).toBe(true);
+      expect(result.warnings.some((w) => w.includes("has no targetFiles"))).toBe(true);
     });
 
     it("should warn on overlapping targetFiles on parallel tasks", () => {
       const result = validateRoadmap({
         tasks: [
           { id: "t1", role: "backend", dependencies: [], targetFiles: ["src/*"] },
-          { id: "t2", role: "backend", dependencies: [], targetFiles: ["src/index.ts"] }
-        ]
+          { id: "t2", role: "backend", dependencies: [], targetFiles: ["src/index.ts"] },
+        ],
       });
-      expect(result.warnings.some(w => w.includes("overlapping targetFiles"))).toBe(true);
+      expect(result.warnings.some((w) => w.includes("overlapping targetFiles"))).toBe(true);
     });
 
     it("should warn on unknown milestone reference", () => {
       const result = validateRoadmap({
         tasks: [{ id: "t1", role: "backend", dependencies: [], targetFiles: ["a"], milestone: "m1" }],
-        milestones: [{ title: "m2" }]
+        milestones: [{ title: "m2" }],
       });
-      expect(result.warnings.some(w => w.includes("unknown milestone"))).toBe(true);
+      expect(result.warnings.some((w) => w.includes("unknown milestone"))).toBe(true);
     });
 
     it("should warn on thin description", () => {
       const result = validateRoadmap({
-        tasks: [{ id: "t1", role: "backend", dependencies: [], targetFiles: ["a"], description: "Do stuff" }]
+        tasks: [{ id: "t1", role: "backend", dependencies: [], targetFiles: ["a"], description: "Do stuff" }],
       });
-      expect(result.warnings.some(w => w.includes("description is thin"))).toBe(true);
+      expect(result.warnings.some((w) => w.includes("description is thin"))).toBe(true);
     });
 
     it("should warn on missing deliverables and verificationCommand", () => {
       const result = validateRoadmap({
-        tasks: [{
-          id: "t1", role: "backend", dependencies: [], targetFiles: ["a"],
-          description: "word ".repeat(25).trim()
-        }]
+        tasks: [
+          {
+            id: "t1",
+            role: "backend",
+            dependencies: [],
+            targetFiles: ["a"],
+            description: "word ".repeat(25).trim(),
+          },
+        ],
       });
-      expect(result.warnings.some(w => w.includes("fewer than 2 deliverables"))).toBe(true);
-      expect(result.warnings.some(w => w.includes("no verificationCommand"))).toBe(true);
+      expect(result.warnings.some((w) => w.includes("fewer than 2 deliverables"))).toBe(true);
+      expect(result.warnings.some((w) => w.includes("no verificationCommand"))).toBe(true);
     });
 
     it("should not warn on a fully specified task", () => {
       const result = validateRoadmap({
-        tasks: [{
-          id: "t1", role: "backend", dependencies: [], targetFiles: ["a"],
-          description: "word ".repeat(25).trim(),
-          deliverables: ["Create a.ts", "Test a.ts"],
-          verificationCommand: "bun test"
-        }]
+        tasks: [
+          {
+            id: "t1",
+            role: "backend",
+            dependencies: [],
+            targetFiles: ["a"],
+            description: "word ".repeat(25).trim(),
+            deliverables: ["Create a.ts", "Test a.ts"],
+            verificationCommand: "bun test",
+          },
+        ],
       });
       expect(result.warnings.length).toBe(0);
     });
 
     it("should error on unknown per-task stack but accept known ones", () => {
       const contract = {
-        id: "t0", role: "architect", dependencies: [], targetFiles: ["workspace/CONTRACTS.md"],
+        id: "t0",
+        role: "architect",
+        dependencies: [],
+        targetFiles: ["workspace/CONTRACTS.md"],
         description: "word ".repeat(25).trim(),
         deliverables: ["Write CONTRACTS.md", "Generate typed client"],
-        verificationCommand: "go test ./..."
+        verificationCommand: "go test ./...",
       };
       const base = {
-        id: "t1", role: "backend", dependencies: ["t0"], targetFiles: ["a"],
+        id: "t1",
+        role: "backend",
+        dependencies: ["t0"],
+        targetFiles: ["a"],
         description: "word ".repeat(25).trim(),
         deliverables: ["Create a.ts", "Test a.ts"],
-        verificationCommand: "go test ./..."
+        verificationCommand: "go test ./...",
       };
       const bad = validateRoadmap({ stack: "bun", tasks: [contract, { ...base, stack: "cobol" }] });
       expect(bad.errors.some((e) => e.includes("unknown task stack"))).toBe(true);
@@ -164,10 +180,13 @@ describe("Roadmap Validator Module", () => {
 
     it("should accept case/whitespace variants of known stacks", () => {
       const base = {
-        id: "t1", role: "backend", dependencies: [], targetFiles: ["a"],
+        id: "t1",
+        role: "backend",
+        dependencies: [],
+        targetFiles: ["a"],
         description: "word ".repeat(25).trim(),
         deliverables: ["Create a.ts", "Test a.ts"],
-        verificationCommand: "go test ./..."
+        verificationCommand: "go test ./...",
       };
       expect(validateRoadmap({ stack: " Go ", tasks: [{ ...base }] }).errors).toEqual([]);
       expect(validateRoadmap({ stack: "bun", tasks: [{ ...base, stack: "GO" }] }).errors).toEqual([]);
@@ -175,30 +194,43 @@ describe("Roadmap Validator Module", () => {
 
     it("should warn when verificationCommand belongs to another layer", () => {
       const contract = {
-        id: "t0", role: "architect", dependencies: [], targetFiles: ["workspace/CONTRACTS.md"],
+        id: "t0",
+        role: "architect",
+        dependencies: [],
+        targetFiles: ["workspace/CONTRACTS.md"],
         description: "word ".repeat(25).trim(),
         deliverables: ["Write CONTRACTS.md", "Generate typed client"],
-        verificationCommand: "bun test"
+        verificationCommand: "bun test",
       };
       const base = {
-        id: "t1", role: "backend", dependencies: ["t0"], targetFiles: ["a"],
+        id: "t1",
+        role: "backend",
+        dependencies: ["t0"],
+        targetFiles: ["a"],
         description: "word ".repeat(25).trim(),
         deliverables: ["Create a.ts", "Test a.ts"],
-        verificationCommand: "bun test"
+        verificationCommand: "bun test",
       };
       const r = validateRoadmap({ stack: "bun", tasks: [contract, { ...base, stack: "go" }] });
       expect(r.warnings.some((w) => w.includes("effective stack is go"))).toBe(true);
-      const ok = validateRoadmap({ stack: "bun", tasks: [contract, { ...base, stack: "go", verificationCommand: "go test ./..." }] });
+      const ok = validateRoadmap({
+        stack: "bun",
+        tasks: [contract, { ...base, stack: "go", verificationCommand: "go test ./..." }],
+      });
       expect(ok.warnings.some((w) => w.includes("effective stack"))).toBe(false);
       expect(ok.errors).toEqual([]);
     });
 
     it("should error on split stacks without a contract task", () => {
       const mk = (id: string, stack: string, targetFiles: string[], cmd: string, deps: string[] = []) => ({
-        id, role: "backend", dependencies: deps, targetFiles,
+        id,
+        role: "backend",
+        dependencies: deps,
+        targetFiles,
         description: "word ".repeat(25).trim(),
         deliverables: ["Create x", "Test x"],
-        verificationCommand: cmd, stack,
+        verificationCommand: cmd,
+        stack,
       });
       const split = validateRoadmap({
         stack: "go",
@@ -218,24 +250,28 @@ describe("Roadmap Validator Module", () => {
 
     it("should error when an override-stack task bypasses the contract task", () => {
       const mk = (id: string, stack: string, targetFiles: string[], cmd: string, deps: string[] = []) => ({
-        id, role: "backend", dependencies: deps, targetFiles,
+        id,
+        role: "backend",
+        dependencies: deps,
+        targetFiles,
         description: "word ".repeat(25).trim(),
         deliverables: ["Create x", "Test x"],
-        verificationCommand: cmd, stack,
+        verificationCommand: cmd,
+        stack,
       });
       const r = validateRoadmap({
         stack: "go",
-        tasks: [
-          mk("t0", "go", ["workspace/CONTRACTS.md"], "go test ./..."),
-          mk("t1", "bun", ["workspace/ui"], "bun test"),
-        ],
+        tasks: [mk("t0", "go", ["workspace/CONTRACTS.md"], "go test ./..."), mk("t1", "bun", ["workspace/ui"], "bun test")],
       });
       expect(r.errors.some((e) => e.includes("does not depend on the contract task"))).toBe(true);
     });
 
     it("should warn when live unscoped tasks share a role", () => {
       const mk = (id: string, status = "PENDING") => ({
-        id, role: "frontend", dependencies: ["t0"], targetFiles: [] as string[],
+        id,
+        role: "frontend",
+        dependencies: ["t0"],
+        targetFiles: [] as string[],
         milestone: "v1",
         description: "word ".repeat(25).trim(),
         deliverables: ["Create x", "Test x"],
@@ -244,29 +280,24 @@ describe("Roadmap Validator Module", () => {
       });
       const r = validateRoadmap({
         milestones: [{ title: "v1" }],
-        tasks: [
-          { ...mk("t0", "COMPLETED"), targetFiles: ["workspace/a.ts"] },
-          mk("t1"),
-          mk("t2"),
-        ],
+        tasks: [{ ...mk("t0", "COMPLETED"), targetFiles: ["workspace/a.ts"] }, mk("t1"), mk("t2")],
       });
       expect(r.warnings.some((w) => w.includes("Unscoped tasks share role"))).toBe(true);
       const solo = validateRoadmap({
         milestones: [{ title: "v1" }],
-        tasks: [
-          { ...mk("t0", "COMPLETED"), targetFiles: ["workspace/a.ts"] },
-          mk("t1"),
-        ],
+        tasks: [{ ...mk("t0", "COMPLETED"), targetFiles: ["workspace/a.ts"] }, mk("t1")],
       });
       expect(solo.warnings.some((w) => w.includes("Unscoped tasks share role"))).toBe(false);
     });
 
     it("should error on invalid task IDs", () => {
       const base = {
-        role: "backend", dependencies: [], targetFiles: ["a"],
+        role: "backend",
+        dependencies: [],
+        targetFiles: ["a"],
         description: "word ".repeat(25).trim(),
         deliverables: ["Create a.ts", "Test a.ts"],
-        verificationCommand: "bun test"
+        verificationCommand: "bun test",
       };
       for (const badId of ["bad id", "task/001", "../x", "TASK 001", ""]) {
         const r = validateRoadmap({ tasks: [{ ...base, id: badId }] });
@@ -278,7 +309,10 @@ describe("Roadmap Validator Module", () => {
 
     it("should enforce launch discipline (round present, unique per milestone)", () => {
       const mkLaunch = (id: string, milestone: string, round: any) => ({
-        id, role: "launch", dependencies: [], targetFiles: ["workspace/src/index.ts"],
+        id,
+        role: "launch",
+        dependencies: [],
+        targetFiles: ["workspace/src/index.ts"],
         milestone,
         description: "word ".repeat(25).trim(),
         deliverables: ["Boot app", "Probe surfaces"],
@@ -304,7 +338,10 @@ describe("Roadmap Validator Module", () => {
 
     it("should grandfather COMPLETED launches predating the round rule", () => {
       const old = {
-        id: "t0", role: "launch", dependencies: [], targetFiles: ["workspace/src/index.ts"],
+        id: "t0",
+        role: "launch",
+        dependencies: [],
+        targetFiles: ["workspace/src/index.ts"],
         milestone: "v1",
         description: "word ".repeat(25).trim(),
         deliverables: ["Boot app", "Probe surfaces"],
@@ -316,35 +353,40 @@ describe("Roadmap Validator Module", () => {
     });
 
     it("should warn on uncovered input files", () => {
-      const tasks = [{
-        id: "t1", role: "backend", dependencies: [], targetFiles: ["a"],
-        description: "word ".repeat(25).trim(),
-        deliverables: ["Create a.ts", "Test a.ts"],
-        verificationCommand: "bun test"
-      }];
+      const tasks = [
+        {
+          id: "t1",
+          role: "backend",
+          dependencies: [],
+          targetFiles: ["a"],
+          description: "word ".repeat(25).trim(),
+          deliverables: ["Create a.ts", "Test a.ts"],
+          verificationCommand: "bun test",
+        },
+      ];
       const covered = validateRoadmap({
         tasks,
         inputFiles: ["inputs/spec.md", "inputs/mock.png"],
-        coverage: { "inputs/spec.md": ["t1"], "inputs/mock.png": ["t1"] }
+        coverage: { "inputs/spec.md": ["t1"], "inputs/mock.png": ["t1"] },
       });
       expect(covered.warnings.length).toBe(0);
 
       const missing = validateRoadmap({
         tasks,
         inputFiles: ["inputs/spec.md", "inputs/mock.png"],
-        coverage: { "inputs/spec.md": ["t1"] }
+        coverage: { "inputs/spec.md": ["t1"] },
       });
-      expect(missing.warnings.some(w => w.includes('Input "inputs/mock.png" is not covered'))).toBe(true);
+      expect(missing.warnings.some((w) => w.includes('Input "inputs/mock.png" is not covered'))).toBe(true);
 
       const nomap = validateRoadmap({ tasks, inputFiles: ["inputs/spec.md"] });
-      expect(nomap.warnings.some(w => w.includes("no input-coverage map"))).toBe(true);
+      expect(nomap.warnings.some((w) => w.includes("no input-coverage map"))).toBe(true);
     });
 
     it("should skip coverage checks without inputFiles", () => {
       const result = validateRoadmap({
-        tasks: [{ id: "t1", role: "backend", dependencies: [], targetFiles: ["a"] }]
+        tasks: [{ id: "t1", role: "backend", dependencies: [], targetFiles: ["a"] }],
       });
-      expect(result.warnings.some(w => w.includes("not covered"))).toBe(false);
+      expect(result.warnings.some((w) => w.includes("not covered"))).toBe(false);
     });
   });
 
@@ -388,27 +430,32 @@ describe("Roadmap Validator Module", () => {
       id: "t1",
       role: "backend",
       dependencies: [],
-      description: "A sufficiently long description with more than twenty words to avoid the thin description warning entirely here.",
+      description:
+        "A sufficiently long description with more than twenty words to avoid the thin description warning entirely here.",
       deliverables: ["first deliverable item", "second deliverable item"],
       verificationCommand: "go test ./...",
     };
     it("errors when deliverables require test files outside scope", () => {
       const result = validateRoadmap({
-        tasks: [{
-          ...base,
-          deliverables: ["add tests in workspace/tests/a.test.ts", "second deliverable item"],
-          targetFiles: ["workspace/src/api/h.ts"],
-        }],
+        tasks: [
+          {
+            ...base,
+            deliverables: ["add tests in workspace/tests/a.test.ts", "second deliverable item"],
+            targetFiles: ["workspace/src/api/h.ts"],
+          },
+        ],
       });
       expect(result.errors.some((e) => e.includes("require test files but targetFiles exclude them"))).toBe(true);
     });
     it("passes when test files are covered", () => {
       const result = validateRoadmap({
-        tasks: [{
-          ...base,
-          deliverables: ["add tests in workspace/tests/a.test.ts", "second deliverable item"],
-          targetFiles: ["workspace/src/api/h.ts", "workspace/tests/**"],
-        }],
+        tasks: [
+          {
+            ...base,
+            deliverables: ["add tests in workspace/tests/a.test.ts", "second deliverable item"],
+            targetFiles: ["workspace/src/api/h.ts", "workspace/tests/**"],
+          },
+        ],
       });
       expect(result.errors.some((e) => e.includes("require test files"))).toBe(false);
     });
@@ -418,22 +465,26 @@ describe("Roadmap Validator Module", () => {
       });
       expect(unscoped.errors.some((e) => e.includes("require test files"))).toBe(false);
       const historical = validateRoadmap({
-        tasks: [{
-          ...base,
-          deliverables: ["add tests in workspace/tests/a.test.ts", "second"],
-          targetFiles: ["workspace/src/api/h.ts"],
-          status: "COMPLETED",
-        }],
+        tasks: [
+          {
+            ...base,
+            deliverables: ["add tests in workspace/tests/a.test.ts", "second"],
+            targetFiles: ["workspace/src/api/h.ts"],
+            status: "COMPLETED",
+          },
+        ],
       });
       expect(historical.errors.some((e) => e.includes("require test files"))).toBe(false);
     });
     it("errors when verificationCommand names uncovered test paths", () => {
       const result = validateRoadmap({
-        tasks: [{
-          ...base,
-          verificationCommand: "go test ./... workspace/tests/api.test.go",
-          targetFiles: ["workspace/src/api/h.ts"],
-        }],
+        tasks: [
+          {
+            ...base,
+            verificationCommand: "go test ./... workspace/tests/api.test.go",
+            targetFiles: ["workspace/src/api/h.ts"],
+          },
+        ],
       });
       expect(result.errors.some((e) => e.includes("names test paths outside its scope"))).toBe(true);
     });
