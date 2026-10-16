@@ -28,6 +28,31 @@ export function getReviseBlocker(task: { id: string; role: string; status: strin
 }
 
 /**
+ * Operator-added tasks (/add, /revise) are always UNSCOPED (targetFiles: []).
+ * A narrow scope (e.g. ["workspace/CONTRACTS.md"] for a contract claim)
+ * turns the deterministic gate's out-of-scope check into a guaranteed
+ * failure for any real cross-layer task (TASK-043 precedent: controller +
+ * route + tests + BFF allowlist all "out of scope"): the gate only WARNS on
+ * unscoped diffs but FAILS on out-of-scope ones. Ownership intent stays in
+ * reviewNotes; the split-stack validator still requires an existing
+ * contract owner and fails fast at add-time with an actionable message when
+ * none exists — far cheaper than failing at review-time after agent work.
+ */
+export function initialTargetFilesForOperatorTask(): string[] {
+  return [];
+}
+
+/**
+ * A revision must wait for its target AND everything the target waited for:
+ * same-layer anchors (e.g. the TASK-009 contract task for bun work) live in
+ * the target's dependency chain, and dropping them produces DAG-rejected
+ * revisions (TASK-048 precedent). Target first, then inherited deps, deduped.
+ */
+export function resolveReviseDependencies(targetId: string, targetDeps: string[] | undefined): string[] {
+  return [...new Set([targetId, ...(targetDeps || [])])];
+}
+
+/**
  * Disposable bot messages: ephemeral acks and syntax guidance, anchored to
  * the exact formats posted in this file (a non-matching ack degrades to
  * KEPT — fail-closed — instead of deleting wrongly).
@@ -632,7 +657,7 @@ export class IssueManager {
                   {
                     id: nextId,
                     role: task.role,
-                    dependencies: [taskId],
+                    dependencies: resolveReviseDependencies(taskId, task.dependencies),
                     targetFiles: [],
                     milestone: task.milestone,
                     stack: (task as any).stack,
@@ -661,7 +686,7 @@ export class IssueManager {
                     `Re-run the verifications that cover the touched behavior (including downstream areas: ${downstream.length > 0 ? downstream.map((d) => `\`${d}\``).join(", ") : "none downstream"}). ` +
                     `Provide stack-toolchain test proof in TASK_PROGRESS.md.`,
                   role: task.role,
-                  dependencies: [taskId],
+                  dependencies: resolveReviseDependencies(taskId, task.dependencies),
                   targetFiles: [],
                   status: "PENDING",
                   branch: `task/${nextId}`,
@@ -832,16 +857,20 @@ export class IssueManager {
             if (milestoneName && !msList.some((m) => m.title === milestoneName)) {
               msList.push({ title: milestoneName, description: "Added via ChatOps /add" });
             }
-            // Contract ownership: the split-stack validator requires a task
-            // whose targetFiles include workspace/CONTRACTS.md, but /add has
-            // no targetFiles param — mentioning CONTRACTS.md in the title or
-            // description claims that ownership.
+            // Contract ownership: the split-stack validator requires an
+            // EXISTING task whose targetFiles include workspace/CONTRACTS.md.
+            // Mentioning CONTRACTS.md in the title or description records that
+            // intent in reviewNotes, but the new task itself stays UNSCOPED
+            // (see initialTargetFilesForOperatorTask): scoping it to the
+            // contract file alone would fail the gate on every other touched
+            // file. When no owner exists yet, validation rejects the /add with
+            // an actionable message instead of failing at review-time.
             const claimsContract = /CONTRACTS\.md/i.test(`${title} ${description}`);
             const candidate = {
               id: nextId,
               role,
               dependencies: deps,
-              targetFiles: claimsContract ? ["workspace/CONTRACTS.md"] : ([] as string[]),
+              targetFiles: initialTargetFilesForOperatorTask(),
               milestone: milestoneName || undefined,
               stack,
             };
@@ -876,7 +905,7 @@ export class IssueManager {
                 description,
                 role: role as any,
                 dependencies: deps,
-                targetFiles: claimsContract ? ["workspace/CONTRACTS.md"] : [],
+                targetFiles: initialTargetFilesForOperatorTask(),
                 status: "PENDING",
                 branch: `task/${nextId}`,
                 milestone: candidate.milestone || roadmap.milestones?.[0]?.title,

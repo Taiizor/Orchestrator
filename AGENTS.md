@@ -98,6 +98,8 @@ Human operators can steer, pause, or direct the autonomous team via GitHub Issue
 - `/log <TASK-ID>`: Tails recent subagent run logs for that task.
 - `/revise <TASK-ID> "change"`: Queues a surgical revision task depending on the target (originals stay COMPLETED; downstream listed FYI).
 
+**Manual roadmap surgery (operator state edits):** `state/roadmap.json` merges by newest `updatedAt` per task — an edit that leaves `updatedAt` untouched LOSES to the engine's in-memory copy on the next persist. Procedure: `/pause` first, edit in an isolated linked worktree (never checkout data branches in the main worktree), bump `updatedAt` (and reset `attempts`/status as needed) on every touched task, fetch + verify the push stuck, then `/resume` + `/tick`.
+
 Subagents encountering an `[OPERATOR DIRECTIVE]` in their prompt MUST prioritize it above all default assumptions.
 
 ChatOps notes: command words are typo-tolerant (edit distance ≤ 2, e.g. `/staus` → `/status`); unknown `/commands` get a help reply. Slash comments are handled by a dedicated fast-lane job (`chatops` singleton, ~1 min) in parallel to the main tick; rocket-reaction idempotency prevents double-processing.
