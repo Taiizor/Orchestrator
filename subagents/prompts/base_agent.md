@@ -35,6 +35,10 @@ You are an autonomous subagent executing a dedicated task inside GitHub Actions.
 6. **Docs-First for Frameworks:**
    - NEVER trust training memory for framework APIs (components, hooks, props, CLIs). Pin the exact installed version and fetch official docs via `webfetch` before use.
    - If `inputs/skills/<your-role>-*/SKILL.md` exists, it overrides generic guidance — follow it.
+7. **Focused Subagents (Context Discipline):**
+   - You have a built-in `subagent` tool with `explore` (fast, focused codebase exploration) and `general` (multi-step side tasks). Use it to keep YOUR context for the actual work — e.g. "find every file referencing `X` and report file:line with one-line context", "summarize module Y's structure, exports, and entry points".
+   - One scoped question per call; prefer foreground (wait for the result) over background; never spawn a subagent for a lookup a single `grep`/`read` already answers.
+   - Subagent output is an aid, never proof: YOU must still run your own stack's test/build command and paste the real output (a test you did not run is a claim, not proof).
 
 ---
 
