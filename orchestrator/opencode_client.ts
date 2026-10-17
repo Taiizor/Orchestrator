@@ -79,6 +79,14 @@ export class OpenCodeClient {
   /** Default per-call model budget (ms) when the caller passes none. */
   public static readonly DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 
+  /**
+   * Error-surface signals that a request was rejected because the session
+   * outgrew the model's context window. Matched against stderr and error
+   * events only — never free-form model chatter.
+   */
+  private static readonly CONTEXT_OVERFLOW_RX =
+    /context[ _-]?(?:length|window)[^.\n]{0,48}(?:exceed|reject|too (?:long|large|small)|over(?:flow)?|limit|max)|context[ _-]?(?:overflow|too[ _-]?(?:long|large))|max(?:imum)? context|payload[ _-]?too[ _-]?large|too many tokens|token(?:s)?[ _-]?limit[^.\n]{0,24}(?:exceed|reach)|exceed(?:s|ed)?[^.\n]{0,30}context|(?:prompt|input|request|message)s?\s+(?:is\s+|was\s+|are\s+|were\s+)?too\s+(?:long|large)/i;
+
   /** Newest session id from `session list` JSON output, if parseable. */
   public static parseSessionListId(rawStdout: string): string | undefined {
     const trimmed = rawStdout.trim();
@@ -154,6 +162,15 @@ export class OpenCodeClient {
       }
     }
     return undefined;
+  }
+
+  /**
+   * Whether failure text indicates a context-window rejection (stderr text or
+   * an extracted error event). Advisory only: the roster's trailing 1M-context
+   * models are the designed rescue, so this tags logs without changing flow.
+   */
+  public static isContextOverflow(text: string): boolean {
+    return !!text && OpenCodeClient.CONTEXT_OVERFLOW_RX.test(text);
   }
 
   /** Cost/tokens/steps summed over step_finish events (units as reported). */
@@ -594,6 +611,11 @@ export class OpenCodeClient {
         console.warn(`   ↳ stderr tail: ${(retryRes.stderr || res.stderr || "(empty)").slice(-400)}`);
         const detail = OpenCodeClient.extractErrorDetail(retryRes.stdout) || OpenCodeClient.extractErrorDetail(res.stdout);
         if (detail) console.warn(`   ↳ error event: ${detail.slice(0, 300)}`);
+        if (OpenCodeClient.isContextOverflow(`${retryRes.stderr}\n${res.stderr}\n${detail ?? ""}`)) {
+          console.warn(
+            `   ↳ 🧠 Context overflow on ${label} — the session outgrew this model's window; the trailing 1M-context rescue is expected.`
+          );
+        }
         lastResult = {
           stdout: retryParsed,
           stderr: retryRes.stderr || res.stderr,
@@ -612,6 +634,11 @@ export class OpenCodeClient {
       console.warn(`   ↳ stderr tail: ${(res.stderr || "(empty)").slice(-400)}`);
       const detail = OpenCodeClient.extractErrorDetail(res.stdout);
       if (detail) console.warn(`   ↳ error event: ${detail.slice(0, 300)}`);
+      if (OpenCodeClient.isContextOverflow(`${res.stderr}\n${detail ?? ""}`)) {
+        console.warn(
+          `   ↳ 🧠 Context overflow on ${label} — the session outgrew this model's window; the trailing 1M-context rescue is expected.`
+        );
+      }
       lastResult = {
         stdout: parsedStdout,
         stderr: res.stderr,
@@ -653,6 +680,13 @@ export class OpenCodeClient {
         sessionId: lastSessionId,
         usage: usageTotal(),
       };
+    }
+
+    // Every candidate failed. If the last-resort rerun also overflowed, say
+    // so: the session outgrew every candidate window, including the default.
+    const defaultDetail = OpenCodeClient.extractErrorDetail(defaultRes.stdout);
+    if (OpenCodeClient.isContextOverflow(`${defaultRes.stderr}\n${defaultDetail ?? ""}`)) {
+      console.warn("   ↳ 🧠 Context overflow on the last-resort default run — the session outgrew every candidate window.");
     }
 
     return lastResult;

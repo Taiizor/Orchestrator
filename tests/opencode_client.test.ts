@@ -36,6 +36,25 @@ describe("OpenCode Client Module", () => {
     });
   });
 
+  describe("isContextOverflow", () => {
+    it("should flag provider context-window rejections", () => {
+      expect(OpenCodeClient.isContextOverflow("This model's maximum context length is 200000 tokens.")).toBe(true);
+      expect(OpenCodeClient.isContextOverflow("error: context_length_exceeded")).toBe(true);
+      expect(OpenCodeClient.isContextOverflow("The prompt is too long for this model.")).toBe(true);
+      expect(OpenCodeClient.isContextOverflow("upstream returned payload-too-large")).toBe(true);
+      expect(OpenCodeClient.isContextOverflow("Input exceeds the context window of this model")).toBe(true);
+      expect(OpenCodeClient.isContextOverflow("too many tokens in request")).toBe(true);
+    });
+
+    it("should not flag innocuous or unrelated error text", () => {
+      expect(OpenCodeClient.isContextOverflow("")).toBe(false);
+      expect(OpenCodeClient.isContextOverflow("quota info: all good")).toBe(false);
+      expect(OpenCodeClient.isContextOverflow("rate limit exceeded")).toBe(false);
+      expect(OpenCodeClient.isContextOverflow("error: file not found")).toBe(false);
+      expect(OpenCodeClient.isContextOverflow("context length: 200000")).toBe(false);
+    });
+  });
+
   describe("parseModelSpec (private)", () => {
     // Access private method for testing pure logic
     const parseModelSpec = (input: string, fallback?: string) => (OpenCodeClient as any).parseModelSpec(input, fallback);
