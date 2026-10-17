@@ -304,6 +304,11 @@ export class GitManager {
     if (this.isDataMode() && remote === CONFIG.DATA_REMOTE) {
       return this.dataGit(args, cwd, input);
     }
+    if (remote === "origin") {
+      // Long runs: the checkout-stored extraheader dies after ~1h; rotate it
+      // so ambient origin ops (fetch/ls-remote/push) keep authenticating.
+      await this.refreshOriginAuth({ cwd });
+    }
     return this.run(["git", ...args], cwd, input);
   }
 
@@ -348,6 +353,52 @@ export class GitManager {
       await this.run(["git", "remote", "set-url", remote, url]);
     }
     console.log(`🔑 Data remote auth: ${source}.`);
+    return true;
+  }
+
+  /** Origin credential state: null = not probed, false = no checkout-managed
+   *  header, string = last `AUTHORIZATION: basic ...` value seen or written. */
+  private static originAuthCurrent: string | false | null = null;
+  /** Test seam: replaces the minted token (no network). Production: null. */
+  private static originAuthTokenProvider: ((opts: { force?: boolean }) => Promise<string | null>) | null = null;
+
+  /**
+   * actions/checkout stores the job-start credential as an
+   * `http.https://github.com/.extraheader` entry in the local git config.
+   * That token dies after ~1h — silently breaking every ambient origin
+   * operation in a long run (fetch --all, single-repo state/tag/seed
+   * pushes): the origin-side leftovers of the TASK-066 class. Rotate the
+   * stored header to a fresh App installation token.
+   *
+   * Strictly conservative: inert without App credentials, inert when no
+   * checkout-managed basic-auth header exists (SSH/local setups), scoped to
+   * the local config, and skips the write while the stored header already
+   * carries the current token (one subprocess on the first call, one more
+   * per mint rotation after that).
+   */
+  public static async refreshOriginAuth(opts: { force?: boolean; cwd?: string } = {}): Promise<boolean> {
+    if (!isGitHubAppConfigured()) return false;
+    if (GitManager.originAuthCurrent === false) return false;
+    const cwd = opts.cwd ?? ".";
+    const key = "http.https://github.com/.extraheader";
+    if (GitManager.originAuthCurrent === null) {
+      const probe = await this.run(["git", "config", "--local", "--get", key], cwd);
+      const value = probe.stdout.trim();
+      if (probe.exitCode !== 0 || !/^AUTHORIZATION:\s*basic\s+\S+/i.test(value)) {
+        GitManager.originAuthCurrent = false;
+        return false;
+      }
+      GitManager.originAuthCurrent = value;
+    }
+    const token = GitManager.originAuthTokenProvider
+      ? await GitManager.originAuthTokenProvider(opts)
+      : await getInstallationToken({ force: opts.force });
+    if (!token) return false;
+    const header = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`;
+    if (GitManager.originAuthCurrent === header) return false;
+    const set = await this.run(["git", "config", "--local", key, header], cwd);
+    if (set.exitCode !== 0) return false;
+    GitManager.originAuthCurrent = header;
     return true;
   }
 
@@ -434,6 +485,10 @@ export class GitManager {
    * Fetch all remote branches
    */
   public static async fetchAll(): Promise<void> {
+    // Long runs outlive BOTH credentials (checkout extraheader + data URL
+    // token); rotate them before a network fetch so refs stay current.
+    if (this.isDataMode()) await this.refreshDataRemoteAuth();
+    await this.refreshOriginAuth();
     await this.run(["git", "fetch", "--all"]);
   }
 
@@ -1009,11 +1064,14 @@ export class GitManager {
     const cwd = opts.cwd ?? ".";
     const maxRetries = opts.maxRetries ?? 3;
     const isContentRemote = this.isDataMode() && remote === CONFIG.DATA_REMOTE;
+    const isOriginRemote = remote === "origin";
     let forceCredentialRefresh = false;
     let lastStderr = "";
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       if (isContentRemote) {
         await this.refreshDataRemoteAuth({ force: forceCredentialRefresh });
+      } else if (isOriginRemote) {
+        await this.refreshOriginAuth({ force: forceCredentialRefresh, cwd });
       }
       const pushRes = await this.remoteGit(remote, ["push", ...args], cwd);
       if (pushRes.exitCode === 0) return { ok: true, stderr: "" };
