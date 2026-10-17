@@ -155,10 +155,12 @@ Before any branch is merged into `develop`:
 OpenCode allows execution without registration or API keys through generous IP-rate-limited free models. Because **every GitHub Actions runner receives a brand-new IP address**, rate limits are practically non-existent across runs!
 The built-in [`OpenCodeClient`](orchestrator/opencode_client.ts) features an automatic fallback cascade:
 1. `opencode/deepseek-v4.1-flash-free#max` *(Primary)*
-2. `opencode/nemotron-3-ultra-free` *(Fallback 1)*
-3. `opencode/longcat-2.5-preview-free` *(Fallback 2)*
-4. `opencode/glm-5.3-flash-free#max` *(Fallback 3)*
-5. `opencode/mimo-v2.6-flash-free` *(Fallback 4)*
+2. `opencode/mimo-v2.6-flash-free` *(Fallback 1)*
+3. `opencode/glm-5.3-flash-free#max` *(Fallback 2)*
+4. `opencode/longcat-2.5-preview-free` *(Fallback 3)*
+5. `opencode/nemotron-3-ultra-free` *(Fallback 4)*
+
+The order is quality-first: the strongest agentic coders lead the chain, while the 1M-context models (longcat, nemotron) trail deliberately — context-overflow errors fail fast, so the trailing rescue stays cheap.
 
 ### 5. ⏱️ Actions Timeouts & Deadlock Watchdog
 - **Subagents:** `timeout-minutes: 75` (Broad window for compilation, tests, and free model latency, while preventing quota exhaustion; each model call is capped at 60 min with fallback to the next model).

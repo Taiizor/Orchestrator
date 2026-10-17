@@ -79,16 +79,17 @@ export const CONFIG = {
   // Subagent task progress file inside workspace
   TASK_PROGRESS_FILE: "TASK_PROGRESS.md",
 
-  // OpenCode Models & Free-Tier Fallback Chain (Ordered best to worst)
+  // OpenCode Models & Free-Tier Fallback Chain (quality-first order; 1M-context
+  // models trail as fail-fast context-overflow rescues).
   // variant = provider-specific reasoning effort (e.g. xhigh/high/medium/low).
   // Models without variant support omit the field and run with OpenCode default.
   // Syntax alternative: "provider/model#variant" is also parsed (see opencode_client.ts).
   FREE_MODELS: [
     { model: "opencode/deepseek-v4.1-flash-free", variant: "max" },
-    { model: "opencode/nemotron-3-ultra-free" },
-    { model: "opencode/longcat-2.5-preview-free" },
-    { model: "opencode/glm-5.3-flash-free", variant: "max" },
     { model: "opencode/mimo-v2.6-flash-free" },
+    { model: "opencode/glm-5.3-flash-free", variant: "max" },
+    { model: "opencode/longcat-2.5-preview-free" },
+    { model: "opencode/nemotron-3-ultra-free" },
   ] as { model: string; variant?: string }[],
   OPENCODE_MODEL: process.env.OPENCODE_MODEL || "", // If set, prioritizes this model before fallback chain. Supports "provider/model#variant" syntax.
   OPENCODE_VARIANT: process.env.OPENCODE_VARIANT || "", // Optional default variant when OPENCODE_MODEL has no "#variant" suffix.
