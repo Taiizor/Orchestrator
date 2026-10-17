@@ -101,6 +101,28 @@ export class GitManager {
   }
 
   /**
+   * Count of LOCAL commits ahead of the remote task-branch tip. Positive
+   * means commits exist only on this machine and a dead runner would lose
+   * them — publish/checkpoint must push before returning success. Returns
+   * -1 when the delta is unknowable (missing remote ref); callers must NOT
+   * treat that as "in sync".
+   *
+   * Why this exists: agents sometimes leave a plain `git commit` as their
+   * handoff ("ready for the runner to publish"). Publish/checkpoint then
+   * see an empty stage and — reading only REMOTE refs — conclude the work
+   * is already on the branch, skipping the push. TASK-064 burned all three
+   * attempts exactly this way (605 green tests lost each time).
+   */
+  public static async localCommitsAhead(branchName: string): Promise<number> {
+    const remote = this.contentRemote();
+    const res = await this.run(["git", "rev-list", "--count", `${remote}/${branchName}..HEAD`]);
+    if (res.exitCode === 0 && /^\d+$/.test(res.stdout.trim())) {
+      return parseInt(res.stdout.trim(), 10);
+    }
+    return -1;
+  }
+
+  /**
    * Newest commit timestamp (ms) among branch-unique commits, or -1 when the
    * branch adds nothing over base. Unlike tip time, this ignores inherited
    * history — a no-op publish pointing at a recent develop commit reads stale.
@@ -845,6 +867,15 @@ export class GitManager {
     try {
       const files = await this.stageWorkspaceForPublish();
       if (files.length === 0) {
+        // The agent may have committed its own work ("git commit"): those
+        // commits exist only on this machine. Push them now so a dead
+        // runner does not take the work with it (TASK-064 class).
+        const ahead = await this.localCommitsAhead(branch);
+        if (ahead > 0) {
+          const remote = this.contentRemote();
+          console.log(`💾 Checkpoint: ${ahead} agent-made local commit(s) not yet on ${branch}; pushing them.`);
+          return this.pushHeadToBranch(branch, remote);
+        }
         // Auditable no-op: operators watching the log must be able to tell
         // "nothing to save" apart from "checkpoint never ran".
         console.log(`💾 Checkpoint: no changes on ${branch}, skipping.`);
@@ -861,9 +892,7 @@ export class GitManager {
         `wip(task): automated checkpoint for ${taskId} (partial state)`,
       ]);
       if (commit.exitCode !== 0) return false;
-      const remote = this.contentRemote();
-      const push = await this.remoteGit(remote, ["push", remote, `HEAD:refs/heads/${branch}`]);
-      if (push.exitCode === 0) {
+      if (await this.pushHeadToBranch(branch, this.contentRemote())) {
         console.log(`💾 Checkpointed ${files.length} file(s) to ${branch}.`);
         return true;
       }
@@ -873,15 +902,50 @@ export class GitManager {
     }
   }
   /**
+   * Push the current HEAD to the content-remote task branch with the
+   * standard transient-failure backoff. Shared by the publish path (fresh
+   * publish commit) and the recovery paths (agent-made local commits that
+   * were never pushed), so the two can never drift apart.
+   */
+  private static async pushHeadToBranch(branch: string, remote: string, maxRetries = 3): Promise<boolean> {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      const pushRes = await this.remoteGit(remote, ["push", "-u", remote, `HEAD:refs/heads/${branch}`]);
+      if (pushRes.exitCode === 0) return true;
+      if (attempt < maxRetries) {
+        const delayMs = attempt * 2000 + Math.floor(Math.random() * 1000);
+        console.warn(
+          `⚠️ Push rejected for data branch ${branch} (attempt ${attempt}/${maxRetries}). Backing off for ${delayMs}ms...`
+        );
+        await Bun.sleep(delayMs);
+      } else {
+        console.error(`❌ Could not push data branch ${branch} to ${remote} after ${maxRetries} attempts:`, pushRes.stderr);
+      }
+    }
+    return false;
+  }
+
+  /**
    * Publish a task branch's data content (inputs//workspace/) to the content
    * remote. Force-adds gitignored paths (-f) so agent output travels while
    * the public origin never sees a byte of it.
    */
   public static async publishTaskBranch(branch: string, commitMsg: string): Promise<boolean> {
     const files = await this.stageWorkspaceForPublish();
+    const remote = this.contentRemote();
     if (files.length === 0) {
-      // Empty stage: either a no-op republish (branch already carries work)
-      // or an agent that produced nothing. Only the former is success.
+      // Empty stage means one of two very different things:
+      //  a) The agent committed its own work locally ("git commit") — the
+      //     commit exists ONLY on this CI machine. Returning without a
+      //     push silently loses it when the runner exits (TASK-064: three
+      //     attempts, 605 green tests each, lost exactly this way).
+      //  b) A no-op republish: the work is already on the remote branch.
+      // Only (b) is success. LOCAL HEAD vs the remote tip tells them apart;
+      // comparing remote-only refs made (a) look like (b) before this check.
+      const ahead = await this.localCommitsAhead(branch);
+      if (ahead > 0) {
+        console.log(`📦 Empty stage, but ${ahead} local commit(s) ahead of ${remote}/${branch} — pushing agent-committed work.`);
+        return this.pushHeadToBranch(branch, remote);
+      }
       const unique = await this.branchUniqueCommits(branch, CONFIG.INTEGRATION_BRANCH);
       if (unique > 0) {
         console.log(`ℹ️ Nothing new to publish on ${branch} (work already on branch).`);
@@ -896,23 +960,7 @@ export class GitManager {
       console.warn("Data commit output:", commitRes.stdout || commitRes.stderr);
       return false;
     }
-    const remote = this.contentRemote();
-    const maxRetries = 3;
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      const pushRes = await this.remoteGit(remote, ["push", "-u", remote, `HEAD:refs/heads/${branch}`]);
-      if (pushRes.exitCode === 0) return true;
-      if (attempt < maxRetries) {
-        const delayMs = attempt * 2000 + Math.floor(Math.random() * 1000);
-        console.warn(
-          `⚠️ Push rejected for data branch ${branch} (attempt ${attempt}/${maxRetries}). Backing off for ${delayMs}ms...`
-        );
-        await Bun.sleep(delayMs);
-      } else {
-        console.error(`❌ Could not push data branch ${branch} to ${remote} after ${maxRetries} attempts:`, pushRes.stderr);
-        return false;
-      }
-    }
-    return false;
+    return this.pushHeadToBranch(branch, remote);
   }
 
   /**

@@ -1,6 +1,6 @@
 # Subagent Execution Directives & Constitution
 
-You are an autonomous subagent executing a dedicated task inside GitHub Actions. You operate strictly on your assigned task branch (`task/<taskId>`) — NEVER push to `main`, `develop`, or any integration branch; the runner publishes your branch when done.
+You are an autonomous subagent executing a dedicated task inside GitHub Actions. You operate strictly on your assigned task branch (`task/<taskId>`): you may `git add`/`git commit` local progress freely (the runner pushes local commits, checkpointed or not), but NEVER run `git push` yourself and NEVER touch `main`, `develop`, or any integration branch — the runner publishes your branch when done.
 
 ---
 
@@ -40,7 +40,7 @@ You are an autonomous subagent executing a dedicated task inside GitHub Actions.
 
 ## 2. Mandatory Progress Tracking (`workspace/TASK_PROGRESS.md`)
 
-Before completing your execution, you MUST update `workspace/TASK_PROGRESS.md`:
+Before completing your execution, you MUST update `workspace/TASK_PROGRESS.md`. The file is cumulative across tasks: append your own section for THIS task and keep every existing section intact (never rewrite or reorder the file):
 ```markdown
 # 📝 Task Progress: [TASK-ID] - [Task Title]
 
