@@ -18,13 +18,7 @@ describe("refreshDataRemoteAuth (data remote credential refresh)", () => {
     DATA_REPO: (CONFIG as any).DATA_REPO,
     DATA_PAT: (CONFIG as any).DATA_PAT,
   };
-  const appEnvKeys = [
-    "GH_CLIENT_ID",
-    "CLIENT_ID",
-    "GH_APP_PRIVATE_KEY",
-    "APP_PRIVATE_KEY",
-    "GH_APP_INSTALLATION_ID",
-  ];
+  const appEnvKeys = ["GH_CLIENT_ID", "CLIENT_ID", "GH_APP_PRIVATE_KEY", "APP_PRIVATE_KEY", "GH_APP_INSTALLATION_ID"];
   const savedEnv: Record<string, string | undefined> = {};
   let repoDir: string;
 
