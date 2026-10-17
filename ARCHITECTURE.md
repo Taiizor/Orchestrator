@@ -79,7 +79,7 @@ sequenceDiagram
     Note over Orch: 💤 Orchestrator shuts down (0 runner minutes wasted!)
 
     GH->>Sub: Starts parallel Subagent jobs (task branches)
-    Sub->>Sub: Runs OpenCode (muse-spark / nemotron free models)
+    Sub->>Sub: Runs OpenCode (deepseek / nemotron free models)
     Sub->>Sub: Writes code, runs stack tests, updates TASK_PROGRESS.md
     Sub->>GH: Pushes branch & marks task IN_REVIEW
     Sub->>GH: 🔔 Wakes up Orchestrator (gh workflow run orchestrator.yml)
@@ -154,14 +154,14 @@ Before any branch is merged into `develop`:
 ### 4. 🎁 100% Free-Tier & Zero-Cost Model Cascade
 OpenCode allows execution without registration or API keys through generous IP-rate-limited free models. Because **every GitHub Actions runner receives a brand-new IP address**, rate limits are practically non-existent across runs!
 The built-in [`OpenCodeClient`](orchestrator/opencode_client.ts) features an automatic fallback cascade:
-1. `opencode/muse-spark-1.3-contributor-free` *(Primary & High Quality)*
+1. `opencode/deepseek-v4.1-flash-free#max` *(Primary)*
 2. `opencode/nemotron-3-ultra-free` *(Fallback 1)*
-3. `opencode/mimo-v2.6-flash-free` *(Fallback 2)*
-4. `opencode/big-pickle` *(Fallback 3)*
-5. `opencode/space-bunny-free` *(Fallback 4)*
+3. `opencode/longcat-2.5-preview-free` *(Fallback 2)*
+4. `opencode/glm-5.3-flash-free#max` *(Fallback 3)*
+5. `opencode/mimo-v2.6-flash-free` *(Fallback 4)*
 
 ### 5. ⏱️ Actions Timeouts & Deadlock Watchdog
-- **Subagents:** `timeout-minutes: 35` (Broad window for compilation, tests, and free model latency, while preventing quota exhaustion).
+- **Subagents:** `timeout-minutes: 75` (Broad window for compilation, tests, and free model latency, while preventing quota exhaustion; each model call is capped at 60 min with fallback to the next model).
 - **Orchestrator:** `timeout-minutes: 30` (Quick review & dispatch cycle).
 - **Watchdog Observation:** The Orchestrator monitors active runs via `gh run list --workflow subagent.yml --status in_progress` and can intervene via `gh run cancel` to re-steer stalled tasks.
 
