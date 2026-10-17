@@ -1,4 +1,5 @@
 import { CONFIG } from "./config.ts";
+import { getInstallationToken } from "./github_app.ts";
 import * as GhQuota from "./gh_quota.ts";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
@@ -258,7 +259,51 @@ export class GitManager {
   }
 
   /**
-   * Register + fetch the data remote (PAT-authenticated). Idempotent.
+   * Point the data remote URL at the freshest credential available and
+   * report whether one was found. GitHub App installation tokens live ~1h;
+   * a run that outlives its token (60-min model timeout + model fallback
+   * continues — TASK-066) would otherwise keep retrying with a dead
+   * credential until the publish is lost. Prefers an in-process mint (the
+   * github_app cache re-mints with a 3-min expiry buffer) and falls back to
+   * the ambient DATA_PAT. `force` bypasses the mint cache for credentials
+   * GitHub already rejected. Cheap + idempotent: when the URL is already
+   * current, nothing is rewritten and nothing is logged.
+   */
+  public static async refreshDataRemoteAuth(opts: { force?: boolean } = {}): Promise<boolean> {
+    if (!this.isDataMode()) return false;
+    const slug = this.dataRepoSlug();
+    if (!slug) return false;
+    let token = this.dataPat();
+    let source = token ? `explicit DATA_PAT/GH_PROJECT_TOKEN (${token.length} chars)` : "";
+    try {
+      const minted = ((await getInstallationToken({ force: opts.force })) || "").trim();
+      if (minted) {
+        token = minted;
+        source = `GitHub App installation token (${minted.length} chars)`;
+      }
+    } catch {
+      // Mint failed — the ambient DATA_PAT (if any) is still a candidate.
+    }
+    if (!token) {
+      console.warn("⚠️ DATA_PAT (or GH_PROJECT_TOKEN) is empty and no App token is available; data remote may fail auth.");
+      return false;
+    }
+    const remote = CONFIG.DATA_REMOTE;
+    const url = `https://x-access-token:${token}@github.com/${slug}.git`;
+    const existing = await this.run(["git", "remote", "get-url", remote]);
+    if (existing.exitCode === 0 && existing.stdout.trim() === url) return true;
+    if (existing.exitCode !== 0) {
+      await this.run(["git", "remote", "add", remote, url]);
+    } else {
+      // Credential rotated (rotated PAT or a fresh installation token).
+      await this.run(["git", "remote", "set-url", remote, url]);
+    }
+    console.log(`🔑 Data remote auth: ${source}.`);
+    return true;
+  }
+
+  /**
+   * Register + fetch the data remote (token-authenticated). Idempotent.
    * Returns false when DATA_REPO is unset or unreachable — callers fall
    * back to single-repo behavior.
    */
@@ -270,22 +315,8 @@ export class GitManager {
       return false;
     }
     const remote = CONFIG.DATA_REMOTE;
-    const existing = await this.run(["git", "remote", "get-url", remote]);
-    const pat = this.dataPat();
-    let url = `https://github.com/${slug}.git`;
-    if (pat) {
-      url = `https://x-access-token:${pat}@github.com/${slug}.git`;
-      console.log(`🔑 Data remote auth: explicit DATA_PAT/GH_PROJECT_TOKEN (${pat.length} chars).`);
-    } else {
-      console.warn("⚠️ DATA_PAT (or GH_PROJECT_TOKEN) is empty; data remote may fail auth.");
-    }
-    if (existing.exitCode !== 0) {
-      await this.run(["git", "remote", "add", remote, url]);
-    } else {
-      // Refresh credentials in case the PAT rotated
-      await this.run(["git", "remote", "set-url", remote, url]);
-    }
-    // Scrub note: the PAT lives only in local .git/config of the ephemeral
+    await this.refreshDataRemoteAuth();
+    // Scrub note: the token lives only in local .git/config of the ephemeral
     // runner and is never printed (we never log remote URLs).
     const fetchRes = await this.remoteGit(remote, ["fetch", remote]);
     if (fetchRes.exitCode !== 0) {
@@ -908,9 +939,20 @@ export class GitManager {
    * were never pushed), so the two can never drift apart.
    */
   private static async pushHeadToBranch(branch: string, remote: string, maxRetries = 3): Promise<boolean> {
+    // Credential freshness per attempt: installation tokens live ~1h and a
+    // run can outlive its token (60-min model timeout + fallback continues),
+    // leaving every retry to bounce off the same dead credential (TASK-066:
+    // three attempts, all "Invalid username or token"). Re-pointing the data
+    // remote at a fresh token is cheap + idempotent; `force` bypasses the
+    // mint cache once GitHub has rejected a credential the cache still trusts.
+    let forceCredentialRefresh = false;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      if (this.isDataMode() && remote === CONFIG.DATA_REMOTE) {
+        await this.refreshDataRemoteAuth({ force: forceCredentialRefresh });
+      }
       const pushRes = await this.remoteGit(remote, ["push", "-u", remote, `HEAD:refs/heads/${branch}`]);
       if (pushRes.exitCode === 0) return true;
+      forceCredentialRefresh = this.looksLikeAuthFailure(pushRes.stderr);
       if (attempt < maxRetries) {
         const delayMs = attempt * 2000 + Math.floor(Math.random() * 1000);
         console.warn(
@@ -922,6 +964,16 @@ export class GitManager {
       }
     }
     return false;
+  }
+
+  /**
+   * GitHub's rejection text for a dead/revoked/missing credential — distinct
+   * from non-fast-forward rejections, which a fresh token cannot fix.
+   */
+  private static looksLikeAuthFailure(stderr: string): boolean {
+    return /invalid username or token|authentication failed|password authentication is not supported|could not read username|terminal prompts disabled/i.test(
+      stderr || ""
+    );
   }
 
   /**

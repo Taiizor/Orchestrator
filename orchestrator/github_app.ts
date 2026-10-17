@@ -81,9 +81,13 @@ export async function getInstallationToken(options?: {
   installationId?: string;
   owner?: string;
   repo?: string;
+  /** Bypass the in-memory cache and mint unconditionally. Used when GitHub
+   *  rejected a credential the cache still believes is valid (revoked/rotated
+   *  token); plain expiry is already covered by the expiry buffer below. */
+  force?: boolean;
 }): Promise<string | null> {
   // Return cached token if still valid (with 3-minute safety buffer)
-  if (cachedToken) {
+  if (cachedToken && !options?.force) {
     const expires = new Date(cachedToken.expiresAt).getTime();
     if (expires - Date.now() > 3 * 60 * 1000) {
       return cachedToken.token;
