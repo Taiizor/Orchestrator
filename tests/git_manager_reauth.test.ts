@@ -11,6 +11,10 @@ import { CONFIG } from "../orchestrator/config.ts";
  * outlive them, making every publish retry fail with "Invalid username or
  * token". These tests pin the URL-management half of the fix — hermetic
  * (local git only, no network, no App credentials).
+ *
+ * CONFIG/cwd windows are kept as small as possible: this suite runs in the
+ * shared test process, where dangling async work from other files can still
+ * be on the event loop.
  */
 describe("refreshDataRemoteAuth (data remote credential refresh)", () => {
   const origCwd = process.cwd();
@@ -22,9 +26,40 @@ describe("refreshDataRemoteAuth (data remote credential refresh)", () => {
   const savedEnv: Record<string, string | undefined> = {};
   let repoDir: string;
 
+  /**
+   * Apply data-mode config for exactly one production call, then restore —
+   * keeps the window in which other (dangling) test work could observe
+   * "data mode" as small as possible.
+   */
+  const withDataMode = async (repo: string, pat: string, fn: () => Promise<boolean>): Promise<boolean> => {
+    (CONFIG as any).DATA_REPO = repo;
+    (CONFIG as any).DATA_PAT = pat;
+    try {
+      return await fn();
+    } finally {
+      (CONFIG as any).DATA_REPO = savedConfig.DATA_REPO;
+      (CONFIG as any).DATA_PAT = savedConfig.DATA_PAT;
+    }
+  };
+
+  const refresh = async (repo: string, pat: string): Promise<boolean> =>
+    withDataMode(repo, pat, () => GitManager.refreshDataRemoteAuth());
+
   const remoteUrl = async (): Promise<string> => {
     const res = await GitManager.run(["git", "remote", "get-url", "data"]);
     return res.stdout.trim();
+  };
+
+  /** Windows can hold handles on a freshly-used .git dir; retry the delete. */
+  const rmSafe = async (dir: string): Promise<void> => {
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+        return;
+      } catch {
+        await Bun.sleep(100 * attempt);
+      }
+    }
   };
 
   beforeEach(async () => {
@@ -39,7 +74,7 @@ describe("refreshDataRemoteAuth (data remote credential refresh)", () => {
     await GitManager.run(["git", "init", "-q"]);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     process.chdir(origCwd);
     for (const key of appEnvKeys) {
       if (savedEnv[key] === undefined) delete process.env[key];
@@ -47,43 +82,35 @@ describe("refreshDataRemoteAuth (data remote credential refresh)", () => {
     }
     (CONFIG as any).DATA_REPO = savedConfig.DATA_REPO;
     (CONFIG as any).DATA_PAT = savedConfig.DATA_PAT;
-    rmSync(repoDir, { recursive: true, force: true });
+    await rmSafe(repoDir);
   });
 
   it("adds the data remote with the ambient token when missing", async () => {
-    (CONFIG as any).DATA_REPO = "acme/private-data";
-    (CONFIG as any).DATA_PAT = "ghs_test_token_aaaa";
-    expect(await GitManager.refreshDataRemoteAuth()).toBe(true);
+    expect(await refresh("acme/private-data", "ghs_test_token_aaaa")).toBe(true);
     expect(await remoteUrl()).toBe("https://x-access-token:ghs_test_token_aaaa@github.com/acme/private-data.git");
   });
 
   it("re-points the URL when the credential rotates", async () => {
-    (CONFIG as any).DATA_REPO = "acme/private-data";
-    (CONFIG as any).DATA_PAT = "ghs_old_token";
-    expect(await GitManager.refreshDataRemoteAuth()).toBe(true);
-
-    (CONFIG as any).DATA_PAT = "ghs_new_token";
-    expect(await GitManager.refreshDataRemoteAuth()).toBe(true);
+    expect(await refresh("acme/private-data", "ghs_old_token")).toBe(true);
+    expect(await refresh("acme/private-data", "ghs_new_token")).toBe(true);
     expect(await remoteUrl()).toBe("https://x-access-token:ghs_new_token@github.com/acme/private-data.git");
   });
 
   it("is a no-op when the URL is already current", async () => {
-    (CONFIG as any).DATA_REPO = "acme/private-data";
-    (CONFIG as any).DATA_PAT = "ghs_same_token";
-    expect(await GitManager.refreshDataRemoteAuth()).toBe(true);
+    expect(await refresh("acme/private-data", "ghs_same_token")).toBe(true);
     const before = await remoteUrl();
-    expect(await GitManager.refreshDataRemoteAuth()).toBe(true);
+    expect(await refresh("acme/private-data", "ghs_same_token")).toBe(true);
     expect(await remoteUrl()).toBe(before);
   });
 
-  it("returns false without a token and without data mode", async () => {
-    (CONFIG as any).DATA_REPO = "acme/private-data";
-    (CONFIG as any).DATA_PAT = "";
-    expect(await GitManager.refreshDataRemoteAuth()).toBe(false);
+  it("returns false without a token and outside data mode", async () => {
+    expect(await refresh("acme/private-data", "")).toBe(false);
+    expect(await refresh("", "ghs_test_token_aaaa")).toBe(false);
+  });
 
-    (CONFIG as any).DATA_REPO = "";
-    (CONFIG as any).DATA_PAT = "ghs_test_token_aaaa";
-    expect(await GitManager.refreshDataRemoteAuth()).toBe(false);
+  it("accepts full https data-repo URLs as well as owner/name", async () => {
+    expect(await refresh("https://github.com/acme/private-data.git", "ghs_url_form")).toBe(true);
+    expect(await remoteUrl()).toBe("https://x-access-token:ghs_url_form@github.com/acme/private-data.git");
   });
 
   it("classifies GitHub auth rejections vs non-fast-forward errors", () => {
