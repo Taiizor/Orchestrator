@@ -998,11 +998,20 @@ export class OrchestratorEngine {
 
     // Liveness snapshot (one API call): lets the empty-diff guard below tell
     // "agent done early, judge now" apart from "agent may still be working".
-    // Runs execute on main so they can't be mapped to tasks — absence of ALL
-    // runs + a stale branch tip is the only safe early-judge signal.
+    // Runs execute on main, but their name carries the task id
+    // ("Subagent: TASK-066 (frontend)") — map it so a task whose subagent is
+    // still mid-flight is never judged on a half-written branch (TASK-066,
+    // 2026-10-17: a tick reviewed stale, already-rejected content while its
+    // rework run was active).
     let anyActiveRuns = false;
+    const activeTaskIds = new Set<string>();
     try {
-      anyActiveRuns = (await GitManager.getActiveSubagentRuns()).length > 0;
+      const activeRuns = await GitManager.getActiveSubagentRuns();
+      anyActiveRuns = activeRuns.length > 0;
+      for (const run of activeRuns) {
+        const match = `${run.name ?? ""} ${run.displayTitle ?? ""}`.match(/TASK-[0-9]+/i);
+        if (match) activeTaskIds.add(match[0].toUpperCase());
+      }
     } catch {
       /* conservative: assume active */ anyActiveRuns = true;
     }
@@ -1040,10 +1049,9 @@ export class OrchestratorEngine {
             const realChanges = files.filter((f) => f !== `workspace/${CONFIG.TASK_PROGRESS_FILE}`);
             if (realChanges.length === 0) {
               // Hold only while a run may still be working: recent dispatch
-              // AND at least one active run globally. (Runs execute on main,
-              // so they can't be mapped to tasks.) Fresh branch commits alone
-              // prove nothing — a finished run's push stays "fresh" for 45m
-              // after exit, so it must not block judgment.
+              // AND at least one active run globally. Fresh branch commits
+              // alone prove nothing — a finished run's push stays "fresh"
+              // for 45m after exit, so it must not block judgment.
               const STALE_MS = 45 * 60 * 1000;
               // Computed once, reused by the routing below.
               const uniqueEarly = await GitManager.branchUniqueCommits(task.branch, CONFIG.INTEGRATION_BRANCH);
@@ -1110,6 +1118,18 @@ export class OrchestratorEngine {
               continue;
             }
             if (task.status === "IN_PROGRESS" || task.status === "PENDING") {
+              // An active run for THIS task means the branch is still being
+              // written: the tip can move at any moment (rework pushes
+              // mid-flight), so judging now would verdict stale content and
+              // race the agent. The completion wake brings the next tick,
+              // which reviews the settled branch (reviewer infra failures
+              // defer instead of burning attempts).
+              if (activeTaskIds.has(task.id)) {
+                console.log(
+                  `⏸️ [${task.id}] deliverables on branch but its subagent run is still active; holding review until the run completes.`
+                );
+                continue;
+              }
               console.log(
                 `🔎 Detected completed deliverables for [${task.id}] on branch ${task.branch}. Transitioning to IN_REVIEW.`
               );
