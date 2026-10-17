@@ -135,6 +135,7 @@ Workflows mint a short-lived installation token via `actions/create-github-app-t
 - **Repo-level (per product repo):** `DATA_REPO` (secret holding the private data repo slug, e.g. `<owner>/<name>-data`).
 - **Installation scope:** the App must be installed with **All repositories** (or explicitly include every engine + data repo), or data access silently 404s.
 - **Engine parity:** `orchestrator/github_app.ts` mints the same token locally when `GH_CLIENT_ID` + private key are present (`initializeGitHubAppAuth()` at startup, `CONFIG` refreshed after mint). All auth paths fall back to `GITHUB_TOKEN`/PATs when App credentials are absent — never hard-fail.
+- **Long-run credential self-refresh (1h token TTL):** runs can outlive the workflow-minted installation token (60-min model cap + fallback continues). Data-branch pushes go through `GitManager.pushWithAuthRetry` (per-attempt `refreshDataRemoteAuth()`, force re-mint when GitHub rejects the credential), and every `gh` invocation refreshes ambient `GH_TOKEN`/`GITHUB_TOKEN` via `ensureFreshGhToken()` (rotates `GH_PROJECT_TOKEN`/`DATA_PAT` only while they hold the same workflow token — dedicated PATs are never overwritten).
 - **Dual-repo push mechanics:** state persists run in an isolated linked worktree — never `checkout` data branches in the main worktree (a dirty checkout aborts the switch and every push is then rejected as non-fast-forward forever).
 
 ---

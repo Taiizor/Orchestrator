@@ -1,5 +1,5 @@
-import { CONFIG } from "./config.ts";
-import { getInstallationToken } from "./github_app.ts";
+import { CONFIG, refreshAuthFromEnv } from "./config.ts";
+import { getInstallationToken, isGitHubAppConfigured } from "./github_app.ts";
 import * as GhQuota from "./gh_quota.ts";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
@@ -19,6 +19,14 @@ export class GitManager {
     timeoutMs = 0
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
     try {
+      // gh CLI reads ambient GH_TOKEN/GITHUB_TOKEN at spawn; workflow-minted
+      // App tokens expire after ~1h, so a long run must re-mint before its
+      // gh calls (board sync, wake calls, releases). A string compare on
+      // nearly every call, one mint per hour. The race bounds the refresh so
+      // a slow mint can never stall the command itself.
+      if (cmd[0] === "gh") {
+        await Promise.race([GitManager.ensureFreshGhToken(), Bun.sleep(30_000)]);
+      }
       const options: any = {
         cwd,
         stdout: "pipe",
@@ -65,6 +73,47 @@ export class GitManager {
       return res;
     } catch (err: any) {
       return { stdout: "", stderr: err?.message || String(err), exitCode: 1 };
+    }
+  }
+
+  /** Cooldown after a failed mint attempt: gh calls must not hammer the
+   *  GitHub API trying to refresh credentials that cannot be minted. */
+  private static ghTokenRefreshFailedAt = 0;
+
+  /**
+   * Keep ambient gh credentials fresh for the process lifetime. Workflow-
+   * minted App installation tokens live ~1h; a run that outlives its token
+   * (60-min model timeout + model fallback continues — TASK-066 class)
+   * would otherwise see every later `gh` call fail auth (board syncs, wake
+   * calls, releases). The github_app layer re-mints with a 3-minute expiry
+   * buffer, so this costs a string compare per call and one mint per hour.
+   *
+   * Derived surfaces (GH_PROJECT_TOKEN / DATA_PAT) rotate with the same
+   * token ONLY while they hold the previous value — a dedicated PAT secret
+   * is never overwritten. Fully inert when App credentials are absent.
+   */
+  public static async ensureFreshGhToken(): Promise<void> {
+    try {
+      if (!isGitHubAppConfigured()) return;
+      if (Date.now() - GitManager.ghTokenRefreshFailedAt < 5 * 60 * 1000) return;
+      const previous = new Set([process.env.GH_TOKEN, process.env.GITHUB_TOKEN].filter((v): v is string => Boolean(v)));
+      const token = await getInstallationToken();
+      if (!token) {
+        GitManager.ghTokenRefreshFailedAt = Date.now();
+        return;
+      }
+      GitManager.ghTokenRefreshFailedAt = 0;
+      process.env.GH_TOKEN = token;
+      process.env.GITHUB_TOKEN = token;
+      for (const key of ["GH_PROJECT_TOKEN", "DATA_PAT"]) {
+        const current = (process.env[key] || "").trim();
+        if (current && previous.has(current)) process.env[key] = token;
+      }
+      // CONFIG is a snapshot: sync it so CONFIG.PROJECT_TOKEN / DATA_PAT
+      // readers (ProjectManager, issue release paths) see the fresh value.
+      refreshAuthFromEnv();
+    } catch {
+      // Credential housekeeping must never break a command.
     }
   }
 
@@ -583,26 +632,22 @@ export class GitManager {
       }
     }
 
-    let pushSuccess = false;
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      const pushRes = await this.remoteGit(remote, ["push", remote, targetBranch]);
-      if (pushRes.exitCode === 0) {
-        pushSuccess = true;
-        break;
-      }
-      if (attempt < 3) {
+    const push = await this.pushWithAuthRetry(remote, [remote, targetBranch], {
+      maxRetries: 3,
+      betweenAttempts: async (attempt) => {
         const delayMs = attempt * 2000 + Math.floor(Math.random() * 1000);
         console.warn(
           `⚠️ Push failed for merged ${targetBranch} (attempt ${attempt}/3). Backing off for ${delayMs}ms before pull & rebase...`
         );
         await Bun.sleep(delayMs);
         await this.remoteGit(remote, ["pull", "--rebase", remote, targetBranch]);
-      } else {
-        console.error(`❌ Push failed for merged ${targetBranch} after 3 attempts:`, pushRes.stderr);
-      }
+      },
+    });
+    if (!push.ok) {
+      console.error(`❌ Push failed for merged ${targetBranch} after 3 attempts:`, push.stderr);
     }
     await this.run(["git", "checkout", startRef]);
-    return pushSuccess;
+    return push.ok;
   }
 
   /**
@@ -667,9 +712,12 @@ export class GitManager {
         console.warn("⚠️ Data tree worktree setup failed:", (add.stdout + add.stderr).slice(0, 300));
         return false;
       }
-      for (let attempt = 1; attempt <= 3; attempt++) {
+      // Commit + push with per-attempt credential refresh; each retry first
+      // re-syncs the scratch worktree onto the remote tip and re-applies the
+      // mirror (the fixed non-fast-forward recovery, now credential-aware).
+      const prepare = async (): Promise<boolean> => {
         if (!(await mirrorFromWorkdir(wtDir))) {
-          console.warn("⚠️ Data tree mirror failed (attempt ${attempt}/3).");
+          console.warn("⚠️ Data tree mirror failed.");
           return false;
         }
         await wt(["add", "-f", CONFIG.INPUTS_DIR, CONFIG.WORKSPACE_DIR]);
@@ -679,18 +727,23 @@ export class GitManager {
           console.warn(`⚠️ Data tree commit failed:`, (commit.stdout + commit.stderr).slice(0, 300));
           return false;
         }
-        const push = await this.remoteGit(remote, ["push", remote, `HEAD:refs/heads/${branch}`], wtDir);
-        if (push.exitCode === 0) return true;
-        console.warn(`⚠️ Data tree push rejected (attempt ${attempt}/3). Re-syncing...`);
-        if (attempt < 3) {
+        return true;
+      };
+      if (!(await prepare())) return false;
+      const push = await this.pushWithAuthRetry(remote, [`HEAD:refs/heads/${branch}`], {
+        cwd: wtDir,
+        betweenAttempts: async (attempt) => {
+          console.warn(`⚠️ Data tree push rejected (attempt ${attempt}/3). Re-syncing...`);
           await Bun.sleep(attempt * 2000);
           await this.remoteGit(remote, ["fetch", remote, branch], wtDir);
           await wt(["reset", "--hard", `${remote}/${branch}`]);
-        } else {
-          console.warn(`   ↳ push stderr: ${(push.stdout + push.stderr).slice(0, 300)}`);
-        }
+          return prepare();
+        },
+      });
+      if (!push.ok) {
+        console.warn(`   ↳ push stderr: ${push.stderr.slice(0, 300)}`);
       }
-      return false;
+      return push.ok;
     } finally {
       await cleanup();
     }
@@ -754,24 +807,28 @@ export class GitManager {
         console.warn(`⚠️ Data file worktree setup failed for ${relPath}:`, (add.stdout + add.stderr).slice(0, 300));
         return false;
       }
-      for (let attempt = 1; attempt <= 3; attempt++) {
-        if (!(await stageAndCommit())) {
-          console.warn(`⚠️ Data file stage/commit failed for ${relPath} (attempt ${attempt}/3).`);
-          return false;
-        }
-        const push = await this.remoteGit(remote, ["push", remote, `HEAD:refs/heads/${branch}`], wtDir);
-        if (push.exitCode === 0) return true;
-        console.warn(`⚠️ Data file push rejected for ${relPath} (attempt ${attempt}/3). Re-syncing...`);
-        if (attempt < 3) {
+      if (!(await stageAndCommit())) {
+        console.warn(`⚠️ Data file stage/commit failed for ${relPath}.`);
+        return false;
+      }
+      const push = await this.pushWithAuthRetry(remote, [`HEAD:refs/heads/${branch}`], {
+        cwd: wtDir,
+        betweenAttempts: async (attempt) => {
+          console.warn(`⚠️ Data file push rejected for ${relPath} (attempt ${attempt}/3). Re-syncing...`);
           await Bun.sleep(attempt * 2000);
           await this.remoteGit(remote, ["fetch", remote, branch], wtDir);
-          // Reset only the SCRATCH worktree, then loop re-applies the file.
+          // Reset only the SCRATCH worktree, then re-apply the file.
           await wt(["reset", "--hard", `${remote}/${branch}`]);
-        } else {
-          console.warn(`   ↳ push stderr: ${(push.stdout + push.stderr).slice(0, 300)}`);
-        }
+          if (!(await stageAndCommit())) {
+            console.warn(`⚠️ Data file stage/commit failed for ${relPath} (attempt ${attempt}/3).`);
+            return false;
+          }
+        },
+      });
+      if (!push.ok) {
+        console.warn(`   ↳ push stderr: ${push.stderr.slice(0, 300)}`);
       }
-      return false;
+      return push.ok;
     } finally {
       await cleanup();
     }
@@ -933,37 +990,66 @@ export class GitManager {
     }
   }
   /**
+   * Push to a remote with credential freshness (TASK-066 class): when the
+   * target is the content remote, the data URL is re-pointed at a fresh App
+   * token before EVERY attempt, and a GitHub auth rejection ("Invalid
+   * username or token") force-re-mints the credential for the retry instead
+   * of bouncing off the same dead token — installation tokens live ~1h and a
+   * run can outlive its token (60-min model timeout + fallback continues).
+   * Non-content remotes pass straight through untouched.
+   *
+   * `betweenAttempts` carries the caller's own re-sync logic (pull/rebase,
+   * fetch/reset) and may return false to abort the retry loop early.
+   */
+  public static async pushWithAuthRetry(
+    remote: string,
+    args: string[],
+    opts: { cwd?: string; maxRetries?: number; betweenAttempts?: (attempt: number) => Promise<boolean | void> } = {}
+  ): Promise<{ ok: boolean; stderr: string }> {
+    const cwd = opts.cwd ?? ".";
+    const maxRetries = opts.maxRetries ?? 3;
+    const isContentRemote = this.isDataMode() && remote === CONFIG.DATA_REMOTE;
+    let forceCredentialRefresh = false;
+    let lastStderr = "";
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      if (isContentRemote) {
+        await this.refreshDataRemoteAuth({ force: forceCredentialRefresh });
+      }
+      const pushRes = await this.remoteGit(remote, ["push", ...args], cwd);
+      if (pushRes.exitCode === 0) return { ok: true, stderr: "" };
+      lastStderr = (pushRes.stderr || "").trim();
+      // `force` bypasses the mint cache once GitHub has rejected a credential
+      // the cache still trusts.
+      forceCredentialRefresh = this.looksLikeAuthFailure(lastStderr);
+      if (attempt < maxRetries && opts.betweenAttempts) {
+        const cont = await opts.betweenAttempts(attempt);
+        if (cont === false) break;
+      }
+    }
+    return { ok: false, stderr: lastStderr };
+  }
+
+  /**
    * Push the current HEAD to the content-remote task branch with the
    * standard transient-failure backoff. Shared by the publish path (fresh
    * publish commit) and the recovery paths (agent-made local commits that
    * were never pushed), so the two can never drift apart.
    */
   private static async pushHeadToBranch(branch: string, remote: string, maxRetries = 3): Promise<boolean> {
-    // Credential freshness per attempt: installation tokens live ~1h and a
-    // run can outlive its token (60-min model timeout + fallback continues),
-    // leaving every retry to bounce off the same dead credential (TASK-066:
-    // three attempts, all "Invalid username or token"). Re-pointing the data
-    // remote at a fresh token is cheap + idempotent; `force` bypasses the
-    // mint cache once GitHub has rejected a credential the cache still trusts.
-    let forceCredentialRefresh = false;
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      if (this.isDataMode() && remote === CONFIG.DATA_REMOTE) {
-        await this.refreshDataRemoteAuth({ force: forceCredentialRefresh });
-      }
-      const pushRes = await this.remoteGit(remote, ["push", "-u", remote, `HEAD:refs/heads/${branch}`]);
-      if (pushRes.exitCode === 0) return true;
-      forceCredentialRefresh = this.looksLikeAuthFailure(pushRes.stderr);
-      if (attempt < maxRetries) {
+    const push = await this.pushWithAuthRetry(remote, ["-u", remote, `HEAD:refs/heads/${branch}`], {
+      maxRetries,
+      betweenAttempts: async (attempt) => {
         const delayMs = attempt * 2000 + Math.floor(Math.random() * 1000);
         console.warn(
           `⚠️ Push rejected for data branch ${branch} (attempt ${attempt}/${maxRetries}). Backing off for ${delayMs}ms...`
         );
         await Bun.sleep(delayMs);
-      } else {
-        console.error(`❌ Could not push data branch ${branch} to ${remote} after ${maxRetries} attempts:`, pushRes.stderr);
-      }
+      },
+    });
+    if (!push.ok) {
+      console.error(`❌ Could not push data branch ${branch} to ${remote} after ${maxRetries} attempts:`, push.stderr);
     }
-    return false;
+    return push.ok;
   }
 
   /**

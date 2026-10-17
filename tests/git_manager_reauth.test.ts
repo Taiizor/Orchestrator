@@ -125,3 +125,143 @@ describe("refreshDataRemoteAuth (data remote credential refresh)", () => {
     expect(fn("")).toBe(false);
   });
 });
+
+/**
+ * Same long-run credential story on the generic push path: every data-branch
+ * push site (publish, merge, state persist, tags, seeds) now funnels through
+ * pushWithAuthRetry, so the retry loop, the abort affordance, and the
+ * no-App-credentials no-op are pinned here — local git only, no network.
+ */
+describe("pushWithAuthRetry + ensureFreshGhToken", () => {
+  const appEnvKeys = [
+    "GH_CLIENT_ID",
+    "CLIENT_ID",
+    "GH_APP_PRIVATE_KEY",
+    "APP_PRIVATE_KEY",
+    "GH_APP_PRIVATE_KEY_PATH",
+    "GH_APP_INSTALLATION_ID",
+    "APP_INSTALLATION_ID",
+  ];
+  let root: string;
+  let bare: string;
+  let work: string;
+
+  const rmSafe = async (dir: string): Promise<void> => {
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+        return;
+      } catch {
+        await Bun.sleep(100 * attempt);
+      }
+    }
+  };
+
+  /** Advance origin/main from a second clone, then diverge the worktree. */
+  const divergeFromRemote = async (): Promise<void> => {
+    const first = await GitManager.pushWithAuthRetry("origin", ["origin", "HEAD:refs/heads/main"], { cwd: work });
+    expect(first.ok).toBe(true);
+    const clone2 = join(root, "clone2");
+    await GitManager.run(["git", "clone", "-q", "-b", "main", bare.replace(/\\/g, "/"), clone2], root);
+    await GitManager.run(["git", "config", "user.name", "Test"], clone2);
+    await GitManager.run(["git", "config", "user.email", "test@example.com"], clone2);
+    await Bun.write(join(clone2, "remote.txt"), "ahead\n");
+    await GitManager.run(["git", "add", "remote.txt"], clone2);
+    await GitManager.run(["git", "commit", "-q", "-m", "ahead"], clone2);
+    await GitManager.run(["git", "push", "-q", "origin", "main"], clone2);
+
+    await Bun.write(join(work, "local.txt"), "local\n");
+    await GitManager.run(["git", "add", "local.txt"], work);
+    await GitManager.run(["git", "commit", "-q", "-m", "local"], work);
+  };
+
+  beforeEach(async () => {
+    root = mkdtempSync(join(tmpdir(), "orch-push-"));
+    bare = join(root, "remote.git");
+    work = join(root, "work");
+    await GitManager.run(["git", "init", "--bare", "-q", bare]);
+    await GitManager.run(["git", "init", "-q", work]);
+    await GitManager.run(["git", "config", "user.name", "Test"], work);
+    await GitManager.run(["git", "config", "user.email", "test@example.com"], work);
+    await Bun.write(join(work, "file.txt"), "one\n");
+    await GitManager.run(["git", "add", "file.txt"], work);
+    await GitManager.run(["git", "commit", "-q", "-m", "init"], work);
+    await GitManager.run(["git", "remote", "add", "origin", bare.replace(/\\/g, "/")], work);
+  });
+
+  afterEach(async () => {
+    await rmSafe(root);
+  });
+
+  it("pushes to a local remote and reports success", async () => {
+    const res = await GitManager.pushWithAuthRetry("origin", ["origin", "HEAD:refs/heads/main"], { cwd: work });
+    expect(res.ok).toBe(true);
+    expect(res.stderr).toBe("");
+    const ls = await GitManager.run(["git", "ls-remote", "origin", "refs/heads/main"], work);
+    expect(ls.stdout).toContain("refs/heads/main");
+  });
+
+  it("hands rejected pushes to betweenAttempts and aborts when it returns false", async () => {
+    await divergeFromRemote();
+
+    let calls = 0;
+    const res = await GitManager.pushWithAuthRetry("origin", ["origin", "HEAD:refs/heads/main"], {
+      cwd: work,
+      maxRetries: 3,
+      betweenAttempts: async () => {
+        calls++;
+        return false;
+      },
+    });
+    expect(res.ok).toBe(false);
+    expect(calls).toBe(1);
+    expect(res.stderr.length).toBeGreaterThan(0);
+  });
+
+  it("exhausts maxRetries when betweenAttempts keeps allowing retries", async () => {
+    await divergeFromRemote();
+
+    let calls = 0;
+    const res = await GitManager.pushWithAuthRetry("origin", ["origin", "HEAD:refs/heads/main"], {
+      cwd: work,
+      maxRetries: 3,
+      betweenAttempts: async () => {
+        calls++;
+      },
+    });
+    // 3 push attempts, betweenAttempts consulted after the first two only.
+    expect(res.ok).toBe(false);
+    expect(calls).toBe(2);
+  });
+
+  it("ensureFreshGhToken is a no-op without App credentials (explicit PATs preserved)", async () => {
+    const saved: Record<string, string | undefined> = {};
+    for (const key of appEnvKeys) {
+      saved[key] = process.env[key];
+      delete process.env[key];
+    }
+    const savedGh = process.env.GH_TOKEN;
+    const savedGithub = process.env.GITHUB_TOKEN;
+    const savedProject = process.env.GH_PROJECT_TOKEN;
+    process.env.GH_TOKEN = "ghp_explicit_pat";
+    delete process.env.GITHUB_TOKEN;
+    process.env.GH_PROJECT_TOKEN = "ghp_project_pat";
+    try {
+      await GitManager.ensureFreshGhToken();
+      expect(process.env.GH_TOKEN).toBe("ghp_explicit_pat");
+      expect(process.env.GITHUB_TOKEN).toBeUndefined();
+      expect(process.env.GH_PROJECT_TOKEN).toBe("ghp_project_pat");
+    } finally {
+      for (const key of appEnvKeys) {
+        if (saved[key] === undefined) delete process.env[key];
+        else process.env[key] = saved[key]!;
+      }
+      if (savedGh === undefined) delete process.env.GH_TOKEN;
+      else process.env.GH_TOKEN = savedGh;
+      if (savedGithub === undefined) delete process.env.GITHUB_TOKEN;
+      else process.env.GITHUB_TOKEN = savedGithub;
+      if (savedProject === undefined) delete process.env.GH_PROJECT_TOKEN;
+      else process.env.GH_PROJECT_TOKEN = savedProject;
+    }
+  });
+});

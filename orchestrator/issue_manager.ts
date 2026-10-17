@@ -1159,8 +1159,8 @@ export class IssueManager {
       const tagExists = await GitManager.remoteGit(remote, ["ls-remote", remote, `refs/tags/${tag}`]);
       if (tagExists.exitCode !== 0 || !tagExists.stdout.trim()) {
         await GitManager.run(["git", "tag", "-a", tag, sha, "-m", title]);
-        const push = await GitManager.remoteGit(remote, ["push", remote, tag]);
-        if (push.exitCode !== 0) {
+        const push = await GitManager.pushWithAuthRetry(remote, [remote, tag], { maxRetries: 2 });
+        if (!push.ok) {
           console.warn(`⚠️ Tag push failed for ${tag}:`, push.stderr.slice(0, 200));
           return "failed";
         }

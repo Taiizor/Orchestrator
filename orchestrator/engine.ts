@@ -418,9 +418,11 @@ export class OrchestratorEngine {
           if (ct.exitCode !== 0 || !/^[0-9a-f]{40}$/.test(sha)) {
             console.warn("⚠️ Seed commit creation failed; skipping develop seed.");
           } else {
-            const push = await GitManager.remoteGit(remote, ["push", remote, `${sha}:refs/heads/${CONFIG.INTEGRATION_BRANCH}`]);
+            const push = await GitManager.pushWithAuthRetry(remote, [remote, `${sha}:refs/heads/${CONFIG.INTEGRATION_BRANCH}`], {
+              maxRetries: 2,
+            });
             console.log(
-              push.exitCode === 0
+              push.ok
                 ? `🌱 Seeded ${remote}/${CONFIG.INTEGRATION_BRANCH} @ ${sha.slice(0, 7)}.`
                 : `⚠️ Seed push failed: ${push.stderr.slice(0, 200)}`
             );
@@ -1608,8 +1610,8 @@ export class OrchestratorEngine {
         `chore(gate-fix): drop regenerable paths from ${branch}`,
       ]);
       if (commit.exitCode !== 0) return false;
-      const push = await GitManager.remoteGit(remote, ["push", remote, `HEAD:refs/heads/${branch}`], wtDir);
-      return push.exitCode === 0;
+      const push = await GitManager.pushWithAuthRetry(remote, [`HEAD:refs/heads/${branch}`], { cwd: wtDir, maxRetries: 2 });
+      return push.ok;
     } catch {
       return false;
     } finally {
@@ -1892,7 +1894,7 @@ export class OrchestratorEngine {
         "-c",
         "user.email=github-actions[bot]@users.noreply.github.com",
       ];
-      for (let attempt = 1; attempt <= 5; attempt++) {
+      const prepare = async (): Promise<void> => {
         await StateManager.saveRoadmap(roadmap);
         mirrorIntoWorktree();
         // Stage only paths that actually exist in the scratch worktree: a
@@ -1908,26 +1910,33 @@ export class OrchestratorEngine {
         if (commit.exitCode !== 0 && !/nothing to commit/i.test(commit.stdout + commit.stderr)) {
           console.warn(`⚠️ Data state commit failed: ${(commit.stdout + commit.stderr).slice(0, 300)}`);
         }
-        const push = await GitManager.remoteGit(remote, ["push", remote, `HEAD:refs/heads/${CONFIG.BASE_BRANCH}`], wtDir);
-        if (push.exitCode === 0) return;
-        console.warn(`⚠️ Data state push rejected (attempt ${attempt}/5). Re-syncing...`);
-        console.warn(`   ↳ push stderr: ${(push.stdout + push.stderr).slice(0, 500)}`);
-        // Back off: the competing writer is usually another tick still
-        // working; immediate retries just collide again.
-        await new Promise((r) => setTimeout(r, 15000 * attempt));
-        await GitManager.remoteGit(remote, ["fetch", remote, CONFIG.BASE_BRANCH], wtDir);
-        // Reset only the SCRATCH worktree (never the main checkout) onto
-        // the new tip, then re-merge remote state below on next iteration.
-        await wt(["reset", "--hard", tip]);
-        try {
-          const show = await GitManager.run(["git", "show", `${tip}:${CONFIG.ROADMAP_FILE}`]);
-          const remoteRm = JSON.parse(show.stdout) as Roadmap;
-          Object.assign(roadmap, StateManager.mergeRoadmaps(roadmap, remoteRm));
-        } catch {
-          // keep local copy
-        }
+      };
+      await prepare();
+      const push = await GitManager.pushWithAuthRetry(remote, [remote, `HEAD:refs/heads/${CONFIG.BASE_BRANCH}`], {
+        cwd: wtDir,
+        maxRetries: 5,
+        betweenAttempts: async (attempt) => {
+          console.warn(`⚠️ Data state push rejected (attempt ${attempt}/5). Re-syncing...`);
+          // Back off: the competing writer is usually another tick still
+          // working; immediate retries just collide again.
+          await new Promise((r) => setTimeout(r, 15000 * attempt));
+          await GitManager.remoteGit(remote, ["fetch", remote, CONFIG.BASE_BRANCH], wtDir);
+          // Reset only the SCRATCH worktree (never the main checkout) onto
+          // the new tip, then re-merge remote state below on next iteration.
+          await wt(["reset", "--hard", tip]);
+          try {
+            const show = await GitManager.run(["git", "show", `${tip}:${CONFIG.ROADMAP_FILE}`]);
+            const remoteRm = JSON.parse(show.stdout) as Roadmap;
+            Object.assign(roadmap, StateManager.mergeRoadmaps(roadmap, remoteRm));
+          } catch {
+            // keep local copy
+          }
+          await prepare();
+        },
+      });
+      if (!push.ok) {
+        console.error(`❌ persistRoadmapToData: push failed after 5 attempts; changes remain local.`, push.stderr.slice(0, 500));
       }
-      console.error("❌ persistRoadmapToData: push failed after 5 attempts; changes remain local.");
     } finally {
       await cleanup();
     }
