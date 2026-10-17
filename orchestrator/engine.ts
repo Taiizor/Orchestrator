@@ -26,6 +26,9 @@ import { initializeGitHubAppAuth } from "./github_app.ts";
 import * as GhQuota from "./gh_quota.ts";
 import type { Roadmap, TaskItem, ReviewResult } from "./types.ts";
 
+/** Consecutive deferred reviews before the engine posts an advisory needs-human note. */
+const REVIEW_DEFERRAL_ALERT_AT = 6;
+
 /**
  * Recursively copy src dir into dst WITHOUT deleting dst-only files (union).
  * Used by dual-repo persist: src is the engine checkout (template files),
@@ -1307,7 +1310,15 @@ export class OrchestratorEngine {
         `\n\n` +
         `Evaluate whether to approve or reject this work:`;
 
-      const res = await OpenCodeClient.runWithFallback(reviewPrompt, { timeoutMs: 8 * 60 * 1000 });
+      const res = await OpenCodeClient.runWithFallback(reviewPrompt, {
+        timeoutMs: 8 * 60 * 1000,
+        // Explicit session title (parity with subagent runs, which pass one
+        // and keep working on CI): keeps sessions identifiable in
+        // `session list` and avoids the fresh-session internal
+        // title-generation helper call, which free-tier abuse checks have
+        // been rejecting with `provider.auth` 403s (anomalyco/opencode#49592).
+        title: `Review [${task.id}] ${task.title}`,
+      });
 
       // Robust JSON parse: fenced block, then largest {...} span. Default REJECT on garbage.
       let reviewResult: ReviewResult | null = null;
@@ -1331,11 +1342,42 @@ export class OrchestratorEngine {
         }
       }
       if (!reviewResult) {
+        // Infra-level reviewer failures (gateway 403s such as the free-tier
+        // "can only be used from within OpenCode" abuse check, provider
+        // outages, CLI timeouts) are NOT task quality signals. Rejecting here
+        // burns an attempt and can FAIL an otherwise complete deliverable
+        // (TASK-064, 2026-10-17: a transient outage cost the whole task).
+        // Defer in place instead — stay IN_REVIEW with attempts untouched and
+        // re-review on a later tick. lastReviewSha is not advanced, so the
+        // unchanged tip still qualifies for review next time.
+        const reviewerInfraFailure = res.exitCode !== 0 || res.stdout.trim().length === 0;
+        if (reviewerInfraFailure) {
+          task.reviewDeferrals = (task.reviewDeferrals ?? 0) + 1;
+          task.updatedAt = new Date().toISOString();
+          const detail = res.errorDetail || res.stderr || `exit ${res.exitCode}`;
+          console.warn(
+            `⏸️ [${task.id}] reviewer LLM unavailable; review deferred (${task.reviewDeferrals} consecutive), attempts NOT burned. Detail: ${detail.slice(0, 200)}`
+          );
+          if (task.reviewDeferrals === REVIEW_DEFERRAL_ALERT_AT) {
+            console.warn(
+              `🚨 [${task.id}] reviewer LLM unavailable for ${task.reviewDeferrals} consecutive reviews — posting advisory for humans (reviews keep retrying).`
+            );
+            if (roadmap.projectNumber) {
+              await ProjectManager.postTaskProgressComment(
+                task,
+                `🚨 **Needs a human (advisory):** reviewer LLM unavailable for ${task.reviewDeferrals} consecutive reviews — last error: ${detail.slice(0, 300)}. Deliverables remain IN_REVIEW; reviews keep retrying automatically.`
+              );
+            }
+          }
+          hasChanges = true;
+          continue;
+        }
         await rejectTask(`Reviewer output unparseable (no valid {approved, notes} JSON). Raw head: ${res.stdout.slice(0, 300)}`, [
           "Ensure reviewer returns fenced ```json with approved:boolean",
         ]);
         continue;
       }
+      if (task.reviewDeferrals) task.reviewDeferrals = 0;
       // Reviewer-output floor: an approval with a one-word note ("lgtm")
       // carries zero checklist evidence — fail closed, same as garbage.
       if (reviewResult.approved && reviewResult.notes.trim().length < 20) {
@@ -2250,6 +2292,7 @@ export class OrchestratorEngine {
       task.lastReviewSha = undefined;
       task.lastGateVersion = undefined;
       task.launchVerdict = undefined;
+      task.reviewDeferrals = 0;
       task.updatedAt = new Date().toISOString();
       task.reviewNotes = `Auto-resurrect #${res + 1}/${CONFIG.FAILED_AUTO_RESURRECT_MAX} after ${CONFIG.FAILED_RESURRECT_COOLDOWN_MIN}m cooldown (was FAILED). Previous: ${(task.reviewNotes || "-").slice(0, 1000)}`;
       console.log(`🌅 [${task.id}] auto-resurrected to PENDING (${task.resurrections}/${CONFIG.FAILED_AUTO_RESURRECT_MAX}).`);

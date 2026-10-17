@@ -564,6 +564,7 @@ export class IssueManager {
               task.lastReviewSha = undefined;
               task.lastGateVersion = undefined;
               task.launchVerdict = undefined;
+              task.reviewDeferrals = 0;
               hasChanges = true;
               lines.push(`🔄 **Task [${taskId}] Re-queued:** attempts reset, status → PENDING.`);
             } else {

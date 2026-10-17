@@ -35,6 +35,7 @@ export interface TaskItem {
   resurrections?: number; // Auto-resurrect count (bounded; human /retry resets to 0)
   lastReviewSha?: string; // Branch tip SHA of last completed review (skip re-review when unchanged)
   lastGateVersion?: number; // Ruleset version of last verdict (rule fixes invalidate old skips)
+  reviewDeferrals?: number; // Consecutive infra-level reviewer failures (review deferred in place, attempts untouched)
   createdAt: string;
   updatedAt: string;
   launchRound?: number; // Launch-verification round (planner sets 1; auto re-launches increment; capped by MAX_LAUNCH_ROUNDS)

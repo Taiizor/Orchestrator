@@ -221,6 +221,7 @@ export class StateManager {
           reviewNotes: newer.reviewNotes,
           attempts: Math.max(lt.attempts, rt.attempts),
           resurrections: Math.max(lt.resurrections || 0, rt.resurrections || 0),
+          reviewDeferrals: Math.max(lt.reviewDeferrals || 0, rt.reviewDeferrals || 0),
           failedAt: newer.failedAt ?? (terminal(lt.status) ? lt : rt).failedAt,
           updatedAt: newer.updatedAt,
         });
