@@ -305,10 +305,25 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      - name: 🔑 Mint fresh App Token for wake (optional)
+        id: wake-token
+        # App installation tokens live ~60 min but this job can run 75: on
+        # long runs the job-start token is already expired when the wake
+        # fires and the dispatch died silently with 401 (lost tick). Mint a
+        # fresh token right before waking; the wake's chain below still
+        # falls back to the job-start token / GITHUB_TOKEN.
+        if: ${{ always() && env.CLIENT_ID != '' && env.APP_PRIVATE_KEY != '' }}
+        continue-on-error: true
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ env.CLIENT_ID }}
+          private-key: ${{ env.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
       - name: 🔔 Wake Up Orchestrator
         if: always()
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.wake-token.outputs.token || steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
         run: |
           echo "Checking for an already-queued orchestrator run before dispatching..."
           PENDING=$(gh run list --workflow orchestrator.yml --limit 10 --json status --jq '[.[] | select(.status == "queued" or .status == "in_progress" or .status == "waiting" or .status == "requested")] | length' 2>/dev/null || echo 0)
@@ -316,5 +331,5 @@ jobs:
             echo "Orchestrator already queued/running ($PENDING) — skipping duplicate wake."
           else
             echo "Triggering Orchestrator to inspect task status..."
-            gh workflow run orchestrator.yml || true
+            gh workflow run orchestrator.yml || echo "::warning::Wake dispatch failed (non-fatal) — check the token env above."
           fi
