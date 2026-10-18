@@ -29,16 +29,21 @@ export function missingSections(content: string): string[] {
 /**
  * Runner-written placeholder progress (emitted when the agent left no
  * report). Structurally valid but content-free — must never count as
- * evidence of work.
+ * evidence of work. Matched as WHOLE bullet lines, and at least TWO must
+ * hit: both runner templates (fresh-file and cumulative fallback) carry
+ * >=2 exact bullets, while a genuine report may quote a single marker
+ * mid-sentence. TASK-057 burned all three attempts because the old
+ * substring check flagged "- Submitting for orchestrator review (attempt
+ * 2: ...)" — a real report's Doing line that merely starts with a marker.
  */
-const DEFAULT_PROGRESS_MARKERS = [
-  "Executed task deliverables in workspace",
-  "Submitting for orchestrator review",
-  "Awaiting review and integration",
+const PLACEHOLDER_BULLET_RXS = [
+  /^-\s*Executed task deliverables in workspace\.?\s*$/m,
+  /^-\s*Submitting for orchestrator review\.?\s*$/m,
+  /^-\s*Awaiting review and integration\.?\s*$/m,
 ];
 
 export function isDefaultProgress(content: string): boolean {
-  return DEFAULT_PROGRESS_MARKERS.some((m) => content.includes(m));
+  return PLACEHOLDER_BULLET_RXS.filter((rx) => rx.test(content)).length >= 2;
 }
 
 /** Minimal glob matcher supporting *, ** suffixes used in targetFiles. */
@@ -499,7 +504,7 @@ export function priorFixRounds(notes?: string): string[] {
  * under a previous version must be re-evaluated, never skipped by the
  * unchanged-tip optimization.
  */
-export const GATE_VERSION = 11;
+export const GATE_VERSION = 12;
 
 /**
  * Deterministic pre-LLM gate. Fails fast on empty diff, missing progress

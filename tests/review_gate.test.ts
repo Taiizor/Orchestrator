@@ -44,13 +44,34 @@ describe("Review Gate Module", () => {
   });
 
   describe("isDefaultProgress", () => {
-    it("should return true for runner placeholder text", () => {
-      expect(isDefaultProgress("Some text Executed task deliverables in workspace here")).toBe(true);
-      expect(isDefaultProgress("Submitting for orchestrator review")).toBe(true);
+    it("should return true for the fresh-file runner template", () => {
+      const tpl =
+        "# 📝 Task Progress: TASK-001 - x\n\n### 1. ✅ Done\n- Executed task deliverables in workspace\n\n" +
+        "### 2. ⚡ Doing\n- Submitting for orchestrator review\n\n" +
+        "### 3. 📋 Todo\n- Awaiting review and integration\n";
+      expect(isDefaultProgress(tpl)).toBe(true);
+    });
+
+    it("should return true for the cumulative fallback section", () => {
+      const tpl =
+        "### 1. ✅ Done\n- Runner fallback entry: no agent-written section for TASK-064 was found in this cumulative file at publish time.\n\n" +
+        "### 2. ⚡ Doing\n- Submitting for orchestrator review.\n\n" +
+        "### 3. 📋 Todo\n- Awaiting review and integration.\n";
+      expect(isDefaultProgress(tpl)).toBe(true);
+    });
+
+    it("should return false for real reports that quote a marker mid-sentence (TASK-057 regression)", () => {
+      expect(isDefaultProgress("Some text Executed task deliverables in workspace here")).toBe(false);
+      expect(isDefaultProgress("Submitting for orchestrator review")).toBe(false);
+      expect(
+        isDefaultProgress(
+          "- Submitting for orchestrator review (attempt 2: placeholder replaced with this report; deliverables already committed on `task/TASK-057`)."
+        )
+      ).toBe(false);
     });
 
     it("should return false for genuine agent report", () => {
-      expect(isDefaultProgress("Added login page")).toBe(false);
+      expect(isDefaultProgress("### 1. ✅ Done\n- Added login page with tests\n")).toBe(false);
     });
   });
 
@@ -159,8 +180,8 @@ describe("Review Gate Module", () => {
       expect(typeof GATE_VERSION).toBe("number");
       expect(GATE_VERSION).toBeGreaterThan(0);
     });
-    it("is 11 after the remediation-loop rule changes", () => {
-      expect(GATE_VERSION).toBe(11);
+    it("is 12 after the exact-bullet placeholder detector change", () => {
+      expect(GATE_VERSION).toBe(12);
     });
   });
 
