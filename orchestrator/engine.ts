@@ -2277,6 +2277,14 @@ export class OrchestratorEngine {
         if (Number.isNaN(dispAge) || dispAge < idleMs) continue;
         const tip = await GitManager.branchTipTime(task.branch);
         if (tip >= 0 && tip > Date.parse(task.dispatchedAt)) continue;
+        // A recorded verdict on an unchanged, still-reviewable tip belongs to
+        // Step 1: its skip-review path re-queues with the feedback and burns
+        // exactly ONE attempt. Re-queuing here too would double-charge the
+        // same tick — idle watchdog (+1) then review (+1) → spurious FAILED.
+        if (tip >= 0 && task.lastReviewSha) {
+          const progress = await GitManager.showFile(task.branch, `workspace/${CONFIG.TASK_PROGRESS_FILE}`);
+          if (progress !== null && hasStructuredProgress(progress)) continue;
+        }
         await requeueStale(task, "idle worker");
       }
     }
