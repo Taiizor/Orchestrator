@@ -317,8 +317,11 @@ async function main() {
   // in section 4 MUST start with a stamp line exactly like
   // `[runner-executed] '<command>' exit=0` (square brackets, single-quoted
   // command, numeric exit code). Prefixing output lines with the token does
-  // NOT count — one stamp line per command result.
-  prompt += `**Test-proof format (gate-enforced):** start each result in section 4 with \`[runner-executed] '${STACKS[productStack].testCommand}' exit=0\` (adjusted to your real command/exit). No stamp line = automatic rejection.\n\n`;
+  // NOT count — one stamp line per command result. The stamp must be backed
+  // by the real output fenced directly below it: a dangling stamp reads as
+  // fabricated proof and suppresses the runner's own evidence append
+  // (TASK-066 rework rejection: "see appended result below" + nothing).
+  prompt += `**Test-proof format (gate-enforced):** start each result in section 4 with \`[runner-executed] '${STACKS[productStack].testCommand}' exit=0\` (adjusted to your real command/exit) and paste the complete, real output in a fenced block directly underneath. A stamp line with no output under it counts as NO proof — automatic rejection; never write one you cannot back with pasted output.\n\n`;
   // Runners have full internet egress: public read-only GETs (docs, API
   // references, registries, pages, public RSS/API feeds) are allowed whenever
   // the task needs them. Never use credentials, never mutate external
@@ -664,13 +667,29 @@ async function main() {
   } else {
     let existingContent = await Bun.file(progressPath).text();
     let dirty = false;
+    // A stamp line with no fenced block anywhere after it attests nothing —
+    // the output it claims to prove is missing. Detect the last stamp and
+    // whether any fenced block follows it.
+    const hasDanglingStamp = (content: string): boolean => {
+      const rx = new RegExp(RUNNER_MARK_RX.source, "g");
+      let last = -1;
+      for (const m of content.matchAll(rx)) if (m.index !== undefined) last = m.index;
+      return last >= 0 && !content.slice(last).includes("```");
+    };
     if (!existingContent.includes("### 4. 🧪 Verification & Test Proof") || existingContent.includes("Executed in headless CI")) {
       existingContent += `\n\n### 4. 🧪 Verification & Test Proof\n\`\`\`\n${testProof}\n\`\`\`\n`;
       dirty = true;
-    } else if (stampedProof && !RUNNER_MARK_RX.test(existingContent)) {
-      // Thorough agents paste real output but miss the exact stamp token —
-      // attach the runner's stamped proof instead of failing good work.
-      existingContent += `\n\nRunner-executed proof (appended by runner, layer \`${proofCwd}\`):\n\`\`\`\n${stampedProof}\n\`\`\`\n`;
+    } else if (stampedProof && (!RUNNER_MARK_RX.test(existingContent) || hasDanglingStamp(existingContent))) {
+      // Two append cases. (a) Thorough agents pasted real output but missed
+      // the exact stamp token — attach the runner's stamped proof instead of
+      // failing good work. (b) The last stamp has NO fenced output after it
+      // (the agent deferred to the runner's append while its own stamp then
+      // suppressed that append) — the reviewer rejects the claim as
+      // unverifiable; TASK-066 burned a rework on exactly this. Replace any
+      // previous runner-appended block so the freshest output stays
+      // authoritative instead of accumulating stale evidence.
+      const stripped = existingContent.replace(/\n*Runner-executed proof \(appended by runner[^\n]*\n```[\s\S]*?```\n?/g, "\n");
+      existingContent = `${stripped.trimEnd()}\n\nRunner-executed proof (appended by runner, layer \`${proofCwd}\`):\n\`\`\`\n${stampedProof}\n\`\`\`\n`;
       dirty = true;
     }
     // Per-task safety net: TASK_PROGRESS.md is CUMULATIVE, so every file-wide
