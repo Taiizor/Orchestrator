@@ -723,7 +723,12 @@ async function main() {
   console.log(`🎉 Subagent finished execution for ${task.id}.`);
 }
 
-main().catch((err) => {
-  console.error("Fatal error in subagent runner:", err);
-  process.exit(1);
-});
+// Only execute when run directly (`bun run subagents/runner.ts`). Guards
+// against phantom runs if this module is ever imported (e.g. a future test
+// importing a helper) — same class as the engine.ts entry guard.
+if (import.meta.main) {
+  main().catch((err) => {
+    console.error("Fatal error in subagent runner:", err);
+    process.exit(1);
+  });
+}

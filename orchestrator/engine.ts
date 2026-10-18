@@ -2644,7 +2644,15 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error("Fatal error in orchestrator engine:", err);
-  process.exit(1);
-});
+// Only execute when run directly (`bun run orchestrator/engine.ts ...`).
+// Without this guard, ANY import of this module silently started a REAL
+// tick in the host process — tests/data_persist.test.ts imports
+// unionMirrorDir — and in the shared test suite the phantom tick could
+// reach plan(), find no inputs/ in a test's cwd, and process.exit(1) the
+// whole runner (observed as a silent suite death, exit 1, no summary).
+if (import.meta.main) {
+  main().catch((err) => {
+    console.error("Fatal error in orchestrator engine:", err);
+    process.exit(1);
+  });
+}
