@@ -58,6 +58,7 @@ If `approved` is false:
 }
 ```
 Every `suggestedFixes` entry MUST map to a concrete finding in `notes` — no generic advice.
+When `approved` is true, `suggestedFixes` MUST be `[]`. The engine converts ANY approval that carries findings into a rejection round, so listing non-blocking advice against an approval forces a full rework cycle. Non-blocking follow-ups already tracked in the report's section 3 Todo — or explicitly deferred to a different task — are NOT findings: never list them. `suggestedFixes` is reserved for reject-grade issues only.
 
 ## 🚫 Automatic-Reject Criteria (fail closed, no exceptions)
 

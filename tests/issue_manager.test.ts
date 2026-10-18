@@ -1,6 +1,8 @@
 import { describe, it, expect } from "bun:test";
-import { selectPrunableComments } from "../orchestrator/issue_manager.ts";
+import { selectPrunableComments, applyOperatorRetryReset } from "../orchestrator/issue_manager.ts";
 import type { PrunableComment } from "../orchestrator/issue_manager.ts";
+import { StateManager } from "../orchestrator/state_manager.ts";
+import type { Roadmap, TaskItem } from "../orchestrator/types.ts";
 
 describe("Dashboard Comment Pruning", () => {
   const H = 3600 * 1000;
@@ -82,5 +84,57 @@ describe("Dashboard Comment Pruning", () => {
 
   it("returns [] for empty input", () => {
     expect(selectPrunableComments([], { now: NOW })).toEqual([]);
+  });
+});
+
+describe("Operator reset survives a stale terminal persist (TASK-052 regression)", () => {
+  // Incident shape: TASK-052 FAILED at 01:33:50; /retry at 01:42:20 left the
+  // old timestamp, so the 01:43 tick persist reverted PENDING back to FAILED.
+  const staleStamp = "2026-10-18T01:33:50.215Z";
+  const resetNow = new Date("2026-10-18T01:42:20.000Z");
+  const mkTask = (): TaskItem =>
+    ({
+      id: "TASK-052",
+      title: "Neon Watch page: read-only spectator arena",
+      role: "frontend",
+      branch: "task/TASK-052",
+      status: "FAILED" as TaskItem["status"],
+      targetFiles: [],
+      dependencies: [],
+      attempts: 3,
+      updatedAt: staleStamp,
+      reviewNotes: "[NEEDS-HUMAN] unknown gate failure; reviewer diagnosis unusable",
+    }) satisfies TaskItem;
+  const mkRoadmap = (tasks: TaskItem[]): Roadmap => ({
+    projectName: "Test",
+    globalStatus: "IN_PROGRESS",
+    updatedAt: staleStamp,
+    tasks,
+  });
+
+  it("applyOperatorRetryReset stamps updatedAt strictly newer than the failure stamp", () => {
+    const task = mkTask();
+    applyOperatorRetryReset(task, resetNow);
+    expect(task.status).toBe("PENDING");
+    expect(task.attempts).toBe(0);
+    expect(Date.parse(task.updatedAt)).toBeGreaterThan(Date.parse(staleStamp));
+  });
+
+  it("a stale tick persist holding the FAILED copy cannot revert the reset (both merge directions)", () => {
+    const reset = mkTask();
+    applyOperatorRetryReset(reset, resetNow);
+    const staleTickCopy = mkTask(); // tick read pre-reset state; persists after chatops
+    // chatops persists first, stale tick copy merges second:
+    expect(StateManager.mergeRoadmaps(mkRoadmap([staleTickCopy]), mkRoadmap([reset])).tasks[0].status).toBe("PENDING");
+    // defensive symmetry: reset copy merges against a stale remote:
+    expect(StateManager.mergeRoadmaps(mkRoadmap([reset]), mkRoadmap([staleTickCopy])).tasks[0].status).toBe("PENDING");
+  });
+
+  it("WITHOUT the stamp the terminal copy wins the tie (guards the fix's intent)", () => {
+    const resetWithoutStamp = mkTask(); // simulates the pre-fix handler output
+    resetWithoutStamp.status = "PENDING";
+    resetWithoutStamp.attempts = 0;
+    const staleTickCopy = mkTask();
+    expect(StateManager.mergeRoadmaps(mkRoadmap([staleTickCopy]), mkRoadmap([resetWithoutStamp])).tasks[0].status).toBe("FAILED");
   });
 });

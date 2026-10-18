@@ -1,7 +1,7 @@
 import { GitManager } from "./git_manager.ts";
 import { CONFIG } from "./config.ts";
 import { StateManager } from "./state_manager.ts";
-import type { Roadmap } from "./types.ts";
+import type { Roadmap, TaskItem } from "./types.ts";
 
 /**
  * /revise target guard (pure, unit-tested). A revision task depends on its
@@ -25,6 +25,27 @@ export function getReviseBlocker(task: { id: string; role: string; status: strin
     );
   }
   return null;
+}
+
+/**
+ * ChatOps operator re-queue (/retry). MUST stamp a fresh `updatedAt`:
+ * StateManager.mergeRoadmaps breaks the terminal-vs-non-terminal tie at
+ * EQUAL timestamps in favor of the terminal copy, so a tick already in
+ * flight with the stale FAILED/COMPLETED snapshot would silently revert
+ * the human reset on its end-of-tick persist (TASK-052 incident:
+ * chatops reset at 01:42 kept the 01:33:50 timestamp, the 01:43 tick
+ * re-persisted FAILED). A strictly newer stamp makes the reset win the
+ * documented "newer non-terminal overrides older terminal" rule.
+ */
+export function applyOperatorRetryReset(task: TaskItem, now: Date = new Date()): void {
+  task.status = "PENDING";
+  task.attempts = 0;
+  task.resurrections = 0;
+  task.lastReviewSha = undefined;
+  task.lastGateVersion = undefined;
+  task.launchVerdict = undefined;
+  task.reviewDeferrals = 0;
+  task.updatedAt = now.toISOString();
 }
 
 /**
@@ -558,13 +579,7 @@ export class IssueManager {
             const task = roadmap.tasks.find((t) => t.id === taskId);
             if (task) {
               console.log(`🔄 ChatOps command received: /retry ${taskId}`);
-              task.status = "PENDING";
-              task.attempts = 0;
-              task.resurrections = 0;
-              task.lastReviewSha = undefined;
-              task.lastGateVersion = undefined;
-              task.launchVerdict = undefined;
-              task.reviewDeferrals = 0;
+              applyOperatorRetryReset(task);
               hasChanges = true;
               lines.push(`🔄 **Task [${taskId}] Re-queued:** attempts reset, status → PENDING.`);
             } else {
@@ -606,6 +621,10 @@ export class IssueManager {
             task.lastReviewSha = undefined;
             task.lastGateVersion = undefined;
             task.launchVerdict = undefined;
+            // Fresh stamp for the same tie-break reason as /retry: a stale
+            // tick persist holding the old terminal copy must not revert
+            // this reset (resets lose the equal-timestamp tie).
+            task.updatedAt = new Date().toISOString();
             hasChanges = true;
             await this.acknowledgeComment(
               dashboardNumber,
