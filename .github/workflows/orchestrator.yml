@@ -4,6 +4,12 @@ on:
   schedule:
     # Heartbeat check every 15 minutes to monitor subagents and advance roadmap
     - cron: '*/15 * * * *'
+    # Mirrored heartbeat at +7min offsets: GitHub throttles schedule events on
+    # busy repos (observed fires every ~2-4h instead of every 15min), and a
+    # missed heartbeat is what let a stale IN_PROGRESS task sit ~2.5h after a
+    # failed subagent run (TASK-060). Two interleaved crons double the fire
+    # attempts, halving the worst-case stall without touching engine logic.
+    - cron: '7,22,37,52 * * * *'
   workflow_dispatch:
     inputs:
       action:
