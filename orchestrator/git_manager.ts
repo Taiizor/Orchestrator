@@ -153,21 +153,32 @@ export class GitManager {
   /**
    * Count of LOCAL commits ahead of the remote task-branch tip. Positive
    * means commits exist only on this machine and a dead runner would lose
-   * them — publish/checkpoint must push before returning success. Returns
-   * -1 when the delta is unknowable (missing remote ref); callers must NOT
-   * treat that as "in sync".
+   * them — publish/checkpoint must push before returning success. When the
+   * task-branch ref is missing entirely (brand-new, never-published
+   * branch) the delta is measured against the integration branch instead:
+   * the runner bases every fresh task branch on it, so commits over
+   * develop are exactly the agent's unpushed work. Returns -1 only when
+   * neither ref resolves; callers must NOT treat that as "in sync".
    *
    * Why this exists: agents sometimes leave a plain `git commit` as their
    * handoff ("ready for the runner to publish"). Publish/checkpoint then
    * see an empty stage and — reading only REMOTE refs — conclude the work
    * is already on the branch, skipping the push. TASK-064 burned all three
-   * attempts exactly this way (605 green tests lost each time).
+   * attempts exactly this way (605 green tests lost each time). TASK-060
+   * hit the same class before its branch ever existed remotely: the
+   * missing branch ref made both probes return -1, publish aborted as
+   * "no committable output", and two full launch re-verifications died
+   * with their runners.
    */
   public static async localCommitsAhead(branchName: string): Promise<number> {
     const remote = this.contentRemote();
     const res = await this.run(["git", "rev-list", "--count", `${remote}/${branchName}..HEAD`]);
     if (res.exitCode === 0 && /^\d+$/.test(res.stdout.trim())) {
       return parseInt(res.stdout.trim(), 10);
+    }
+    const base = await this.run(["git", "rev-list", "--count", `${remote}/${CONFIG.INTEGRATION_BRANCH}..HEAD`]);
+    if (base.exitCode === 0 && /^\d+$/.test(base.stdout.trim())) {
+      return parseInt(base.stdout.trim(), 10);
     }
     return -1;
   }
