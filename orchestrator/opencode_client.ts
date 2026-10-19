@@ -1,5 +1,5 @@
 import { CONFIG } from "./config.ts";
-import { effectiveContextWindows, loadModelRegistry, resolvableModelIds } from "./model_registry.ts";
+import { effectiveContextWindows, loadModelRegistry } from "./model_registry.ts";
 
 export interface OpenCodeUsage {
   cost: number;
@@ -27,13 +27,6 @@ export class OpenCodeClient {
    * fallback chain; the static table in CONFIG fills the gaps.
    */
   private static liveWindows = new Map<string, number>();
-
-  /**
-   * Model ids the CLI can resolve right now. Null when the registry could
-   * not be read — then nothing is filtered (absence of evidence must not
-   * disable a legitimate fallback).
-   */
-  private static liveResolvable: Set<string> | null = null;
 
   /**
    * Extract text chunks from OpenCode JSON event stream or fallback to raw stdout.
@@ -548,12 +541,13 @@ export class OpenCodeClient {
     }
   ): Promise<OpenCodeRunResult> {
     // Live registry: the CLI's own catalog is the source of truth for context
-    // windows and for what it can resolve at all. One call per process
-    // (memoized); an unreachable CLI keeps the static table as the fallback.
+    // windows. One call per process (memoized); an unreachable CLI keeps the
+    // static table as the fallback. The catalog is only refreshed by the
+    // model-request path, so a model missing from it is NOT proof that the
+    // CLI cannot resolve it — the roster is never filtered on this.
     const registry = await loadModelRegistry();
     if (registry) {
       OpenCodeClient.liveWindows = effectiveContextWindows(registry);
-      OpenCodeClient.liveResolvable = resolvableModelIds(registry);
     }
 
     const candidateModels: { model: string; variant?: string }[] = [];
@@ -575,15 +569,6 @@ export class OpenCodeClient {
     // Priority 2: Free models ordered from best to worst
     for (const m of CONFIG.FREE_MODELS as (string | { model: string; variant?: string })[]) {
       const spec = typeof m === "string" ? this.parseModelSpec(m) : { model: m.model, variant: m.variant };
-      // A model the CLI cannot resolve comes back as "Model unavailable" —
-      // skip it before the attempt instead of burning one on it. The
-      // explicit OPENCODE_MODEL is user intent and is always attempted.
-      if (OpenCodeClient.liveResolvable && !OpenCodeClient.liveResolvable.has(spec.model)) {
-        console.warn(
-          `⏭️ [OpenCode] Skipping ${spec.model}: the CLI's model registry does not list it (stale model snapshot — allow the models fetch or bump the CLI pin).`
-        );
-        continue;
-      }
       pushUnique(spec);
     }
 

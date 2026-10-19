@@ -1,10 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import {
-  parseModelRegistry,
-  contextWindowsOf,
-  resolvableModelIds,
-  effectiveContextWindows,
-} from "../orchestrator/model_registry.ts";
+import { parseModelRegistry, contextWindowsOf, effectiveContextWindows } from "../orchestrator/model_registry.ts";
 
 const PAYLOAD = {
   location: { directory: "/repo" },
@@ -86,15 +81,6 @@ describe("Model registry", () => {
     it("drops entries without a usable window", () => {
       const windows = contextWindowsOf(parseModelRegistry(JSON.stringify({ data: [{ providerID: "p", modelID: "m" }] })));
       expect(windows.size).toBe(0);
-    });
-  });
-
-  describe("resolvableModelIds", () => {
-    it("lists only enabled models", () => {
-      const ids = resolvableModelIds(parseModelRegistry(JSON.stringify(PAYLOAD)));
-      expect(ids.has("opencode/minimax-m3.1-flash-free")).toBe(true);
-      expect(ids.has("opencode/deepseek-v4.1-flash-free")).toBe(false);
-      expect(ids.size).toBe(2);
     });
   });
 

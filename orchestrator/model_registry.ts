@@ -126,11 +126,6 @@ export function contextWindowsOf(models: RegistryModel[]): Map<string, number> {
   return windows;
 }
 
-/** Ids the CLI can resolve right now (its own registry, minus disabled models). */
-export function resolvableModelIds(models: RegistryModel[]): Set<string> {
-  return new Set(models.filter((m) => m.enabled).map((m) => m.id));
-}
-
 /**
  * Effective context windows: the live registry wins, the static table fills
  * the gaps for models the registry does not report.
