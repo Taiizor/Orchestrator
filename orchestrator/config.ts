@@ -87,6 +87,7 @@ export const CONFIG = {
   // Models without variant support omit the field and run with OpenCode default.
   // Syntax alternative: "provider/model#variant" is also parsed (see opencode_client.ts).
   FREE_MODELS: [
+    { model: "opencode/minimax-m3.1-flash-free", variant: "max" },
     { model: "opencode/deepseek-v4.1-flash-free", variant: "max" },
     { model: "opencode/mimo-v2.6-flash-free" },
     { model: "opencode/glm-5.3-flash-free", variant: "max" },
