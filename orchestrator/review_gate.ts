@@ -118,8 +118,17 @@ export function isAllowedFile(task: TaskItem, file: string): boolean {
   // Service auto-adopt requests: the tick validates and merges them into
   // roadmap.services (durable from the next run).
   if (file === "workspace/services.request.json") return true;
-  // Empty directory placeholders are legitimate scaffolding, not scope creep
-  if (file.endsWith("/.gitkeep") || file === ".gitkeep") return true;
+  // Git hygiene files (.gitkeep, .gitignore, .gitattributes) are legitimate scaffolding, not scope creep
+  if (
+    file.endsWith("/.gitkeep") ||
+    file === ".gitkeep" ||
+    file.endsWith("/.gitignore") ||
+    file === ".gitignore" ||
+    file.endsWith("/.gitattributes") ||
+    file === ".gitattributes"
+  ) {
+    return true;
+  }
   // Build manifests and lockfiles are always in scope: a task that needs a
   // module where none exists must init it (go.mod, package.json-adjacent
   // locks), and builds must stay reproducible. Without this, the gate killed
@@ -506,7 +515,7 @@ export function priorFixRounds(notes?: string): string[] {
  * under a previous version must be re-evaluated, never skipped by the
  * unchanged-tip optimization.
  */
-export const GATE_VERSION = 13;
+export const GATE_VERSION = 14;
 
 /**
  * Deterministic pre-LLM gate. Fails fast on empty diff, missing progress

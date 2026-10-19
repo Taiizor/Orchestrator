@@ -180,8 +180,8 @@ describe("Review Gate Module", () => {
       expect(typeof GATE_VERSION).toBe("number");
       expect(GATE_VERSION).toBeGreaterThan(0);
     });
-    it("is 13 after adding .NET compiler output junk paths", () => {
-      expect(GATE_VERSION).toBe(13);
+    it("is 14 after adding git hygiene file exemptions", () => {
+      expect(GATE_VERSION).toBe(14);
     });
   });
 
@@ -367,6 +367,9 @@ describe("Review Gate Module", () => {
       expect(isAllowedFile(task, "workspace/api/handlers/auth.go")).toBe(true);
       expect(isAllowedFile(task, "workspace/TASK_PROGRESS.md")).toBe(true);
       expect(isAllowedFile(task, "workspace/CONTRACTS.md")).toBe(true);
+      expect(isAllowedFile(task, "workspace/.gitignore")).toBe(true);
+      expect(isAllowedFile(task, "workspace/.gitattributes")).toBe(true);
+      expect(isAllowedFile(task, "workspace/.gitkeep")).toBe(true);
     });
   });
 });
