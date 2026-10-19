@@ -167,6 +167,8 @@ The order is quality-first: the strongest agentic coders lead the chain. Context
 
 Provider capacity flaps are handled explicitly: free models can drain for a few minutes and the provider then answers `Model unavailable` (an empty stderr, an error event in the stream) instead of a 429. The engine reads both surfaces, marks that model unavailable for 10 minutes — so it leaves the chain instead of being retried on every call — and continues on the next candidate. The model id stays valid; the same call succeeds once the pool refills.
 
+**Model registry freshness — do not re-disable the models fetch.** The CLI resolves models from a snapshot baked into its build, not from a live list. With `OPENCODE_DISABLE_MODELS_FETCH=true` a cold runner only sees the models that existed when the pinned CLI was built, and anything released later is rejected client-side with `Model unavailable` — declaring the model in `opencode.json` does not help, because the gate is the CLI's own registry. The workflows therefore keep the fetch enabled (`OPENCODE_DISABLE_MODELS_FETCH: "false"`): one models.dev GET per job buys the current free roster. The action cache keeps the pinned CLI binary sticky — `opencode-<version>` is part of the cache key, so a CLI bump is what invalidates it.
+
 ### 5. ⏱️ Actions Timeouts & Deadlock Watchdog
 - **Subagents:** `timeout-minutes: 75` (Broad window for compilation, tests, and free model latency, while preventing quota exhaustion; each model call is capped at 60 min with fallback to the next model).
 - **Orchestrator:** `timeout-minutes: 30` (Quick review & dispatch cycle).

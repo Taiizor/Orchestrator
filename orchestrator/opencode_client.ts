@@ -265,7 +265,7 @@ export class OpenCodeClient {
     if (!OpenCodeClient.isModelUnavailable(text)) return false;
     OpenCodeClient.markModelUnavailable(model);
     console.warn(
-      `🚫 [OpenCode] Provider reports ${label} as unavailable (free-pool capacity) — it stays out of the chain for the next 10 minutes.`
+      `🚫 [OpenCode] ${label} is unavailable — skipping it for the next 10 minutes. Either the provider's free pool is momentarily empty (usually transient), or the CLI's bundled model snapshot predates the model (then it fails on every cold runner: allow the models fetch or bump the CLI pin).`
     );
     return true;
   }
