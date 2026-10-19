@@ -33,7 +33,7 @@ export class ConflictResolver {
 
       const prompt = `${promptTemplate}\n\nFile Path: ${filePath}\n\nConflicted Content:\n\`\`\`\n${fileContent}\n\`\`\`\n\nProvide the resolved file content now:`;
 
-      const aiRes = await OpenCodeClient.runWithFallback(prompt, { timeoutMs: 8 * 60 * 1000 });
+      const aiRes = await OpenCodeClient.runWithFallback(prompt, { timeoutMs: 10 * 60 * 1000 });
 
       // Extract resolved content from markdown code blocks. The model wraps
       // the file in ONE fence, but resolved CONTENT may itself contain

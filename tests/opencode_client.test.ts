@@ -141,6 +141,23 @@ describe("OpenCode Client Module", () => {
       expect(res.stdout).toContain("tick3");
       expect(Date.now() - started).toBeGreaterThanOrEqual(2_500);
     });
+
+    it("should extend deadline when process continues emitting activity past base timeout", async () => {
+      const started = Date.now();
+      // Base timeout 1_000ms, but process emits every 300ms for 2_000ms total
+      const res = await runStreaming(
+        ["bun", "-e", "let i=0;const t=setInterval(()=>{console.log('work'+(++i));if(i>=6){clearInterval(t);}},300);"],
+        undefined,
+        1_000,
+        "test",
+        500,
+        1_500
+      );
+      expect(res.exitCode).toBe(0);
+      expect(res.timedOut).toBe(false);
+      expect(res.stdout).toContain("work6");
+      expect(Date.now() - started).toBeGreaterThanOrEqual(1_800);
+    });
   });
 
   describe("session helpers", () => {

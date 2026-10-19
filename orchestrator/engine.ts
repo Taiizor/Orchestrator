@@ -1381,7 +1381,7 @@ export class OrchestratorEngine {
         `Evaluate whether to approve or reject this work:`;
 
       const res = await OpenCodeClient.runWithFallback(reviewPrompt, {
-        timeoutMs: 8 * 60 * 1000,
+        timeoutMs: 10 * 60 * 1000,
         // Explicit session title (parity with subagent runs, which pass one
         // and keep working on CI): keeps sessions identifiable in
         // `session list` and avoids the fresh-session internal

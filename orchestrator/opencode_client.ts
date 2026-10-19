@@ -430,38 +430,90 @@ export class OpenCodeClient {
     };
     const pumps = Promise.all([pump(proc.stdout, outChunks, false), pump(proc.stderr, errChunks, true)]);
 
-    const digestTimer = setInterval(() => {
-      const elapsed = Math.round((Date.now() - started) / 1000);
-      const idle = Math.round((Date.now() - lastActivity) / 1000);
-      console.log(
-        `⏳ [OpenCode] ${label} alive: ${elapsed}s elapsed, ${(outBytes / 1024).toFixed(0)}KB out, ~${toolEvents} tool events (last: ${lastTool}), last activity ${idle}s ago.`
-      );
-      if (quotaHit && !quotaKill && !timedOut && Date.now() - lastActivity > quotaIdleMs) {
+    // Progress-aware watchdog: never kill a working model on words or blind clocks alone.
+    // - Idle threshold: 15m of silence when past base budget (or proportional for small timeouts).
+    // - Hard cap: 2.5x base budget (or base + 20m) to prevent runaway loops.
+    // - As long as the model produces output or tool events, execution is extended.
+    const IDLE_CEILING_MS = 15 * 60 * 1000;
+    const maxIdleMs = timeoutMs >= 30_000 ? IDLE_CEILING_MS : Math.max(1_000, Math.floor(timeoutMs * 0.5));
+    const hardCapMs = Math.max(timeoutMs * 2.5, timeoutMs + 20 * 60 * 1000);
+    const checkIntervalMs = Math.min(digestMs, 2_000);
+    let lastDigestTime = started;
+    let extensionsLogged = 0;
+
+    const watchdog = setInterval(() => {
+      const now = Date.now();
+      const elapsedMs = now - started;
+      const idleMs = now - lastActivity;
+      const elapsedSec = Math.round(elapsedMs / 1000);
+      const idleSec = Math.round(idleMs / 1000);
+
+      // Periodic progress digest
+      if (now - lastDigestTime >= digestMs) {
+        lastDigestTime = now;
+        console.log(
+          `⏳ [OpenCode] ${label} alive: ${elapsedSec}s elapsed, ${(outBytes / 1024).toFixed(0)}KB out, ~${toolEvents} tool events (last: ${lastTool}), last activity ${idleSec}s ago.`
+        );
+      }
+
+      // Quota kill: error 429 followed by silence
+      if (quotaHit && !quotaKill && !timedOut && idleMs > quotaIdleMs) {
         quotaKill = true;
         console.warn(
-          `⚠️ [OpenCode] ${label} aborting: quota signal with 120s of silence. Trigger: ${quotaSnippet || "(unavailable)"}`
+          `⚠️ [OpenCode] ${label} aborting: quota signal with ${Math.round(quotaIdleMs / 1000)}s of silence. Trigger: ${quotaSnippet || "(unavailable)"}`
         );
         try {
           proc.kill();
         } catch {
           /* already exited */
         }
+        return;
       }
-    }, digestMs);
-    (digestTimer as unknown as { unref?: () => void }).unref?.();
 
-    const killTimer = setTimeout(() => {
-      timedOut = true;
-      try {
-        proc.kill();
-      } catch {
-        /* already exited */
+      // Timeout watchdog: progress-aware deadline
+      if (!timedOut && !quotaKill) {
+        const pastBaseTimeout = elapsedMs >= timeoutMs;
+        const hitHardCap = elapsedMs >= hardCapMs;
+        const isIdleTooLong = idleMs >= maxIdleMs;
+
+        if (hitHardCap) {
+          timedOut = true;
+          console.warn(
+            `⚠️ [OpenCode] ${label} reached absolute hard ceiling of ${Math.round(hardCapMs / 1000)}s (${elapsedSec}s elapsed). Aborting.`
+          );
+          try {
+            proc.kill();
+          } catch {
+            /* already exited */
+          }
+        } else if (pastBaseTimeout) {
+          if (isIdleTooLong) {
+            timedOut = true;
+            console.warn(
+              `⚠️ [OpenCode] ${label} timed out after ${elapsedSec}s: no activity for ${idleSec}s (idle limit: ${Math.round(maxIdleMs / 1000)}s, base budget: ${Math.round(timeoutMs / 1000)}s).`
+            );
+            try {
+              proc.kill();
+            } catch {
+              /* already exited */
+            }
+          } else {
+            // Model is active past base timeout! Extend deadline while progress continues.
+            const extensionMinutes = Math.floor((elapsedMs - timeoutMs) / 60_000);
+            if (extensionMinutes > extensionsLogged) {
+              extensionsLogged = extensionMinutes;
+              console.log(
+                `⏳ [OpenCode] ${label} active past ${Math.round(timeoutMs / 1000)}s budget (last activity ${idleSec}s ago, ~${toolEvents} tool events). Extending deadline while progress continues (hard cap: ${Math.round(hardCapMs / 1000)}s)...`
+              );
+            }
+          }
+        }
       }
-    }, timeoutMs);
+    }, checkIntervalMs);
+    (watchdog as unknown as { unref?: () => void }).unref?.();
 
     const exitCode = await proc.exited;
-    clearTimeout(killTimer);
-    clearInterval(digestTimer);
+    clearInterval(watchdog);
     await pumps;
     if (timedOut) errChunks.push(`\n[TIMEOUT after ${timeoutMs}ms: ${cmd[0]}]`);
     const stdout = outChunks.join("");
