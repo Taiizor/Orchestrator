@@ -1,4 +1,4 @@
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, spyOn } from "bun:test";
 import { OpenCodeClient } from "../orchestrator/opencode_client.ts";
 
 describe("OpenCode Client Module", () => {
@@ -258,6 +258,53 @@ describe("OpenCode Client Module", () => {
       expect(OpenCodeClient.parseSessionListId("[]")).toBeUndefined();
       expect(OpenCodeClient.parseSessionListId("not json at all")).toBeUndefined();
       expect(OpenCodeClient.parseSessionListId("")).toBeUndefined();
+    });
+  });
+
+  describe("context-window aware fallback", () => {
+    it("resolves known roster context windows", () => {
+      expect(OpenCodeClient.contextWindow("opencode/minimax-m3.1-flash-free")).toBe(1_000_000);
+      expect(OpenCodeClient.contextWindow("opencode/deepseek-v4.1-flash-free")).toBe(200_000);
+      expect(OpenCodeClient.contextWindow("opencode/longcat-2.5-preview-free")).toBe(1_000_000);
+    });
+
+    it("returns undefined for models outside the roster table", () => {
+      expect(OpenCodeClient.contextWindow("opencode/some-unlisted-model")).toBeUndefined();
+    });
+
+    it("skips nothing while no overflow floor is set", () => {
+      expect(OpenCodeClient.shouldSkipAfterOverflow("opencode/deepseek-v4.1-flash-free", 0)).toBe(false);
+    });
+
+    it("skips candidates narrower than the model that overflowed", () => {
+      // The 1M model leads the roster: a session it rejected can never fit
+      // the 200K models behind it, so those attempts are guaranteed losses.
+      expect(OpenCodeClient.shouldSkipAfterOverflow("opencode/deepseek-v4.1-flash-free", 1_000_000)).toBe(true);
+      expect(OpenCodeClient.shouldSkipAfterOverflow("opencode/mimo-v2.6-flash-free", 1_000_000)).toBe(true);
+      expect(OpenCodeClient.shouldSkipAfterOverflow("opencode/glm-5.3-flash-free", 1_000_000)).toBe(true);
+    });
+
+    it("keeps candidates at least as wide as the overflowed model", () => {
+      expect(OpenCodeClient.shouldSkipAfterOverflow("opencode/longcat-2.5-preview-free", 1_000_000)).toBe(false);
+      expect(OpenCodeClient.shouldSkipAfterOverflow("opencode/nemotron-3-ultra-free", 1_000_000)).toBe(false);
+    });
+
+    it("never skips a model without a known window", () => {
+      expect(OpenCodeClient.shouldSkipAfterOverflow("opencode/unknown-model", 1_000_000)).toBe(false);
+    });
+
+    it("raises the floor to the failed model's window and never lowers it", () => {
+      const noteOverflow = (OpenCodeClient as any).noteOverflow;
+      const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        expect(noteOverflow("minimax#max", "opencode/minimax-m3.1-flash-free", 0)).toBe(1_000_000);
+        // A narrower failure must not lower the floor.
+        expect(noteOverflow("deepseek#max", "opencode/deepseek-v4.1-flash-free", 1_000_000)).toBe(1_000_000);
+        // An unknown window leaves the floor untouched.
+        expect(noteOverflow("unknown", "opencode/unknown-model", 200_000)).toBe(200_000);
+      } finally {
+        warnSpy.mockRestore();
+      }
     });
   });
 });

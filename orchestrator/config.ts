@@ -81,11 +81,20 @@ export const CONFIG = {
   // Subagent task progress file inside workspace
   TASK_PROGRESS_FILE: "TASK_PROGRESS.md",
 
-  // OpenCode Models & Free-Tier Fallback Chain (quality-first order; 1M-context
-  // models trail as fail-fast context-overflow rescues).
+  // OpenCode Models & Free-Tier Fallback Chain (quality-first order).
   // variant = provider-specific reasoning effort (e.g. xhigh/high/medium/low).
   // Models without variant support omit the field and run with OpenCode default.
   // Syntax alternative: "provider/model#variant" is also parsed (see opencode_client.ts).
+  //
+  // minimax-m3.1-flash-free leads the roster while its free tier is active
+  // (free window announced 2026-10-19, ~3 days) and it also carries the
+  // widest context window of the roster (1M). With a 1M model at the head, a
+  // session that overflows it can never fit the 200K models behind it, so the
+  // chain skips narrower candidates via FREE_MODEL_CONTEXT_WINDOWS and
+  // continues with the remaining 1M rescues (see opencode_client.ts).
+  //
+  // PROMO WATCH: when the 3-day free window ends, minimax leaves the free
+  // tier — demote it from the primary slot then (re-check models.dev first).
   FREE_MODELS: [
     { model: "opencode/minimax-m3.1-flash-free", variant: "max" },
     { model: "opencode/deepseek-v4.1-flash-free", variant: "max" },
@@ -94,6 +103,20 @@ export const CONFIG = {
     { model: "opencode/longcat-2.5-preview-free" },
     { model: "opencode/nemotron-3-ultra-free" },
   ] as { model: string; variant?: string }[],
+
+  // Context windows for the free roster (models.dev registry snapshot,
+  // verified 2026-10-19). The fallback chain uses them to skip candidates
+  // that cannot absorb a session which already overflowed a wider model.
+  // A model missing from this map is never skipped: absent evidence must not
+  // disable a legitimate fallback.
+  FREE_MODEL_CONTEXT_WINDOWS: {
+    "opencode/minimax-m3.1-flash-free": 1_000_000,
+    "opencode/deepseek-v4.1-flash-free": 200_000,
+    "opencode/mimo-v2.6-flash-free": 200_000,
+    "opencode/glm-5.3-flash-free": 200_000,
+    "opencode/longcat-2.5-preview-free": 1_000_000,
+    "opencode/nemotron-3-ultra-free": 1_000_000,
+  } as Record<string, number | undefined>,
   OPENCODE_MODEL: process.env.OPENCODE_MODEL || "", // If set, prioritizes this model before fallback chain. Supports "provider/model#variant" syntax.
   OPENCODE_VARIANT: process.env.OPENCODE_VARIANT || "", // Optional default variant when OPENCODE_MODEL has no "#variant" suffix.
   STANDALONE: true, // Non-interactive standalone server for GitHub Actions

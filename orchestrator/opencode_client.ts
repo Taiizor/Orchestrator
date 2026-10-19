@@ -166,11 +166,49 @@ export class OpenCodeClient {
 
   /**
    * Whether failure text indicates a context-window rejection (stderr text or
-   * an extracted error event). Advisory only: the roster's trailing 1M-context
-   * models are the designed rescue, so this tags logs without changing flow.
+   * an extracted error event). Also drives the chain's window floor: a model
+   * that rejected the session for exceeding its window tells us every
+   * narrower model is a guaranteed failure for the same session, so the
+   * chain skips them instead of re-shipping the oversized context.
    */
   public static isContextOverflow(text: string): boolean {
     return !!text && OpenCodeClient.CONTEXT_OVERFLOW_RX.test(text);
+  }
+
+  /**
+   * Context window of a model, when known. Source: the roster table in
+   * CONFIG (models.dev registry snapshot). Unknown models resolve to
+   * undefined so the chain never skips a candidate it has no evidence
+   * against.
+   */
+  public static contextWindow(model: string): number | undefined {
+    return CONFIG.FREE_MODEL_CONTEXT_WINDOWS[model];
+  }
+
+  /**
+   * Whether a candidate must be skipped after a context-window rejection.
+   * A model whose window is narrower than the one that just overflowed
+   * cannot absorb the same session: the attempt is a guaranteed failure that
+   * still costs a CLI call and re-ships the oversized session.
+   */
+  public static shouldSkipAfterOverflow(candidate: string, floor: number): boolean {
+    if (!floor) return false;
+    const window = OpenCodeClient.contextWindow(candidate);
+    return window !== undefined && window < floor;
+  }
+
+  /**
+   * Log a context overflow and raise the chain's window floor to the failed
+   * model's window (when known). Returns the new floor.
+   */
+  private static noteOverflow(label: string, model: string, floor: number): number {
+    const window = OpenCodeClient.contextWindow(model);
+    const nextFloor = window && window > floor ? window : floor;
+    const note = window
+      ? `${window.toLocaleString("en-US")}-token window; narrower models are skipped from here`
+      : "window; the wider-window rescue is expected";
+    console.warn(`   ↳ 🧠 Context overflow on ${label} — the session outgrew this model's ${note}.`);
+    return nextFloor;
   }
 
   /** Cost/tokens/steps summed over step_finish events (units as reported). */
@@ -482,6 +520,12 @@ export class OpenCodeClient {
     let totalTokens = 0;
     let totalSteps = 0;
     const timeoutMs = options?.timeoutMs ?? OpenCodeClient.DEFAULT_TIMEOUT_MS;
+    // Window floor for the remaining candidates: raised when a model rejects
+    // the session for exceeding its context window. Only models at least as
+    // wide as the one that overflowed can still absorb the session, so
+    // narrower candidates are skipped instead of burning a CLI call on a
+    // guaranteed failure.
+    let overflowFloor = 0;
     const attempt = async (cmd: string[], message: string | undefined, label: string) => {
       const res = await OpenCodeClient.runStreaming(cmd, message, timeoutMs, label);
       if (res.sessionId) lastSessionId = res.sessionId;
@@ -512,6 +556,12 @@ export class OpenCodeClient {
 
     for (let i = 0; i < candidateModels.length; i++) {
       const spec = candidateModels[i];
+      if (OpenCodeClient.shouldSkipAfterOverflow(spec.model, overflowFloor)) {
+        console.warn(
+          `⏭️ [OpenCode] Skipping ${OpenCodeClient.displaySpec(spec)}: context window ${OpenCodeClient.contextWindow(spec.model)} < ${overflowFloor} (the session already overflowed a wider model).`
+        );
+        continue;
+      }
       const label = OpenCodeClient.displaySpec(spec);
       const sess = useContinuation || useFork ? lastSessionId : undefined;
       const fork = useFork && !!sess;
@@ -618,9 +668,7 @@ export class OpenCodeClient {
         const detail = OpenCodeClient.extractErrorDetail(retryRes.stdout) || OpenCodeClient.extractErrorDetail(res.stdout);
         if (detail) console.warn(`   ↳ error event: ${detail.slice(0, 300)}`);
         if (OpenCodeClient.isContextOverflow(`${retryRes.stderr}\n${res.stderr}\n${detail ?? ""}`)) {
-          console.warn(
-            `   ↳ 🧠 Context overflow on ${label} — the session outgrew this model's window; the trailing 1M-context rescue is expected.`
-          );
+          overflowFloor = OpenCodeClient.noteOverflow(label, spec.model, overflowFloor);
         }
         lastResult = {
           stdout: retryParsed,
@@ -641,9 +689,7 @@ export class OpenCodeClient {
       const detail = OpenCodeClient.extractErrorDetail(res.stdout);
       if (detail) console.warn(`   ↳ error event: ${detail.slice(0, 300)}`);
       if (OpenCodeClient.isContextOverflow(`${res.stderr}\n${detail ?? ""}`)) {
-        console.warn(
-          `   ↳ 🧠 Context overflow on ${label} — the session outgrew this model's window; the trailing 1M-context rescue is expected.`
-        );
+        overflowFloor = OpenCodeClient.noteOverflow(label, spec.model, overflowFloor);
       }
       lastResult = {
         stdout: parsedStdout,

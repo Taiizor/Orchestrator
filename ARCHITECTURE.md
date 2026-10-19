@@ -79,7 +79,7 @@ sequenceDiagram
     Note over Orch: 💤 Orchestrator shuts down (0 runner minutes wasted!)
 
     GH->>Sub: Starts parallel Subagent jobs (task branches)
-    Sub->>Sub: Runs OpenCode (deepseek / nemotron free models)
+    Sub->>Sub: Runs OpenCode (free model cascade)
     Sub->>Sub: Writes code, runs stack tests, updates TASK_PROGRESS.md
     Sub->>GH: Pushes branch & marks task IN_REVIEW
     Sub->>GH: 🔔 Wakes up Orchestrator (gh workflow run orchestrator.yml)
@@ -154,13 +154,16 @@ Before any branch is merged into `develop`:
 ### 4. 🎁 100% Free-Tier & Zero-Cost Model Cascade
 OpenCode allows execution without registration or API keys through generous IP-rate-limited free models. Because **every GitHub Actions runner receives a brand-new IP address**, rate limits are practically non-existent across runs!
 The built-in [`OpenCodeClient`](orchestrator/opencode_client.ts) features an automatic fallback cascade:
-1. `opencode/deepseek-v4.1-flash-free#max` *(Primary)*
-2. `opencode/mimo-v2.6-flash-free` *(Fallback 1)*
-3. `opencode/glm-5.3-flash-free#max` *(Fallback 2)*
-4. `opencode/longcat-2.5-preview-free` *(Fallback 3)*
-5. `opencode/nemotron-3-ultra-free` *(Fallback 4)*
+1. `opencode/minimax-m3.1-flash-free#max` *(Primary — 1M context, free-tier window from 2026-10-19)*
+2. `opencode/deepseek-v4.1-flash-free#max` *(Fallback 1 — 200K)*
+3. `opencode/mimo-v2.6-flash-free` *(Fallback 2 — 200K)*
+4. `opencode/glm-5.3-flash-free#max` *(Fallback 3 — 200K)*
+5. `opencode/longcat-2.5-preview-free` *(Fallback 4 — 1M)*
+6. `opencode/nemotron-3-ultra-free` *(Fallback 5 — 1M)*
 
-The order is quality-first: the strongest agentic coders lead the chain, while the 1M-context models (longcat, nemotron) trail deliberately — context-overflow errors fail fast, so the trailing rescue stays cheap.
+The order is quality-first: the strongest agentic coders lead the chain. Context windows are tracked per model (`FREE_MODEL_CONTEXT_WINDOWS` in [`config.ts`](orchestrator/config.ts), a models.dev registry snapshot): when a model rejects a session for exceeding its window, the chain raises a window floor and **skips every remaining candidate with a narrower window**, continuing with the wide-window rescues (longcat, nemotron). Without that skip, promoting the 1M-context `minimax-m3.1-flash-free` to the head would route every oversized session through the 200K models first — three guaranteed failures, each re-shipping the oversized context.
+
+> **Promo watch:** `minimax-m3.1-flash-free` is free for a ~3-day window starting 2026-10-19. When that window closes, demote it from the primary slot (re-check models.dev first) — the chain keeps running on the remaining free models either way.
 
 ### 5. ⏱️ Actions Timeouts & Deadlock Watchdog
 - **Subagents:** `timeout-minutes: 75` (Broad window for compilation, tests, and free model latency, while preventing quota exhaustion; each model call is capped at 60 min with fallback to the next model).

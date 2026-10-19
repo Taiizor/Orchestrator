@@ -84,6 +84,27 @@ describe("Config Module", () => {
     warnSpy.mockRestore();
   });
 
+  describe("free model roster", () => {
+    it("should give every free model a known context window", () => {
+      // A roster entry without a window cannot be skipped after a context
+      // rejection, and silently disables the narrow-candidate skip.
+      const windows = CONFIG.FREE_MODEL_CONTEXT_WINDOWS;
+      for (const entry of CONFIG.FREE_MODELS as (string | { model: string })[]) {
+        const id = typeof entry === "string" ? entry : entry.model;
+        expect(windows[id]).toBeDefined();
+      }
+    });
+
+    it("should keep a wide-window rescue reachable after the primary", () => {
+      // An oversized session must have somewhere to go: at least one later
+      // model has to be at least as wide as the primary.
+      const roster = CONFIG.FREE_MODELS as { model: string }[];
+      const primaryWindow = CONFIG.FREE_MODEL_CONTEXT_WINDOWS[roster[0].model] ?? 0;
+      const hasRescue = roster.slice(1).some((m) => (CONFIG.FREE_MODEL_CONTEXT_WINDOWS[m.model] ?? 0) >= primaryWindow);
+      expect(hasRescue).toBe(true);
+    });
+  });
+
   describe("isEngineEnabled (ORCHESTRATOR_ENABLED kill switch)", () => {
     it("is ON when unset or empty", () => {
       (CONFIG as any).ORCHESTRATOR_ENABLED = "";
