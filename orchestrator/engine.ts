@@ -216,7 +216,8 @@ export class OrchestratorEngine {
             `${systemPrompt}\n\nYou are expanding a thin draft specification. Gaps found:\n- ${gaps.join("\n- ")}` +
             `\n\nCurrent draft:\n${compiledSpecContent}\n\nReturn the COMPLETE merged specification as full markdown ` +
             `(preserve everything already written, fill only the gaps — no "...etc", no placeholders):`;
-          const expandRes = await OpenCodeClient.runWithFallback(expandPrompt, { timeoutMs: 10 * 60 * 1000 });
+          const expandTimeoutMs = CONFIG.SPEC_EXPANSION_TIMEOUT_MINUTES * 60 * 1000;
+          const expandRes = await OpenCodeClient.runWithFallback(expandPrompt, { timeoutMs: expandTimeoutMs });
           const expanded = (expandRes.stdout || "").trim();
           if (expandRes.exitCode === 0 && expanded) {
             const regaps = findSpecGaps(expanded, analystPromptTemplate);

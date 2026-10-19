@@ -21,6 +21,8 @@ export const CONFIG = {
   // budget. Prevents an idle night after a terminal failure.
   FAILED_RESURRECT_COOLDOWN_MIN: safeInt(process.env.FAILED_RESURRECT_COOLDOWN_MIN, 60),
   FAILED_AUTO_RESURRECT_MAX: safeInt(process.env.FAILED_AUTO_RESURRECT_MAX, 2),
+  // Stage 1 spec expansion timeout (minutes): configurable per project scale
+  SPEC_EXPANSION_TIMEOUT_MINUTES: safeInt(process.env.SPEC_EXPANSION_TIMEOUT_MINUTES, 30),
   // Skill Forger: collected project skills per run. 0 = uncapped (default):
   // caps only truncate the forger's output, never the agent's ability to
   // load staged skills on demand. Override via MAX_FORGED_SKILLS.

@@ -52,7 +52,7 @@ jobs:
       OPENCODE_DISABLE_MODELS_FETCH: "true"
       OPENCODE_DISABLE_AUTOUPDATE: "true"
       OPENCODE_DISABLE_LSP_DOWNLOAD: "true"
-    timeout-minutes: 30
+    timeout-minutes: 60
     permissions:
       contents: write
       actions: write
