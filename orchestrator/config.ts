@@ -104,9 +104,10 @@ export const CONFIG = {
     { model: "opencode/nemotron-3-ultra-free" },
   ] as { model: string; variant?: string }[],
 
-  // Context windows for the free roster (models.dev registry snapshot,
-  // verified 2026-10-19). The fallback chain uses them to skip candidates
-  // that cannot absorb a session which already overflowed a wider model.
+  // Fallback context windows for the free roster (models.dev snapshot,
+  // verified 2026-10-19). The live values come from the CLI's own model
+  // registry (see model_registry.ts); this table only covers the case where
+  // the CLI cannot be reached (no service, timeout, unparsable payload).
   // A model missing from this map is never skipped: absent evidence must not
   // disable a legitimate fallback.
   FREE_MODEL_CONTEXT_WINDOWS: {

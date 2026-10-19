@@ -148,10 +148,14 @@ jobs:
           path: |
             ~/.bun/install/cache
             ~/.bun/bin/opencode
+            ~/.cache/opencode
           # Lockfile + CLI pin in the key: a bun.lock-only change or an
           # @opencode/cli bump must invalidate, or warm runners restore
-          # stale modules / skip the new binary forever.
-          key: ${{ runner.os }}-bun-cache-${{ hashFiles('package.json', 'bun.lock') }}-opencode-2.0.32
+          # stale modules / skip the new binary forever. The -svc suffix
+          # marks the entry that also carries the OpenCode service binary
+          # (~213MB, re-downloaded by every job otherwise); cache entries
+          # are immutable, so adding a path needs a new key.
+          key: ${{ runner.os }}-bun-cache-${{ hashFiles('package.json', 'bun.lock') }}-opencode-2.0.32-svc
           restore-keys: |
             ${{ runner.os }}-bun-cache-
 
