@@ -141,7 +141,13 @@ export class OrchestratorEngine {
       // Attach reference images/files so the analyst SEES mockups instead of
       // bare filenames (multimodal --file; server-side resized). Text inputs
       // are already inlined above; attachments cover the visual assets.
-      const analystFiles = assetList.map((a) => `${CONFIG.INPUTS_DIR}/${a}`).filter((p) => existsSync(p));
+      const rawAnalystFiles = assetList.map((a) => `${CONFIG.INPUTS_DIR}/${a}`).filter((p) => existsSync(p));
+      const { kept: analystFiles, skipped } = await OpenCodeClient.filterAttachableFiles(rawAnalystFiles);
+      if (skipped.length > 0) {
+        console.warn(
+          `⚠️ Skipped ${skipped.length} file(s) exceeding 10MB attachment limit (prevents SseEventTooLarge): ${skipped.map((s) => `${s.path} (${(s.bytes / 1024 / 1024).toFixed(1)}MB)`).join(", ")}`
+        );
+      }
       if (analystFiles.length > 0) {
         console.log(`🖼️ Attaching ${analystFiles.length} visual asset(s) to the analyst call.`);
       }

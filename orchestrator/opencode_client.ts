@@ -504,6 +504,12 @@ export class OpenCodeClient {
       }
     };
 
+    let safeFiles = options?.files;
+    if (safeFiles && safeFiles.length > 0) {
+      const { kept } = await OpenCodeClient.filterAttachableFiles(safeFiles);
+      safeFiles = kept;
+    }
+
     for (let i = 0; i < candidateModels.length; i++) {
       const spec = candidateModels[i];
       const label = OpenCodeClient.displaySpec(spec);
@@ -513,7 +519,7 @@ export class OpenCodeClient {
       else if (sess) console.log(`🔁 [OpenCode] Continuing session ${sess} with ${label} instead of restarting.`);
       else console.log(`🤖 [OpenCode] Attempting execution with model (${i + 1}/${candidateModels.length}): ${label}...`);
 
-      const cmd = OpenCodeClient.buildCommand(spec, options?.files, sess, { ...cliExtra, fork });
+      const cmd = OpenCodeClient.buildCommand(spec, safeFiles, sess, { ...cliExtra, fork });
       const res = await attempt(cmd, sess ? CONTINUATION_PROMPT : prompt, label);
 
       const parsedStdout = OpenCodeClient.extractText(res.stdout);
