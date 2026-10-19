@@ -1198,10 +1198,17 @@ export class OrchestratorEngine {
       return hasChanges;
     }
 
-    console.log(`🔍 Reviewing ${tasksInReview.length} completed tasks...`);
+    // Limit review to 1 task per tick to avoid oversized cycles and long queue stalls.
+    // If more tasks remain IN_REVIEW, downstream logic will re-wake the engine immediately.
+    const taskToProcess = tasksInReview[0];
+    console.log(
+      tasksInReview.length > 1
+        ? `🔍 Found ${tasksInReview.length} tasks IN_REVIEW; reviewing 1 task ([${taskToProcess.id}]) in this cycle.`
+        : `🔍 Reviewing deliverables for [${taskToProcess.id}]...`
+    );
     const reviewerPromptTemplate = await Bun.file("orchestrator/prompts/reviewer.md").text();
 
-    for (const task of tasksInReview) {
+    for (const task of [taskToProcess]) {
       console.log(`🧐 Reviewing deliverables for [${task.id}] on branch ${task.branch}...`);
 
       // LLM cost saver: identical tip already verdict → skip re-review.
@@ -2499,6 +2506,38 @@ export class OrchestratorEngine {
     // Save, sync dashboard issue, and commit progress (merge-safe persist)
     await this.persistRoadmap(roadmap, "chore(orchestrator): update progress roadmap");
     await IssueManager.syncDashboardIssue(roadmap);
+
+    // Immediate wake-up for remaining IN_REVIEW tasks:
+    // If more completed tasks are waiting in review, re-trigger Orchestrator immediately
+    // without waiting for the 15-minute cron (unless another cycle is already queued).
+    const remainingInReview = roadmap.tasks.filter((t) => t.status === "IN_REVIEW");
+    if (remainingInReview.length > 0) {
+      console.log(
+        `🔔 ${remainingInReview.length} task(s) still waiting IN_REVIEW (${remainingInReview.map((t) => t.id).join(", ")}). Checking queue status...`
+      );
+      try {
+        const queuedCheck = await GitManager.run([
+          "gh",
+          "run",
+          "list",
+          "--workflow",
+          CONFIG.ORCHESTRATOR_WORKFLOW,
+          "--status",
+          "queued",
+          "--limit",
+          "1",
+        ]);
+        const alreadyQueued = queuedCheck.stdout.trim().length > 0;
+        if (!alreadyQueued) {
+          console.log("🚀 No queued cycle detected; waking Orchestrator immediately for next review...");
+          await GitManager.run(["gh", "workflow", "run", CONFIG.ORCHESTRATOR_WORKFLOW]);
+        } else {
+          console.log("ℹ️ An Orchestrator cycle is already queued; skipping duplicate trigger.");
+        }
+      } catch (err: any) {
+        console.warn(`⚠️ Immediate wake-up check/trigger failed (non-fatal): ${err?.message || err}`);
+      }
+    }
 
     console.log("💤 Orchestrator run completed. Exiting to conserve runner minutes.");
   }
