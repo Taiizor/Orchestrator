@@ -257,6 +257,8 @@ export function isGeneratedJunkPath(file: string): boolean {
     /(^|\/)(\.nuxt|\.next|\.output|dist|build|out|coverage|storybook-static)\//.test(norm) ||
     /(^|\/)storage\/(logs|framework)\//.test(norm) ||
     /(^|\/)bootstrap\/cache\//.test(norm) ||
+    /(^|\/)(obj|TestResults)\//.test(norm) ||
+    /(^|\/)bin\/(Debug|Release|net[0-9]|x64|x86|arm64)\//i.test(norm) ||
     norm.endsWith(".phpunit.result.cache")
   );
 }
@@ -504,7 +506,7 @@ export function priorFixRounds(notes?: string): string[] {
  * under a previous version must be re-evaluated, never skipped by the
  * unchanged-tip optimization.
  */
-export const GATE_VERSION = 12;
+export const GATE_VERSION = 13;
 
 /**
  * Deterministic pre-LLM gate. Fails fast on empty diff, missing progress

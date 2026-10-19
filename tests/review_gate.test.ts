@@ -180,8 +180,8 @@ describe("Review Gate Module", () => {
       expect(typeof GATE_VERSION).toBe("number");
       expect(GATE_VERSION).toBeGreaterThan(0);
     });
-    it("is 12 after the exact-bullet placeholder detector change", () => {
-      expect(GATE_VERSION).toBe(12);
+    it("is 13 after adding .NET compiler output junk paths", () => {
+      expect(GATE_VERSION).toBe(13);
     });
   });
 
@@ -189,13 +189,16 @@ describe("Review Gate Module", () => {
     it("flags dependency trees, build output, and runtime junk", () => {
       for (const f of [
         "workspace/node_modules/foo/index.js",
-        "workspace/Son.Dash/vendor/aws/sdk.php",
-        "workspace/Son.Front/.nuxt/app.config.mjs",
+        "workspace/backend/vendor/aws/sdk.php",
+        "workspace/frontend/.nuxt/app.config.mjs",
         "workspace/web/dist/bundle.js",
-        "workspace/Son.Dash/storage/logs/laravel.log",
-        "workspace/Son.Dash/storage/framework/views/x.php",
-        "workspace/Son.Dash/bootstrap/cache/services.php",
-        "workspace/Son.Dash/.phpunit.result.cache",
+        "workspace/backend/storage/logs/laravel.log",
+        "workspace/backend/storage/framework/views/x.php",
+        "workspace/backend/bootstrap/cache/services.php",
+        "workspace/backend/.phpunit.result.cache",
+        "workspace/tests/Project.Tests/obj/project.assets.json",
+        "workspace/tests/Project.Tests/bin/Debug/net10.0/Project.Tests.dll",
+        "workspace/tests/Project.Tests/TestResults/cov.xml",
       ]) {
         expect(isGeneratedJunkPath(f)).toBe(true);
       }
@@ -203,7 +206,7 @@ describe("Review Gate Module", () => {
     it("keeps product code and about-adjacent names", () => {
       for (const f of [
         "workspace/src/api/handler.ts",
-        "workspace/Son.Dash/app/Models/Anime.php",
+        "workspace/backend/app/Models/User.php",
         "workspace/docs/about.md",
         "workspace/outbox/worker.ts",
       ]) {
@@ -247,7 +250,7 @@ describe("Review Gate Module", () => {
     it("routes junk-only scope to build-output vs vendor-junk", () => {
       const [b] = classifyGateFailure(["Out-of-scope files modified (workspace/web/dist/a.js). Allowed: x."]);
       expect(b.kind).toBe("build-output");
-      const [v] = classifyGateFailure(["Out-of-scope files modified (workspace/Son.Dash/vendor/a.php). Allowed: x."]);
+      const [v] = classifyGateFailure(["Out-of-scope files modified (workspace/backend/vendor/a.php). Allowed: x."]);
       expect(v.kind).toBe("vendor-junk");
     });
     it("prefers the full gate file list over truncated messages", () => {

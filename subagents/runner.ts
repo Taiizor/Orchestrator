@@ -582,8 +582,8 @@ async function main() {
     return false;
   };
 
-  // Split-layer products live in workspace/<layer>/ (e.g. Son.Dash,
-  // Son.Front): running the suite at workspace/ root executes nothing — or
+  // Split-layer products live in workspace/<layer>/ (e.g. backend,
+  // frontend): running the suite at workspace/ root executes nothing — or
   // the wrong layer's suite. Prefer the shallowest dir holding both the
   // stack marker and its test files (most test files wins ties).
   const LAYER_MARKERS: Record<string, string[]> = {

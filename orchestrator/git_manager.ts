@@ -750,7 +750,10 @@ export class GitManager {
     // with ~100 dist/ files and failed the scope gate three attempts running.
     const isBuildOutputPath = (s: string): boolean => {
       const n = s.replace(/\\/g, "/");
-      return /^(?:\.\/)?workspace\/(dist|build|out|coverage|storybook-static)(\/|$)/.test(n);
+      return (
+        /^(?:\.\/)?workspace\/(dist|build|out|coverage|storybook-static)(\/|$)/.test(n) ||
+        /\/(obj|TestResults|bin\/(Debug|Release|x64|x86|arm64|net[0-9]))(\/|$)/i.test(n)
+      );
     };
     const mirrorFromWorkdir = async (dst: string) => {
       for (const srcDir of [CONFIG.INPUTS_DIR, CONFIG.WORKSPACE_DIR]) {
@@ -788,6 +791,15 @@ export class GitManager {
         }
         await wt(["add", "-f", CONFIG.INPUTS_DIR, CONFIG.WORKSPACE_DIR]);
         await wt(["reset", "-q", `${CONFIG.WORKSPACE_DIR}/node_modules`, `${CONFIG.WORKSPACE_DIR}/.services.env`]);
+        await wt([
+          "reset",
+          "-q",
+          "--",
+          ":(glob)**/obj/**",
+          ":(glob)**/TestResults/**",
+          ":(glob)**/bin/Debug/**",
+          ":(glob)**/bin/Release/**",
+        ]);
         const commit = await wt([...botIdentity, "commit", "-m", commitMsg]);
         if (commit.exitCode !== 0 && !/nothing to commit/i.test(commit.stdout + commit.stderr)) {
           console.warn(`⚠️ Data tree commit failed:`, (commit.stdout + commit.stderr).slice(0, 300));
@@ -950,17 +962,12 @@ export class GitManager {
    */
   public static async stageWorkspaceForPublish(): Promise<string[]> {
     // Scrub the index first: file restores above (engine files, state) stage
-    // additions the data branch must never absorb. Only inputs/workspace
-    // travel in the publish commit.
+    // additions the data branch must never absorb. Only workspace
+    // travels in the publish commit.
     await this.run(["git", "reset", "-q"]);
-    // Add paths SEPARATELY: one missing path must not nuke the other
-    // (a single `add` fails atomically, which once published NOTHING while
-    // reporting success downstream).
-    for (const p of [CONFIG.INPUTS_DIR, CONFIG.WORKSPACE_DIR]) {
-      const a = await this.run(["git", "add", "-f", p]);
-      if (a.exitCode !== 0) {
-        console.warn(`⚠️ git add -f ${p} failed:`, (a.stdout + a.stderr).slice(0, 300));
-      }
+    const a = await this.run(["git", "add", "-f", CONFIG.WORKSPACE_DIR]);
+    if (a.exitCode !== 0) {
+      console.warn(`⚠️ git add -f ${CONFIG.WORKSPACE_DIR} failed:`, (a.stdout + a.stderr).slice(0, 300));
     }
     // Never publish dependency trees: `add -f` overrides gitignore, and an
     // agent-side `bun install` inside workspace/ would otherwise commit
@@ -968,11 +975,8 @@ export class GitManager {
     // Same for `.services.env`: per-run rendered CI endpoints, regenerable
     // every run — committing it only adds diff noise and scope-gate hits.
     // Nested trees too (web/node_modules from a UI task's install): glob
-    // magic covers any depth. Unambiguous junk only — bin/obj are skipped
-    // because source scripts can legitimately live under bin/. PHP Composer
-    // and Go vendor trees are the same class of junk (a committed
-    // workspace/Son.Dash/vendor once flooded diffs and tripped the security
-    // scanner on third-party code).
+    // magic covers any depth. PHP Composer and Go vendor trees are the same
+    // class of junk.
     await this.run(["git", "reset", "-q", `${CONFIG.WORKSPACE_DIR}/node_modules`]);
     await this.run(["git", "reset", "-q", `${CONFIG.WORKSPACE_DIR}/.services.env`]);
     await this.run(["git", "reset", "-q", "--", ":(glob)**/node_modules/**"]);
@@ -980,6 +984,17 @@ export class GitManager {
     await this.run(["git", "reset", "-q", "--", ":(glob)**/__pycache__/**"]);
     await this.run(["git", "reset", "-q", "--", ":(glob)**/.venv/**"]);
     await this.run(["git", "reset", "-q", "--", ":(glob)**/vendor/**"]);
+    // .NET / compiler build outputs and test artifacts: regenerable, never
+    // reviewable. Dotnet build/test emits hundreds of DLLs, pdb, cache, and
+    // nuget assets into obj/ and bin/ (Debug/Release/etc.).
+    await this.run(["git", "reset", "-q", "--", ":(glob)**/obj/**"]);
+    await this.run(["git", "reset", "-q", "--", ":(glob)**/TestResults/**"]);
+    await this.run(["git", "reset", "-q", "--", ":(glob)**/bin/Debug/**"]);
+    await this.run(["git", "reset", "-q", "--", ":(glob)**/bin/Release/**"]);
+    await this.run(["git", "reset", "-q", "--", ":(glob)**/bin/x64/**"]);
+    await this.run(["git", "reset", "-q", "--", ":(glob)**/bin/x86/**"]);
+    await this.run(["git", "reset", "-q", "--", ":(glob)**/bin/arm64/**"]);
+    await this.run(["git", "reset", "-q", "--", ":(glob)**/bin/net*/**"]);
     // Runtime-generated product files: `add -f` overrides the product
     // .gitignore, so Laravel test runs would otherwise publish their cache,
     // throwaway storage probes and a 200k-line laravel.log (once tripped the
