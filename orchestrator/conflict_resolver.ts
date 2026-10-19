@@ -1,3 +1,4 @@
+import { CONFIG } from "./config.ts";
 import { GitManager } from "./git_manager.ts";
 import { OpenCodeClient } from "./opencode_client.ts";
 import { verifyAllWorkspaceStacks } from "./stacks.ts";
@@ -22,6 +23,20 @@ export class ConflictResolver {
     const promptTemplate = await Bun.file("orchestrator/prompts/conflict_resolver.md").text();
 
     for (const filePath of conflictedFiles) {
+      const normalizedPath = filePath.replace(/\\/g, "/");
+      // Deterministic resolution for TASK_PROGRESS.md:
+      // Cumulative scratch progress reports can grow to hundreds of KB. Sending
+      // them to LLMs hits completion token limits (e.g. 72K chars out vs 300K in)
+      // and triggers false truncation rejections. Resolve deterministically by
+      // keeping the integration branch (ours) copy.
+      if (normalizedPath.endsWith(CONFIG.TASK_PROGRESS_FILE) || normalizedPath.endsWith("TASK_PROGRESS.md")) {
+        console.log(`🧹 Resolving progress report conflict deterministically for ${filePath}...`);
+        await GitManager.run(["git", "checkout", "--ours", "--", filePath]);
+        await GitManager.run(["git", "add", filePath]);
+        console.log(`✅ Deterministically resolved and staged for ${filePath}`);
+        continue;
+      }
+
       console.log(`🔧 AI resolving merge conflict in: ${filePath}...`);
       let fileContent = "";
       try {
