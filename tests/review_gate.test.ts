@@ -15,6 +15,7 @@ import {
   scanDemoSmells,
   classifyGateFailure,
   priorFixRounds,
+  parseReviewOutput,
   GATE_VERSION,
 } from "../orchestrator/review_gate.ts";
 
@@ -370,6 +371,49 @@ describe("Review Gate Module", () => {
       expect(isAllowedFile(task, "workspace/.gitignore")).toBe(true);
       expect(isAllowedFile(task, "workspace/.gitattributes")).toBe(true);
       expect(isAllowedFile(task, "workspace/.gitkeep")).toBe(true);
+    });
+  });
+
+  describe("parseReviewOutput", () => {
+    it("parses fenced JSON block", () => {
+      const input =
+        'Here is my review:\n```json\n{\n  "approved": true,\n  "notes": "Looks great!",\n  "suggestedFixes": []\n}\n```';
+      const result = parseReviewOutput(input);
+      expect(result).not.toBeNull();
+      expect(result?.approved).toBe(true);
+      expect(result?.notes).toBe("Looks great!");
+      expect(result?.suggestedFixes).toEqual([]);
+    });
+
+    it("parses unescaped newlines in JSON strings", () => {
+      const input = '```json\n{\n  "approved": true,\n  "notes": "Line 1\nLine 2"\n}\n```';
+      const result = parseReviewOutput(input);
+      expect(result).not.toBeNull();
+      expect(result?.approved).toBe(true);
+      expect(result?.notes).toContain("Line 1");
+    });
+
+    it("prefers final fenced JSON block when preamble text is present", () => {
+      const input =
+        'I will check git status.\n```json\n{"cmd": "status"}\n```\nDone examining.\n```json\n{\n  "approved": false,\n  "notes": "Missing tests",\n  "suggestedFixes": ["Add tests"]\n}\n```';
+      const result = parseReviewOutput(input);
+      expect(result).not.toBeNull();
+      expect(result?.approved).toBe(false);
+      expect(result?.notes).toBe("Missing tests");
+      expect(result?.suggestedFixes).toEqual(["Add tests"]);
+    });
+
+    it("falls back to regex extraction when JSON is slightly malformed", () => {
+      const input = 'Review Verdict:\n"approved": true,\n"notes": "All good"\n';
+      const result = parseReviewOutput(input);
+      expect(result).not.toBeNull();
+      expect(result?.approved).toBe(true);
+      expect(result?.notes).toBe("All good");
+    });
+
+    it("returns null for empty or garbage text", () => {
+      expect(parseReviewOutput("")).toBeNull();
+      expect(parseReviewOutput("just random text without verdict")).toBeNull();
     });
   });
 });

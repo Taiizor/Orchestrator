@@ -17,6 +17,7 @@ import {
   isAllowedFile,
   isGeneratedJunkPath,
   priorFixRounds,
+  parseReviewOutput,
 } from "./review_gate.ts";
 import type { GateFailureKind } from "./review_gate.ts";
 import { validateRoadmap, formatValidation, sanitizeCoverage } from "./roadmap_validator.ts";
@@ -1389,27 +1390,8 @@ export class OrchestratorEngine {
         title: `Review [${task.id}] ${task.title}`,
       });
 
-      // Robust JSON parse: fenced block, then largest {...} span. Default REJECT on garbage.
-      let reviewResult: ReviewResult | null = null;
-      const fenced = res.stdout.match(/```json([\s\S]*?)```/);
-      const candidates = fenced ? [fenced[1]] : [];
-      const greedy = res.stdout.match(/\{[\s\S]*\}/);
-      if (greedy) candidates.push(greedy[0]);
-      for (const c of candidates) {
-        try {
-          const parsed = JSON.parse(c.trim());
-          if (typeof parsed.approved === "boolean") {
-            reviewResult = {
-              approved: parsed.approved,
-              notes: String(parsed.notes || ""),
-              suggestedFixes: Array.isArray(parsed.suggestedFixes) ? parsed.suggestedFixes.map(String) : [],
-            };
-            break;
-          }
-        } catch {
-          /* try next candidate */
-        }
-      }
+      // Robust JSON parse: fenced blocks, unescaped strings, and regex fallback.
+      const reviewResult = parseReviewOutput(res.stdout);
       if (!reviewResult) {
         // Infra-level reviewer failures (gateway 403s such as the free-tier
         // "can only be used from within OpenCode" abuse check, provider

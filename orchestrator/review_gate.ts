@@ -616,3 +616,67 @@ export async function runReviewGate(task: TaskItem, diff: string, progressConten
 
   return { passed: failures.length === 0, failures, warnings, fileList, diffStat, lineageBroken };
 }
+
+/**
+ * Robustly extract and parse a { approved, notes, suggestedFixes } JSON block from reviewer LLM output.
+ * Handles markdown fences, preamble text, unescaped newlines in JSON strings, and regex fallback.
+ */
+export function parseReviewOutput(stdout: string): { approved: boolean; notes: string; suggestedFixes: string[] } | null {
+  if (!stdout || !stdout.trim()) return null;
+
+  // 1. Collect all fenced blocks (reversed: evaluate later/final block first)
+  const fencedMatches = Array.from(stdout.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi));
+  const candidates: string[] = fencedMatches.map((m) => m[1]).reverse();
+
+  // 2. Add greedy block as fallback
+  const greedy = stdout.match(/\{[\s\S]*\}/);
+  if (greedy) candidates.push(greedy[0]);
+
+  // 3. Add any object containing "approved"
+  const approvedBlocks = Array.from(stdout.matchAll(/\{[^{}]*"approved"\s*:\s*(?:true|false)[\s\S]*?\}/gi));
+  candidates.push(...approvedBlocks.map((m) => m[0]));
+
+  for (const c of candidates) {
+    try {
+      const parsed = JSON.parse(c.trim());
+      if (typeof parsed.approved === "boolean") {
+        return {
+          approved: parsed.approved,
+          notes: String(parsed.notes || ""),
+          suggestedFixes: Array.isArray(parsed.suggestedFixes) ? parsed.suggestedFixes.map(String) : [],
+        };
+      }
+    } catch {
+      // Relaxed sanitization: replace raw control characters / unescaped newlines in string literals
+      try {
+        const sanitized = c.replace(/:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/g, (_, str) => {
+          return `: "${str.replace(/\r?\n/g, "\\n").replace(/\t/g, "\\t")}"`;
+        });
+        const parsed = JSON.parse(sanitized.trim());
+        if (typeof parsed.approved === "boolean") {
+          return {
+            approved: parsed.approved,
+            notes: String(parsed.notes || ""),
+            suggestedFixes: Array.isArray(parsed.suggestedFixes) ? parsed.suggestedFixes.map(String) : [],
+          };
+        }
+      } catch {
+        /* try next candidate */
+      }
+    }
+  }
+
+  // 4. Regex fallback: extract "approved" boolean and "notes" string
+  const approvedMatch = stdout.match(/"approved"\s*:\s*(true|false)/i);
+  if (approvedMatch) {
+    const isApproved = approvedMatch[1].toLowerCase() === "true";
+    const notesMatch = stdout.match(/"notes"\s*:\s*"([\s\S]*?)"(?:\s*[,}\n]|\s*$)/i);
+    return {
+      approved: isApproved,
+      notes: notesMatch ? notesMatch[1].replace(/\\n/g, "\n") : isApproved ? "Approved by reviewer." : "Rejected by reviewer.",
+      suggestedFixes: [],
+    };
+  }
+
+  return null;
+}
