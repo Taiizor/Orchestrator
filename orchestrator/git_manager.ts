@@ -808,7 +808,7 @@ export class GitManager {
         return true;
       };
       if (!(await prepare())) return false;
-      const push = await this.pushWithAuthRetry(remote, [`HEAD:refs/heads/${branch}`], {
+      const push = await this.pushWithAuthRetry(remote, [remote, `HEAD:refs/heads/${branch}`], {
         cwd: wtDir,
         betweenAttempts: async (attempt) => {
           console.warn(`⚠️ Data tree push rejected (attempt ${attempt}/3). Re-syncing...`);
@@ -889,7 +889,7 @@ export class GitManager {
         console.warn(`⚠️ Data file stage/commit failed for ${relPath}.`);
         return false;
       }
-      const push = await this.pushWithAuthRetry(remote, [`HEAD:refs/heads/${branch}`], {
+      const push = await this.pushWithAuthRetry(remote, [remote, `HEAD:refs/heads/${branch}`], {
         cwd: wtDir,
         betweenAttempts: async (attempt) => {
           console.warn(`⚠️ Data file push rejected for ${relPath} (attempt ${attempt}/3). Re-syncing...`);

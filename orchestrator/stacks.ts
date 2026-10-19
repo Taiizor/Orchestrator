@@ -297,7 +297,8 @@ export async function verifyWorkspace(stack: StackId, cwd = "workspace"): Promis
   );
   const output = (res.stdout + "\n" + res.stderr).toLowerCase();
   const noTests = /no tests? found|no test files|no tests ran|0 (tests|pass)|no test suites/.test(output);
-  const hasFailures = /fail/.test(output) && !/0 fail/.test(output);
+  const zeroFailures = /0\s*fail(ed)?|failed:\s*0/i.test(output);
+  const hasFailures = !zeroFailures && /fail/i.test(output);
   if (!noTests && (res.exitCode !== 0 || hasFailures)) {
     console.warn("⚠️ Automated tests failed after resolving conflict:", res.stderr || res.stdout);
     return false;

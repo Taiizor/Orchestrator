@@ -14,7 +14,9 @@ import {
   commandStack,
   effectiveTaskStack,
   detectWorkspaceStacks,
+  verifyWorkspace,
 } from "../orchestrator/stacks.ts";
+import { GitManager } from "../orchestrator/git_manager.ts";
 import { validateRoadmap } from "../orchestrator/roadmap_validator.ts";
 
 describe("stacks registry", () => {
@@ -117,6 +119,41 @@ describe("stacks registry", () => {
       for (const ref of STACK_ECC_REFS[id]) {
         expect(Object.hasOwn(manifest.files, ref)).toBe(true);
       }
+    }
+  });
+
+  it("recognizes zero-failure outputs across all stacks in verifyWorkspace", async () => {
+    const origRun = GitManager.run;
+    try {
+      (GitManager as any).run = async () => ({
+        exitCode: 0,
+        stdout: "Passed!  - Failed:     0, Passed:   278, Skipped:     0, Total:   278",
+        stderr: "",
+      });
+      expect(await verifyWorkspace("dotnet", ".")).toBe(true);
+
+      (GitManager as any).run = async () => ({
+        exitCode: 0,
+        stdout: "test result: ok. 5 passed; 0 failed; 0 ignored",
+        stderr: "",
+      });
+      expect(await verifyWorkspace("rust", ".")).toBe(true);
+
+      (GitManager as any).run = async () => ({
+        exitCode: 0,
+        stdout: "259 pass\n0 fail",
+        stderr: "",
+      });
+      expect(await verifyWorkspace("bun", ".")).toBe(true);
+
+      (GitManager as any).run = async () => ({
+        exitCode: 1,
+        stdout: "Failed!  - Failed:     1, Passed:   277",
+        stderr: "",
+      });
+      expect(await verifyWorkspace("dotnet", ".")).toBe(false);
+    } finally {
+      (GitManager as any).run = origRun;
     }
   });
 });
