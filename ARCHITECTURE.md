@@ -165,6 +165,8 @@ The order is quality-first: the strongest agentic coders lead the chain. Context
 
 > **Promo watch:** `minimax-m3.1-flash-free` is free for a ~3-day window starting 2026-10-19. When that window closes, demote it from the primary slot (re-check models.dev first) — the chain keeps running on the remaining free models either way.
 
+Provider capacity flaps are handled explicitly: free models can drain for a few minutes and the provider then answers `Model unavailable` (an empty stderr, an error event in the stream) instead of a 429. The engine reads both surfaces, marks that model unavailable for 10 minutes — so it leaves the chain instead of being retried on every call — and continues on the next candidate. The model id stays valid; the same call succeeds once the pool refills.
+
 ### 5. ⏱️ Actions Timeouts & Deadlock Watchdog
 - **Subagents:** `timeout-minutes: 75` (Broad window for compilation, tests, and free model latency, while preventing quota exhaustion; each model call is capped at 60 min with fallback to the next model).
 - **Orchestrator:** `timeout-minutes: 30` (Quick review & dispatch cycle).

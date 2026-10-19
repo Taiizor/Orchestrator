@@ -211,6 +211,65 @@ export class OpenCodeClient {
     return nextFloor;
   }
 
+  /**
+   * Provider-side "this model is not serving right now" signal. Free-tier
+   * models flap: the pool behind a free model can drain for a few minutes
+   * and the provider answers "Model unavailable" instead of a 429. The model
+   * id stays valid — the same call succeeds minutes later.
+   */
+  private static readonly MODEL_UNAVAILABLE_RX =
+    /model (?:is |was )?(?:currently )?(?:unavailable|not available|offline)|model_unavailable|no (?:available )?capacity|capacity (?:exceeded|exhausted)|temporarily unavailable/i;
+
+  /** Models the provider reported unavailable, mapped to their expiry time. */
+  private static unavailableModels = new Map<string, number>();
+
+  /** How long a provider-reported outage keeps a model out of the chain. */
+  private static readonly UNAVAILABLE_TTL_MS = 10 * 60 * 1000;
+
+  /** Whether failure text reports the model as unavailable (capacity flap). */
+  public static isModelUnavailable(text: string): boolean {
+    return !!text && OpenCodeClient.MODEL_UNAVAILABLE_RX.test(text);
+  }
+
+  /** Remember a provider-reported outage so the chain stops retrying it. */
+  public static markModelUnavailable(model: string, now = Date.now()): void {
+    if (model) OpenCodeClient.unavailableModels.set(model, now + OpenCodeClient.UNAVAILABLE_TTL_MS);
+  }
+
+  /** Whether a model is still inside its reported-outage window. */
+  public static isModelMarkedUnavailable(model: string, now = Date.now()): boolean {
+    const until = OpenCodeClient.unavailableModels.get(model);
+    if (until === undefined) return false;
+    if (until <= now) {
+      OpenCodeClient.unavailableModels.delete(model);
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Drop candidates the provider recently reported unavailable. The original
+   * list survives when every candidate is marked: an empty chain would fail
+   * the run outright, while one doomed attempt still falls through.
+   */
+  public static filterUnavailableModels(specs: { model: string; variant?: string }[]): { model: string; variant?: string }[] {
+    const kept = specs.filter((s) => !OpenCodeClient.isModelMarkedUnavailable(s.model));
+    return kept.length > 0 ? kept : specs;
+  }
+
+  /**
+   * Mark a provider-reported outage and say so once. Returns true when the
+   * text carried the signal.
+   */
+  private static noteUnavailable(label: string, model: string, text: string): boolean {
+    if (!OpenCodeClient.isModelUnavailable(text)) return false;
+    OpenCodeClient.markModelUnavailable(model);
+    console.warn(
+      `🚫 [OpenCode] Provider reports ${label} as unavailable (free-pool capacity) — it stays out of the chain for the next 10 minutes.`
+    );
+    return true;
+  }
+
   /** Cost/tokens/steps summed over step_finish events (units as reported). */
   public static extractUsage(rawStdout: string): OpenCodeUsage {
     const out = { cost: 0, tokens: 0, steps: 0 };
@@ -498,6 +557,15 @@ export class OpenCodeClient {
       }
     }
 
+    // Models the provider just reported unavailable stay out of the chain
+    // for the rest of their outage window — free-pool flaps last minutes, not
+    // seconds, and every retry burns a CLI call and a session continuation.
+    const usableModels = OpenCodeClient.filterUnavailableModels(candidateModels);
+    if (usableModels.length !== candidateModels.length) {
+      const dropped = candidateModels.filter((s) => !usableModels.includes(s)).map((s) => s.model);
+      console.warn(`⏭️ [OpenCode] Skipping recently unavailable model(s): ${dropped.join(", ")}.`);
+    }
+
     let lastResult: OpenCodeRunResult = {
       stdout: "",
       stderr: "No models attempted",
@@ -554,8 +622,8 @@ export class OpenCodeClient {
       safeFiles = kept;
     }
 
-    for (let i = 0; i < candidateModels.length; i++) {
-      const spec = candidateModels[i];
+    for (let i = 0; i < usableModels.length; i++) {
+      const spec = usableModels[i];
       if (OpenCodeClient.shouldSkipAfterOverflow(spec.model, overflowFloor)) {
         console.warn(
           `⏭️ [OpenCode] Skipping ${OpenCodeClient.displaySpec(spec)}: context window ${OpenCodeClient.contextWindow(spec.model)} < ${overflowFloor} (the session already overflowed a wider model).`
@@ -567,7 +635,7 @@ export class OpenCodeClient {
       const fork = useFork && !!sess;
       if (sess && fork) console.log(`🔁 [OpenCode] Fork-continuing session ${sess} with ${label} (original may still be busy).`);
       else if (sess) console.log(`🔁 [OpenCode] Continuing session ${sess} with ${label} instead of restarting.`);
-      else console.log(`🤖 [OpenCode] Attempting execution with model (${i + 1}/${candidateModels.length}): ${label}...`);
+      else console.log(`🤖 [OpenCode] Attempting execution with model (${i + 1}/${usableModels.length}): ${label}...`);
 
       const cmd = OpenCodeClient.buildCommand(spec, safeFiles, sess, { ...cliExtra, fork });
       const res = await attempt(cmd, sess ? CONTINUATION_PROMPT : prompt, label);
@@ -590,13 +658,22 @@ export class OpenCodeClient {
         break;
       }
 
-      // Rate limit or server quota errors only apply if the command failed or stderr indicates an API error
+      // Provider errors arrive on stderr OR inside the stdout error event:
+      // the CLI reports "Model unavailable" in the event stream with an empty
+      // stderr, so both surfaces have to be read — otherwise a capacity flap
+      // looks like an unexplained empty failure.
+      const failureDetail = OpenCodeClient.extractErrorDetail(res.stdout);
+      const failureText = `${res.stderr}\n${failureDetail ?? ""}`;
       const isApiError =
         res.exitCode !== 0 &&
-        (res.stderr.includes("rate limit") ||
-          res.stderr.includes("429") ||
-          res.stderr.includes("exceeded") ||
-          res.stderr.includes("quota"));
+        (failureText.includes("rate limit") ||
+          failureText.includes("429") ||
+          failureText.includes("exceeded") ||
+          failureText.includes("quota"));
+
+      // Free-pool capacity flap: the model id stays valid, the provider just
+      // has no instance behind it right now.
+      OpenCodeClient.noteUnavailable(label, spec.model, failureText);
 
       if (res.exitCode === 0 && hasContent) {
         console.log(`✨ [OpenCode] Success with model: ${label} (${parsedStdout.length} chars generated)`);
@@ -670,6 +747,7 @@ export class OpenCodeClient {
         if (OpenCodeClient.isContextOverflow(`${retryRes.stderr}\n${res.stderr}\n${detail ?? ""}`)) {
           overflowFloor = OpenCodeClient.noteOverflow(label, spec.model, overflowFloor);
         }
+        OpenCodeClient.noteUnavailable(label, spec.model, `${retryRes.stderr}\n${res.stderr}\n${detail ?? ""}`);
         lastResult = {
           stdout: retryParsed,
           stderr: retryRes.stderr || res.stderr,
@@ -686,7 +764,7 @@ export class OpenCodeClient {
         `⚠️ [OpenCode] Model ${label} encountered an issue (Exit: ${res.exitCode}, ApiError: ${isApiError}, ContentLength: ${parsedStdout.length}). Falling back to next model...`
       );
       console.warn(`   ↳ stderr tail: ${(res.stderr || "(empty)").slice(-400)}`);
-      const detail = OpenCodeClient.extractErrorDetail(res.stdout);
+      const detail = failureDetail;
       if (detail) console.warn(`   ↳ error event: ${detail.slice(0, 300)}`);
       if (OpenCodeClient.isContextOverflow(`${res.stderr}\n${detail ?? ""}`)) {
         overflowFloor = OpenCodeClient.noteOverflow(label, spec.model, overflowFloor);
@@ -739,6 +817,11 @@ export class OpenCodeClient {
     const defaultDetail = OpenCodeClient.extractErrorDetail(defaultRes.stdout);
     if (OpenCodeClient.isContextOverflow(`${defaultRes.stderr}\n${defaultDetail ?? ""}`)) {
       console.warn("   ↳ 🧠 Context overflow on the last-resort default run — the session outgrew every candidate window.");
+    }
+    if (OpenCodeClient.isModelUnavailable(`${defaultRes.stderr}\n${defaultDetail ?? ""}`)) {
+      console.warn(
+        "🚫 [OpenCode] The default model is unavailable too — the provider's free pool is flapping. This run failed; the next attempt retries."
+      );
     }
 
     return lastResult;

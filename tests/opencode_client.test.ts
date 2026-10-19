@@ -261,6 +261,45 @@ describe("OpenCode Client Module", () => {
     });
   });
 
+  describe("provider capacity flaps", () => {
+    it("detects the provider's model-unavailable signal", () => {
+      expect(OpenCodeClient.isModelUnavailable("Model unavailable: opencode/minimax-m3.1-flash-free")).toBe(true);
+      expect(OpenCodeClient.isModelUnavailable("model is currently unavailable")).toBe(true);
+      expect(OpenCodeClient.isModelUnavailable("model_unavailable")).toBe(true);
+      expect(OpenCodeClient.isModelUnavailable("no available capacity for this model")).toBe(true);
+      expect(OpenCodeClient.isModelUnavailable("temporarily unavailable")).toBe(true);
+    });
+
+    it("does not mistake ordinary failures for an outage", () => {
+      expect(OpenCodeClient.isModelUnavailable("")).toBe(false);
+      expect(OpenCodeClient.isModelUnavailable("rate limit exceeded")).toBe(false);
+      expect(OpenCodeClient.isModelUnavailable("context length exceeded")).toBe(false);
+      expect(OpenCodeClient.isModelUnavailable("file not found")).toBe(false);
+      expect(OpenCodeClient.isModelUnavailable("provider logged out")).toBe(false);
+    });
+
+    it("remembers an outage for a bounded window", () => {
+      const model = "opencode/test-flap-window";
+      expect(OpenCodeClient.isModelMarkedUnavailable(model, 1_000)).toBe(false);
+      OpenCodeClient.markModelUnavailable(model, 1_000);
+      expect(OpenCodeClient.isModelMarkedUnavailable(model, 1_001)).toBe(true);
+      // The window closes: the model is retried after the TTL.
+      expect(OpenCodeClient.isModelMarkedUnavailable(model, 1_000 + 11 * 60 * 1000)).toBe(false);
+    });
+
+    it("filters unavailable candidates but never empties the chain", () => {
+      const specs = [{ model: "opencode/test-flap-a" }, { model: "opencode/test-flap-b" }];
+      OpenCodeClient.markModelUnavailable("opencode/test-flap-a", Date.now());
+      const filtered = OpenCodeClient.filterUnavailableModels(specs);
+      expect(filtered.map((s) => s.model)).toEqual(["opencode/test-flap-b"]);
+      // Every candidate marked: the original list survives, because an empty
+      // chain would fail the run outright.
+      OpenCodeClient.markModelUnavailable("opencode/test-flap-b", Date.now());
+      const all = OpenCodeClient.filterUnavailableModels(specs);
+      expect(all.map((s) => s.model)).toEqual(["opencode/test-flap-a", "opencode/test-flap-b"]);
+    });
+  });
+
   describe("context-window aware fallback", () => {
     it("resolves known roster context windows", () => {
       expect(OpenCodeClient.contextWindow("opencode/minimax-m3.1-flash-free")).toBe(1_000_000);
