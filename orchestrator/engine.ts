@@ -1180,6 +1180,13 @@ export class OrchestratorEngine {
                 );
                 continue;
               }
+              // If this branch tip was already reviewed and rejected, do not re-transition
+              // to IN_REVIEW until the subagent pushes a new commit (fresh tip).
+              const currentTip = await GitManager.branchTipSha(task.branch);
+              if (currentTip && task.lastReviewSha === currentTip && task.lastGateVersion === GATE_VERSION) {
+                continue;
+              }
+
               console.log(
                 `🔎 Detected completed deliverables for [${task.id}] on branch ${task.branch}. Transitioning to IN_REVIEW.`
               );
@@ -1200,7 +1207,15 @@ export class OrchestratorEngine {
 
     // Limit review to 1 task per tick to avoid oversized cycles and long queue stalls.
     // If more tasks remain IN_REVIEW, downstream logic will re-wake the engine immediately.
-    const taskToProcess = tasksInReview[0];
+    // Prioritize tasks with fresh/unreviewed commits over stale rejected tips.
+    const tasksWithTips = await Promise.all(
+      tasksInReview.map(async (t) => ({
+        task: t,
+        tip: await GitManager.branchTipSha(t.branch),
+      }))
+    );
+    const freshEntry = tasksWithTips.find((entry) => !entry.task.lastReviewSha || entry.task.lastReviewSha !== entry.tip);
+    const taskToProcess = freshEntry ? freshEntry.task : tasksInReview[0];
     console.log(
       tasksInReview.length > 1
         ? `🔍 Found ${tasksInReview.length} tasks IN_REVIEW; reviewing 1 task ([${taskToProcess.id}]) in this cycle.`
