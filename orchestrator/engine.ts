@@ -74,6 +74,30 @@ export class OrchestratorEngine {
     let fileCount = 0;
 
     const imageExts = new Set([".png", ".jpg", ".jpeg", ".svg", ".webp", ".gif", ".ico", ".pdf", ".bmp"]);
+    const binaryExts = new Set([
+      ".ttf",
+      ".otf",
+      ".woff",
+      ".woff2",
+      ".eot",
+      ".fon",
+      ".fig",
+      ".zip",
+      ".tar",
+      ".gz",
+      ".7z",
+      ".rar",
+      ".dll",
+      ".exe",
+      ".so",
+      ".dylib",
+      ".bin",
+      ".dat",
+      ".db",
+      ".sqlite",
+      ".iso",
+    ]);
+    const binaryAssetList: string[] = [];
 
     for await (const relPath of glob.scan({ cwd: CONFIG.INPUTS_DIR })) {
       if (relPath.endsWith(".gitkeep")) continue;
@@ -86,8 +110,18 @@ export class OrchestratorEngine {
 
       if (imageExts.has(ext)) {
         assetList.push(relPath);
+      } else if (binaryExts.has(ext)) {
+        binaryAssetList.push(relPath);
       } else {
         try {
+          // Guard: skip unusually large text files (> 500 KB) to prevent context window explosion
+          const stat = statSync(fullPath);
+          if (stat.size > 500 * 1024) {
+            console.warn(`⚠️ Skipping oversized text file inputs/${relPath} (${(stat.size / 1024).toFixed(0)}KB > 500KB cap)`);
+            binaryAssetList.push(relPath);
+            continue;
+          }
+
           const content = await Bun.file(fullPath).text();
           // If spec.md is untouched with only template comments, skip it so it doesn't clutter the context
           if (relPath === "spec.md") {
@@ -112,7 +146,7 @@ export class OrchestratorEngine {
       }
     }
 
-    if (fileCount === 0 && assetList.length === 0) {
+    if (fileCount === 0 && assetList.length === 0 && binaryAssetList.length === 0) {
       console.error(
         "❌ No input specification files found in inputs/ directory. Please drop your project files or folder into inputs/."
       );
@@ -123,7 +157,13 @@ export class OrchestratorEngine {
       fullInputContext += `### Available Visual Assets & Mockups:\n${assetList.map((a) => `- \`inputs/${a}\``).join("\n")}\n\n`;
     }
 
-    console.log(`📂 Ingested ${fileCount} input document(s) and ${assetList.length} visual asset(s) from inputs/`);
+    if (binaryAssetList.length > 0) {
+      fullInputContext += `### Available Project Binary Assets & Fonts:\n${binaryAssetList.map((a) => `- \`inputs/${a}\``).join("\n")}\n\n`;
+    }
+
+    console.log(
+      `📂 Ingested ${fileCount} input document(s), ${assetList.length} visual asset(s), and ${binaryAssetList.length} binary/font asset(s) from inputs/`
+    );
 
     const systemPrompt = await Bun.file("orchestrator/prompts/system.md").text();
 
